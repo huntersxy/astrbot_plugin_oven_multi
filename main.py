@@ -2,9 +2,11 @@ import asyncio
 import re
 from collections import defaultdict
 
+from mcp import types as mcp_types
+
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, StarTools, register
-from astrbot.api import logger, AstrBotConfig
+from astrbot.api import llm_tool, logger, AstrBotConfig
 import astrbot.api.message_components as Comp
 
 from .learning_style.data_manager import DataManager as StyleDataManager
@@ -12,7 +14,6 @@ from .learning_style.learning_manager import LearningManager
 from .learning_style.scheduler import Scheduler as StyleScheduler
 from .learning_style.style_injector import StyleInjector
 from .mem0_client import Mem0Client
-from .enhance_mode import tag_utils
 
 PLUGIN_NAME = "astrbot_plugin_oven_multi"
 
@@ -99,7 +100,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.7.0")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.8.0")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -111,9 +112,6 @@ class OvenMultiPlugin(Star):
         self.matcher = BracketMatcher()
         self.repeater = Repeater()
         self.thinking = ThinkingManager()
-
-        # 增强模式 - 群聊历史
-        self.session_chats: dict[str, list[str]] = defaultdict(list)
 
         # 风格学习
         self.style_data_manager = None
@@ -208,17 +206,6 @@ class OvenMultiPlugin(Star):
             scope = mem0_cfg.get("memory_scope", "session")
             response += f"   └─ 作用域: {scope}\n"
 
-        eh = self.config.get("group_history_enhancement", {})
-        eh_enabled = isinstance(eh, dict) and eh.get("enable", False)
-        response += f"📋 群聊历史增强: {'✅ 启用' if eh_enabled else '❌ 禁用'}\n"
-        if eh_enabled:
-            react = eh.get("react_mode_enable", False)
-            mention = eh.get("mention_parse", True)
-            response += f"   └─ React 模式: {'✅' if react else '❌'}\n"
-            response += f"   └─ 标签解析: {'✅' if mention else '❌'}\n"
-            chat_count = len(self.session_chats.get(event.unified_msg_origin, []))
-            response += f"   └─ 缓存消息: {chat_count} 条\n"
-
         yield event.plain_result(response)
 
     def _is_enabled(self, event):
@@ -247,113 +234,7 @@ class OvenMultiPlugin(Star):
                 elif result[0] == "repeat":
                     yield event.chain_result(result[1])
 
-        # 增强模式 - 记录消息
-        eh_cfg = self.config.get("group_history_enhancement", {})
-        if isinstance(eh_cfg, dict) and eh_cfg.get("enable", False):
-            try:
-                self._record_message(event, eh_cfg)
-            except Exception as e:
-                logger.error(f"[烤箱-增强] 记录消息失败: {e}")
-
-    # ==================== 增强模式 - 消息历史记录 ====================
-
-    async def _record_message(self, event: AstrMessageEvent, cfg: dict):
-        import datetime
-        now = datetime.datetime.now().strftime("%H:%M:%S")
-        nickname = event.message_obj.sender.nickname
-        msg_id = event.message_obj.message_id
-        norm_id = str(msg_id or "").strip()
-        if norm_id.startswith("#msg"):
-            norm_id = norm_id[4:]
-        if norm_id.endswith(":"):
-            norm_id = norm_id[:-1]
-        norm_id = norm_id.strip()
-
-        include_sender_id = cfg.get("include_sender_id", True)
-        include_role_tag = cfg.get("include_role_tag", True)
-        sender_id = event.get_sender_id()
-
-        if include_sender_id and include_role_tag:
-            role_tag = "(admin)" if event.is_admin() else "(member)"
-            header = f"[{nickname}/{sender_id}/{now}]{role_tag} #msg{norm_id}:"
-        elif include_sender_id:
-            header = f"[{nickname}/{sender_id}/{now}] #msg{norm_id}:"
-        elif include_role_tag:
-            role_tag = "(admin)" if event.is_admin() else "(member)"
-            header = f"[{nickname}/{now}]{role_tag} #msg{norm_id}:"
-        else:
-            header = f"[{nickname}/{now}] #msg{norm_id}:"
-
-        parts = [header]
-        for comp in event.get_messages():
-            if isinstance(comp, Comp.Reply):
-                quote_nick = getattr(comp, "sender_nickname", None) or "Unknown"
-                quote_text = (getattr(comp, "message_str", None) or "").strip() or "..."
-                quote_id = str(getattr(comp, "id", "") or "").strip()
-                if quote_id.startswith("#msg"):
-                    quote_id = quote_id[4:]
-                if quote_id:
-                    parts.append(f" [Quote #msg{quote_id} {quote_nick}: {quote_text}]")
-                else:
-                    parts.append(f" [Quote {quote_nick}: {quote_text}]")
-            elif isinstance(comp, Comp.Plain):
-                parts.append(f" {comp.text}")
-            elif isinstance(comp, Comp.Image):
-                parts.append(" [Image]")
-            elif isinstance(comp, Comp.At):
-                parts.append(f" [At: {comp.name}]")
-
-        final = "".join(parts)
-        max_msgs = max(1, int(cfg.get("max_messages", 300)))
-        chats = self.session_chats[event.unified_msg_origin]
-        chats.append(final)
-        if len(chats) > max_msgs:
-            chats.pop(0)
-
-    # ==================== 增强模式 - 群聊上下文注入 ====================
-
-    @filter.on_llm_request(priority=15)
-    async def inject_group_context(self, event: AstrMessageEvent, req):
-        eh_cfg = self.config.get("group_history_enhancement", {})
-        if not isinstance(eh_cfg, dict) or not eh_cfg.get("enable", False):
-            return
-        react_mode = eh_cfg.get("react_mode_enable", False)
-        if event.unified_msg_origin not in self.session_chats:
-            return
-
-        bounded_chats = tag_utils.bounded_chat_history_text(
-            self.session_chats[event.unified_msg_origin]
-        )
-
-        include_sender_id = eh_cfg.get("include_sender_id", True)
-        mention_parse = eh_cfg.get("mention_parse", True)
-        instructions = tag_utils.build_interaction_instructions(mention_parse, include_sender_id)
-        instructions += (
-            "\nIf a history message contains `[Image]` and visual details are necessary, "
-            "you may call `enhance_use_image(message_id, image_index, attach_to_model, write_to_history, prompt)`. "
-            "By default it does both: attach image to this run context and write description back into chat history. "
-            "Set `attach_to_model=false` for history-only. "
-            "Set `write_to_history=false` for attach-only."
-        )
-
-        if react_mode and event.get_message_type() == filter.EventMessageType.GROUP_MESSAGE:
-            prompt = req.prompt or event.get_message_str() or ""
-            req.system_prompt += (
-                f"\n\nYou are now in a chatroom. The chat history is as follows:\n{bounded_chats}\n\n"
-                f"Now, a new message is coming: `{prompt}`. "
-                "Please react to it. Your entire output is your reply to this message. "
-                "Quote the message which is coming in most cases. "
-                "Only output your response and do not output any other information. "
-                "You MUST use the SAME language as the chatroom is using."
-            )
-            req.system_prompt += instructions
-            req.prompt = ""
-            req.contexts = []
-        else:
-            req.system_prompt += f"\n\n以下参考聊天记录：\n{bounded_chats}\n\n{instructions}"
-            req.prompt = req.prompt or event.get_message_str() or ""
-
-    # ==================== 增强模式 - 标签解析 ====================
+    # ==================== 移除空行 ====================
 
     @filter.on_decorating_result(priority=-100)
     async def remove_blank_lines(self, event: AstrMessageEvent):
@@ -365,41 +246,6 @@ class OvenMultiPlugin(Star):
             for comp in result.chain:
                 if isinstance(comp, Comp.Plain):
                     comp.text = collapse_blank_lines(comp.text, cfg.get("max_consecutive_newlines", 1))
-
-    @filter.on_decorating_result()
-    async def parse_enhance_tags(self, event: AstrMessageEvent):
-        eh_cfg = self.config.get("group_history_enhancement", {})
-        if not isinstance(eh_cfg, dict) or not eh_cfg.get("enable", False):
-            return
-        result = event.get_result()
-        if not result or not result.chain:
-            return
-        if tag_utils.chain_has_refuse_tag(result.chain):
-            logger.info("[烤箱-增强] 检测到 <refuse/>，已取消发送")
-            result.chain = []
-            return
-        if event.get_message_type() != filter.EventMessageType.GROUP_MESSAGE:
-            return
-        mention_parse = eh_cfg.get("mention_parse", True)
-        transformed = tag_utils.transform_result_chain(result.chain, mention_parse)
-        if transformed is not None:
-            result.chain = transformed
-
-    @filter.on_llm_response(priority=15)
-    async def on_llm_response_enhance(self, event: AstrMessageEvent, response):
-        eh_cfg = self.config.get("group_history_enhancement", {})
-        if not isinstance(eh_cfg, dict) or not eh_cfg.get("enable", False):
-            return
-        if event.get_message_type() != filter.EventMessageType.GROUP_MESSAGE:
-            return
-        text = (response.completion_text or "").strip()
-        if not text:
-            return
-        cleaned = tag_utils.clean_response_text_for_history(text)
-        now_h = __import__('datetime').datetime.now().strftime("%H:%M:%S")
-        bot_name = event.get_self_nickname() or "You"
-        line = f"[{bot_name}/{now_h}]: {cleaned}"
-        self.session_chats[event.unified_msg_origin].append(line)
 
     @filter.on_waiting_llm_request()
     async def on_waiting(self, event: AstrMessageEvent):
@@ -558,27 +404,46 @@ class OvenMultiPlugin(Star):
 
     # ==================== mem0 长期记忆 ====================
 
-    @filter.on_llm_request(priority=20)
-    async def on_llm_request_mem0(self, event: AstrMessageEvent, req):
+    @staticmethod
+    def _make_text_tool_result(text: str) -> mcp_types.CallToolResult:
+        return mcp_types.CallToolResult(
+            content=[mcp_types.TextContent(type="text", text=str(text or ""))]
+        )
+
+    @llm_tool(name="search_mem0_memory")
+    async def search_mem0_memory(
+        self,
+        event: AstrMessageEvent,
+        query: str,
+    ):
+        """Search long-term memory for relevant context about the user.
+
+        Use this tool when you need to recall past conversations or user information.
+        The memory contains important user facts, preferences, and past interactions.
+
+        Args:
+            query(string): Required. Search query to find relevant memories.
+        """
         if not self.mem0:
+            yield self._make_text_tool_result("Memory system is not initialized.")
             return
         mem0_cfg = self.config.get("mem0", {})
         if not isinstance(mem0_cfg, dict) or not mem0_cfg.get("enable", True):
-            return
-        prompt = (req.prompt or event.get_message_str() or "").strip()
-        if self.mem0.should_skip(event, prompt):
+            yield self._make_text_tool_result("Memory system is disabled.")
             return
         try:
-            memories = await self.mem0.search_memories(prompt, self.mem0.user_id(event))
+            memories = await self.mem0.search_memories(query, self.mem0.user_id(event))
         except Exception as exc:
             logger.warning(f"[烤箱-mem0] 检索失败: {exc}")
+            yield self._make_text_tool_result(f"Failed to search memory: {exc}")
             return
         if not memories:
+            yield self._make_text_tool_result("No relevant memories found.")
             return
-        mem0_text = Mem0Client.format_memory_context(memories)
-        req.prompt = (req.prompt or "") + mem0_text
-        event.set_extra("mem0_memory_prompt", prompt)
+        result = "Long-term memory from mem0:\n" + "\n".join(f"- {m}" for m in memories)
+        event.set_extra("mem0_memory_prompt", query)
         event.set_extra("mem0_memory_user_id", self.mem0.user_id(event))
+        yield self._make_text_tool_result(result)
 
     @filter.on_llm_response(priority=5)
     async def on_llm_response_mem0(self, event: AstrMessageEvent, response):
