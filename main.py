@@ -427,7 +427,7 @@ class OvenMultiPlugin(Star):
         if mem0_cfg.get("inject_as_system_prompt", True):
             req.system_prompt = (req.system_prompt or "") + Mem0Client.format_memory_context(memories)
         else:
-            req.prompt = f"{Mem0Client.format_memory_context(memories)}\n{req.prompt or prompt}"
+            req.prompt = f"{req.prompt or prompt}\n{Mem0Client.format_memory_context(memories)}"
         event.set_extra("mem0_memory_prompt", prompt)
         event.set_extra("mem0_memory_user_id", self.mem0.user_id(event))
 
