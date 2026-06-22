@@ -1,3 +1,4 @@
+import asyncio
 import re
 from collections import defaultdict
 
@@ -17,8 +18,23 @@ def collapse_blank_lines(text, max_newlines=1):
 
 PAIR_LIST = {
     "(": ")", ")": "(", "[": "]", "]": "[", "{": "}", "}": "{",
-    "<": ">", ">": "<", "「": "」", "」": "「", "（": "）", "）": "（",
-    "【": "】", "】": "【", "《": "》", "》": "《", "『": "』", "』": "『",
+    "<": ">", ">": "<",
+    "（": "）", "）": "（",
+    "［": "］", "］": "［",
+    "｛": "｝", "｝": "｛",
+    "〈": "〉", "〉": "〈",
+    "《": "》", "》": "《",
+    "【": "】", "】": "【",
+    "〖": "〗", "〗": "〖",
+    "〔": "〕", "〕": "〔",
+    "「": "」", "」": "「",
+    "『": "』", "』": "『",
+    "｢": "｣", "｣": "｢",
+    "“": "”", "”": "“",
+    "‘": "’", "’": "‘",
+    "‚": "‛", "‛": "‚",
+    "〘": "〙", "〙": "〘",
+    "〚": "〛", "〛": "〚",
 }
 
 
@@ -42,10 +58,13 @@ class Repeater:
     def check(self, session_id, message, config):
         if not config.get("enabled"):
             return None
+        if any(isinstance(m, Comp.Poke) for m in message):
+            return None
         msg_id = str([str(m) for m in message])
+        threshold = config.get("repeat_threshold", 2)
         if msg_id == self.last[session_id]:
             self.count[session_id] += 1
-            if self.count[session_id] == 1:
+            if self.count[session_id] >= threshold - 1:
                 if __import__('random').random() < config.get("break_spell_probability", 0.3):
                     return ("break", config.get("break_spell_text", "打断施法！"))
                 else:
@@ -92,6 +111,13 @@ class OvenMultiPlugin(Star):
     async def terminate(self):
         pass
 
+    async def _send_bracket_reply(self, event: AstrMessageEvent, brackets: str):
+        """异步发送括号补全，不阻塞事件流"""
+        try:
+            await event.send(event.plain_result(brackets))
+        except Exception as e:
+            logger.error(f"[插座烤箱] 发送括号补全失败: {e}")
+
     @filter.command("烤箱状态")
     async def oven_status(self, event: AstrMessageEvent):
         bm = self.config.get("bracket_matching", {})
@@ -127,7 +153,9 @@ class OvenMultiPlugin(Star):
         if isinstance(bm, dict) and bm.get("enabled"):
             brackets = self.matcher.check(content)
             if brackets:
-                yield event.plain_result(brackets)
+                # 异步发送补全的括号，不 yield 阻断事件流
+                # 机器人会回复 "）"，同时事件继续传递给 LLM
+                asyncio.create_task(self._send_bracket_reply(event, brackets))
 
         rep = self.config.get("repetition", {})
         if isinstance(rep, dict) and rep.get("enabled"):
