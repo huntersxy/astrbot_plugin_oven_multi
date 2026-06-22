@@ -15,7 +15,7 @@ class LearningManager:
         self.data_manager = data_manager
         self.config = config
 
-    async def analyze_and_learn(self, session_id: str):
+    async def analyze_and_learn(self, session_id: str, provider_id: str = ""):
         min_history = self.config.get("min_history_for_analysis", 10)
         chat_history = self.data_manager.get_chat_history(session_id, limit=100)
         if len(chat_history) < min_history:
@@ -24,7 +24,21 @@ class LearningManager:
         prompt = self._build_prompt(session_id, chat_history)
 
         try:
-            llm_response = await self.context.get_using_provider().text_chat(
+            if provider_id:
+                provider = self.context.get_provider_by_id(provider_id=provider_id)
+                if provider is None:
+                    logger.warning(
+                        f"[烤箱-风格学习] 指定的 Provider '{provider_id}' 不存在，"
+                        "回退到当前会话 Provider"
+                    )
+                    provider = self.context.get_using_provider()
+                logger.info(
+                    f"[烤箱-风格学习] 使用 Provider: {provider_id or '当前会话默认'}"
+                )
+            else:
+                provider = self.context.get_using_provider()
+
+            llm_response = await provider.text_chat(
                 prompt=prompt,
                 contexts=[],
                 system_prompt="你是一个群聊文化分析师，从聊天记录中提取这个群的说话风格、社交模式和内部梗。",

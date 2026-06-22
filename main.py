@@ -308,6 +308,7 @@ class OvenMultiPlugin(Star):
         cfg = self.config.get("style_learning", {})
         if not isinstance(cfg, dict) or not cfg.get("enabled", True):
             return
+
         session_id = event.unified_msg_origin
         user_message = event.get_message_str() or ""
 
@@ -381,7 +382,9 @@ class OvenMultiPlugin(Star):
         yield event.plain_result("正在分析聊天记录并学习风格特征，请稍候...")
 
         try:
-            await self.style_learning_manager.analyze_and_learn(session_id)
+            style_cfg = self.config.get("style_learning", {})
+            style_provider = (style_cfg.get("style_provider_id", "") or "").strip()
+            await self.style_learning_manager.analyze_and_learn(session_id, provider_id=style_provider)
 
             summary = self.style_injector.get_style_summary(session_id)
             response = "学习分析完成！\n"

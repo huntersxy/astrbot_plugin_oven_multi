@@ -43,13 +43,15 @@ class Scheduler:
 
     async def _run_analysis(self):
         analysis_interval = self.config.get("analysis_interval_seconds", 3600)
+        style_cfg = self.config.get("style_learning", {})
+        provider_id = (style_cfg.get("style_provider_id", "") or "").strip()
         while self.is_running:
             await asyncio.sleep(analysis_interval)
             logger.info("[烤箱-风格学习] 开始执行周期性聊天记录分析...")
             all_sessions = list(self.data_manager.chat_history.keys())
             for session_id in all_sessions:
                 try:
-                    await self.learning_manager.analyze_and_learn(session_id)
+                    await self.learning_manager.analyze_and_learn(session_id, provider_id=provider_id)
                     await asyncio.sleep(0)
                 except Exception as e:
                     logger.error(f"[烤箱-风格学习] 分析会话 {session_id} 时出错: {e}")

@@ -155,6 +155,13 @@
         "type": "bool",
         "default": true
       },
+      "style_provider_id": {
+        "type": "string",
+        "description": "风格注入目标 Provider ID",
+        "_special": "select_provider",
+        "default": "",
+        "hint": "选择风格分析使用的 LLM Provider。留空则使用当前会话默认 Provider。和参考插件用法一致。"
+      },
       "analysis_interval_seconds": {
         "description": "聊天记录分析频率（秒）",
         "hint": "每隔多少秒对积累的聊天记录进行一次学习分析。默认值为3600（1小时）。",
