@@ -92,6 +92,26 @@ class OvenMultiPlugin(Star):
     async def terminate(self):
         pass
 
+    @filter.command("烤箱状态")
+    async def oven_status(self, event: AstrMessageEvent):
+        bm = self.config.get("bracket_matching", {})
+        rep = self.config.get("repetition", {})
+        blank = self.config.get("remove_blank_lines", {})
+        thinking = self.config.get("iam_thinking", {})
+
+        response = "🍳 插座烤箱状态\n\n"
+        response += f"🔗 括号匹配: {'✅ 启用' if bm.get('enabled') else '❌ 禁用'}\n"
+        response += f"🔄 消息复读: {'✅ 启用' if rep.get('enabled') else '❌ 禁用'}\n"
+        if rep.get('enabled'):
+            response += f"   └─ 打断施法概率: {(rep.get('break_spell_probability', 0.3) * 100):.0f}%\n"
+            response += f"   └─ 打断文本: {rep.get('break_spell_text', '打断施法！')}\n"
+        response += f"📝 移除空行: {'✅ 启用' if blank.get('enabled') else '❌ 禁用'}\n"
+        if blank.get('enabled'):
+            response += f"   └─ 最大连续换行: {blank.get('max_consecutive_newlines', 1)} 行\n"
+        response += f"💭 思考表情: {'✅ 启用' if thinking.get('enabled') else '❌ 禁用'}\n"
+
+        yield event.plain_result(response)
+
     def _is_enabled(self, event):
         uid = event.message_obj.sender.user_id
         gid = event.message_obj.group_id
