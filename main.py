@@ -3,9 +3,14 @@ import re
 from collections import defaultdict
 
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star, StarTools, register
 from astrbot.api import logger, AstrBotConfig
 import astrbot.api.message_components as Comp
+
+from .learning_style.data_manager import DataManager as StyleDataManager
+from .learning_style.learning_manager import LearningManager
+from .learning_style.scheduler import Scheduler as StyleScheduler
+from .learning_style.style_injector import StyleInjector
 
 PLUGIN_NAME = "astrbot_plugin_oven_multi"
 
@@ -92,7 +97,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.4.1")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.5.0")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -105,11 +110,36 @@ class OvenMultiPlugin(Star):
         self.repeater = Repeater()
         self.thinking = ThinkingManager()
 
+        # 风格学习
+        self.style_data_manager = None
+        self.style_learning_manager = None
+        self.style_scheduler = None
+        self.style_injector = None
+        self._init_style_learning()
+
+    def _init_style_learning(self):
+        cfg = self.config.get("style_learning", {})
+        if isinstance(cfg, dict) and cfg.get("enabled", True):
+            try:
+                data_dir = StarTools.get_data_dir(PLUGIN_NAME)
+                self.style_data_manager = StyleDataManager(data_dir, self.config)
+                self.style_learning_manager = LearningManager(self, self.style_data_manager, self.config)
+                self.style_scheduler = StyleScheduler(self.style_data_manager, self.style_learning_manager, self.config)
+                self.style_injector = StyleInjector(self.style_data_manager, self.config)
+                logger.info("[烤箱-风格学习] 初始化完成")
+            except Exception as e:
+                logger.error(f"[烤箱-风格学习] 初始化失败: {e}")
+
     async def initialize(self):
+        if self.style_scheduler:
+            self.style_scheduler.start()
         logger.info(f"[插座烤箱] 启动")
 
     async def terminate(self):
-        pass
+        if self.style_scheduler:
+            await self.style_scheduler.stop()
+        if self.style_data_manager:
+            await self.style_data_manager.force_save()
 
     async def _send_bracket_reply(self, event: AstrMessageEvent, brackets: str):
         """异步发送括号补全，不阻塞事件流"""
@@ -124,6 +154,7 @@ class OvenMultiPlugin(Star):
         rep = self.config.get("repetition", {})
         blank = self.config.get("remove_blank_lines", {})
         thinking = self.config.get("iam_thinking", {})
+        style = self.config.get("style_learning", {})
 
         response = "🍳 插座烤箱状态\n\n"
         response += f"🔗 括号匹配: {'✅ 启用' if bm.get('enabled') else '❌ 禁用'}\n"
@@ -135,6 +166,15 @@ class OvenMultiPlugin(Star):
         if blank.get('enabled'):
             response += f"   └─ 最大连续换行: {blank.get('max_consecutive_newlines', 1)} 行\n"
         response += f"💭 思考表情: {'✅ 启用' if thinking.get('enabled') else '❌ 禁用'}\n"
+        style_enabled = style.get('enabled', True)
+        response += f"🎭 风格学习: {'✅ 启用' if style_enabled else '❌ 禁用'}\n"
+        if self.style_injector and style_enabled:
+            session_id = event.unified_msg_origin
+            summary = self.style_injector.get_style_summary(session_id)
+            if summary["has_styles"]:
+                response += f"   └─ 通用: {summary['universal_count']} 条\n"
+                response += f"   └─ 情境: {summary['contextual_count']} 条\n"
+                response += f"   └─ 特定: {summary['specific_count']} 条\n"
 
         yield event.plain_result(response)
 
@@ -204,3 +244,135 @@ class OvenMultiPlugin(Star):
             if cfg.get("remove_thinking_on_done"):
                 await self.thinking.emoji(event, msg_id, cfg.get("thinking_emoji_ids", []), False)
             event.set_extra("thinking_done", True)
+
+    # ==================== 风格学习 ====================
+
+    @filter.event_message_type(filter.EventMessageType.ALL)
+    async def on_all_message(self, event: AstrMessageEvent):
+        if not self._is_enabled(event):
+            return
+        if event.get_sender_id() == event.get_self_id():
+            return
+        if not self.style_data_manager:
+            return
+        cfg = self.config.get("style_learning", {})
+        if not isinstance(cfg, dict) or not cfg.get("enabled", True):
+            return
+
+        session_id = event.unified_msg_origin
+        message_content = event.get_message_str()
+        if not message_content:
+            return
+
+        message = {
+            "sender": event.get_sender_name(),
+            "content": message_content,
+            "timestamp": asyncio.get_running_loop().time(),
+        }
+        await self.style_data_manager.add_message_to_history(session_id, message)
+
+    @filter.on_llm_request()
+    async def on_llm_request(self, event: AstrMessageEvent, req):
+        if not self.style_injector:
+            return
+        cfg = self.config.get("style_learning", {})
+        if not isinstance(cfg, dict) or not cfg.get("enabled", True):
+            return
+        session_id = event.unified_msg_origin
+        user_message = event.get_message_str() or ""
+
+        if cfg.get("inject_as_system_prompt", True):
+            original_prompt = req.system_prompt or ""
+            new_prompt = self.style_injector.inject_style_to_prompt(
+                session_id, original_prompt, user_message=user_message
+            )
+            req.system_prompt = new_prompt
+        else:
+            style_text = self.style_injector.build_raw_style_text(session_id, user_message=user_message)
+            if style_text:
+                req.prompt = f"[风格参考：{style_text}]\n{req.prompt or user_message}"
+
+    @filter.command("风格状态")
+    async def style_status(self, event: AstrMessageEvent):
+        if not self.style_injector:
+            yield event.plain_result("风格学习功能未初始化。")
+            return
+        session_id = event.unified_msg_origin
+        summary = self.style_injector.get_style_summary(session_id)
+
+        if not summary["has_styles"]:
+            yield event.plain_result("当前会话还没有学习到任何风格特点。")
+            return
+
+        response = "当前会话风格状态：\n"
+        response += f"通用表征：{summary['universal_count']} 条\n"
+        response += f"情境表征：{summary['contextual_count']} 条\n"
+        response += f"特定表征：{summary['specific_count']} 条\n"
+
+        if summary["universal_preview"]:
+            response += f"通用 Top-3：{', '.join(summary['universal_preview'])}\n"
+        if summary["contextual_preview"]:
+            response += f"情境 Top-3：{', '.join(summary['contextual_preview'])}\n"
+        if summary["specific_preview"]:
+            response += f"特定 Top-3：{', '.join(summary['specific_preview'])}"
+
+        yield event.plain_result(response.strip())
+
+    @filter.command("清空风格")
+    async def clear_styles(self, event: AstrMessageEvent):
+        if not self.style_data_manager:
+            yield event.plain_result("风格学习功能未初始化。")
+            return
+        session_id = event.unified_msg_origin
+
+        if session_id in self.style_data_manager.universal:
+            self.style_data_manager.universal[session_id] = []
+            self.style_data_manager._dirty_universal = True
+        if session_id in self.style_data_manager.contextual:
+            self.style_data_manager.contextual[session_id] = []
+            self.style_data_manager._dirty_contextual = True
+        if session_id in self.style_data_manager.specific:
+            self.style_data_manager.specific[session_id] = []
+            self.style_data_manager._dirty_specific = True
+
+        asyncio.create_task(self.style_data_manager._schedule_save())
+        yield event.plain_result("已清空当前会话的所有学习风格。")
+
+    @filter.command("学习总结")
+    async def learn_now(self, event: AstrMessageEvent):
+        if not self.style_learning_manager or not self.style_injector:
+            yield event.plain_result("风格学习功能未初始化。")
+            return
+        session_id = event.unified_msg_origin
+
+        chat_history = self.style_data_manager.get_chat_history(session_id, limit=100)
+        min_history = self.config.get("min_history_for_analysis", 10)
+        if len(chat_history) < min_history:
+            yield event.plain_result(
+                f"当前会话聊天记录不足 {min_history} 条，无法进行分析。"
+            )
+            return
+
+        yield event.plain_result("正在分析聊天记录并学习风格特征，请稍候...")
+
+        try:
+            await self.style_learning_manager.analyze_and_learn(session_id)
+
+            summary = self.style_injector.get_style_summary(session_id)
+            response = "学习分析完成！\n"
+            response += f"通用表征：{summary['universal_count']} 条\n"
+            response += f"情境表征：{summary['contextual_count']} 条\n"
+            response += f"特定表征：{summary['specific_count']} 条"
+
+            if summary["universal_preview"]:
+                response += f"\n通用 Top-3：{', '.join(summary['universal_preview'])}"
+            if summary["contextual_preview"]:
+                response += f"\n情境 Top-3：{', '.join(summary['contextual_preview'])}"
+            if summary["specific_preview"]:
+                response += f"\n特定 Top-3：{', '.join(summary['specific_preview'])}"
+
+            yield event.plain_result(response)
+
+        except Exception as e:
+            logger.error(f"[烤箱-风格学习] 手动触发学习分析失败: {e}")
+            yield event.plain_result(f"学习分析失败：{e}")
