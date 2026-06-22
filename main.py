@@ -2,7 +2,7 @@ import asyncio
 import re
 from collections import defaultdict
 
-from astrbot.api.event import filter, AstrMessageEvent, MessageType
+from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, StarTools, register
 from astrbot.api import logger, AstrBotConfig
 import astrbot.api.message_components as Comp
@@ -333,7 +333,7 @@ class OvenMultiPlugin(Star):
         mention_parse = eh_cfg.get("mention_parse", True)
         instructions = tag_utils.build_interaction_instructions(mention_parse, include_sender_id)
 
-        if react_mode and event.get_message_type() == MessageType.GROUP_MESSAGE:
+        if react_mode and event.get_message_type() == filter.EventMessageType.GROUP_MESSAGE:
             prompt = req.prompt or event.get_message_str() or ""
             req.prompt = (
                 f"You are now in a chatroom. The chat history is as follows:\n{bounded_chats}\n\n"
@@ -377,7 +377,7 @@ class OvenMultiPlugin(Star):
             logger.info("[烤箱-增强] 检测到 <refuse/>，已取消发送")
             result.chain = []
             return
-        if event.get_message_type() != MessageType.GROUP_MESSAGE:
+        if event.get_message_type() != filter.EventMessageType.GROUP_MESSAGE:
             return
         mention_parse = eh_cfg.get("mention_parse", True)
         transformed = tag_utils.transform_result_chain(result.chain, mention_parse)
@@ -389,7 +389,7 @@ class OvenMultiPlugin(Star):
         eh_cfg = self.config.get("group_history_enhancement", {})
         if not isinstance(eh_cfg, dict) or not eh_cfg.get("enable", False):
             return
-        if event.get_message_type() != MessageType.GROUP_MESSAGE:
+        if event.get_message_type() != filter.EventMessageType.GROUP_MESSAGE:
             return
         text = (response.completion_text or "").strip()
         if not text:
