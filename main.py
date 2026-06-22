@@ -294,6 +294,10 @@ class OvenMultiPlugin(Star):
         if not message_content:
             return
 
+        # 跳过指令消息，防止指令被当作群聊风格学习
+        if message_content.startswith("/"):
+            return
+
         message = {
             "sender": event.get_sender_name(),
             "content": message_content,
