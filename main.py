@@ -290,7 +290,7 @@ class OvenMultiPlugin(Star):
         else:
             style_text = self.style_injector.build_raw_style_text(session_id, user_message=user_message)
             if style_text:
-                req.prompt = f"[风格参考：{style_text}]\n{req.prompt or user_message}"
+                req.prompt = f"{req.prompt or user_message}\n[风格参考：{style_text}]"
 
     @filter.command("风格状态")
     async def style_status(self, event: AstrMessageEvent):
