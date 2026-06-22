@@ -198,5 +198,85 @@
         "default": 50
       }
     }
+  },
+  "mem0": {
+    "description": "mem0 长期记忆功能",
+    "hint": "使用 mem0 托管服务实现长期记忆，自动保存对话并检索相关记忆注入到 LLM 回复中",
+    "type": "object",
+    "items": {
+      "enable": {
+        "description": "启用 mem0 长期记忆",
+        "hint": "开启后自动保存对话并检索相关记忆",
+        "type": "bool",
+        "default": true
+      },
+      "mem0_api_key": {
+        "description": "mem0 API Key",
+        "hint": "mem0 托管服务的 API Key。请勿公开或发给不可信的人。",
+        "type": "string",
+        "default": ""
+      },
+      "mem0_api_base": {
+        "description": "mem0 API 地址",
+        "hint": "mem0 服务的完整 API 地址",
+        "type": "string",
+        "default": ""
+      },
+      "memory_scope": {
+        "description": "记忆作用域",
+        "hint": "session 表示按平台会话分别存储记忆；sender 表示按发送者 ID 存储记忆。",
+        "type": "string",
+        "options": ["session", "sender"],
+        "default": "session"
+      },
+      "user_id_prefix": {
+        "description": "mem0 用户 ID 前缀",
+        "hint": "用于区分不同实例的记忆命名空间",
+        "type": "string",
+        "default": "astrbot"
+      },
+      "agent_id": {
+        "description": "Agent ID",
+        "hint": "用于标识不同的AI代理或实例，可选。",
+        "type": "string",
+        "default": ""
+      },
+      "search_limit": {
+        "description": "最多注入记忆数量",
+        "hint": "每次 LLM 请求最多检索多少条相关记忆",
+        "type": "int",
+        "default": 5
+      },
+      "search_threshold": {
+        "description": "检索相关性阈值",
+        "hint": "记忆检索的相关性阈值（越低越宽松）",
+        "type": "float",
+        "default": 0.1
+      },
+      "max_memory_chars": {
+        "description": "单条记忆最大字符数",
+        "hint": "超过此长度的记忆会被截断",
+        "type": "int",
+        "default": 240
+      },
+      "inject_as_system_prompt": {
+        "description": "注入到系统提示词",
+        "hint": "开启时记忆注入到 system prompt 末尾；关闭时记忆注入到用户消息前",
+        "type": "bool",
+        "default": true
+      },
+      "ignore_commands": {
+        "description": "忽略命令消息",
+        "hint": "开启时跳过以 / 开头的命令消息，不检索/保存记忆",
+        "type": "bool",
+        "default": true
+      },
+      "request_timeout": {
+        "description": "请求超时时间（秒）",
+        "hint": "mem0 API 请求超时时间",
+        "type": "float",
+        "default": 12
+      }
+    }
   }
 }

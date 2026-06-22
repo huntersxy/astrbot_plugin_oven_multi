@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.6.0 (2026-06-22)
+
+### New Features
+
+- **mem0 长期记忆**: 集成 mem0 托管服务，自动保存对话并检索相关记忆注入到 LLM 回复中
+  - `on_llm_request`（优先级 5，先于风格注入）检索并注入记忆到 system prompt 末尾
+  - `on_llm_response` 自动保存对话到 mem0
+  - 命令：`/mem0 status`、`/mem0 search <query>`
+  - 配置：`mem0` 配置块（11 项配置），默认启用
+- `烤箱状态` 显示 mem0 记忆状态和用户 ID
+
+### Refactoring
+
+- 调整事件优先级：mem0(5) → style(10)，确保注入顺序：记忆→风格
+
+---
+
 ## v1.5.0 (2026-06-22)
 
 ### New Features

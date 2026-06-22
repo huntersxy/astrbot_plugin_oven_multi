@@ -11,6 +11,7 @@ from .learning_style.data_manager import DataManager as StyleDataManager
 from .learning_style.learning_manager import LearningManager
 from .learning_style.scheduler import Scheduler as StyleScheduler
 from .learning_style.style_injector import StyleInjector
+from .mem0_client import Mem0Client
 
 PLUGIN_NAME = "astrbot_plugin_oven_multi"
 
@@ -97,7 +98,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.5.0")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.6.0")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -116,6 +117,19 @@ class OvenMultiPlugin(Star):
         self.style_scheduler = None
         self.style_injector = None
         self._init_style_learning()
+
+        # mem0 长期记忆
+        self.mem0 = None
+        self._init_mem0()
+
+    def _init_mem0(self):
+        cfg = self.config.get("mem0", {})
+        if isinstance(cfg, dict) and cfg.get("enable", True):
+            try:
+                self.mem0 = Mem0Client(self.config)
+                logger.info("[烤箱-mem0] 初始化完成")
+            except Exception as e:
+                logger.error(f"[烤箱-mem0] 初始化失败: {e}")
 
     def _init_style_learning(self):
         cfg = self.config.get("style_learning", {})
@@ -140,6 +154,8 @@ class OvenMultiPlugin(Star):
             await self.style_scheduler.stop()
         if self.style_data_manager:
             await self.style_data_manager.force_save()
+        if self.mem0:
+            await self.mem0.terminate()
 
     async def _send_bracket_reply(self, event: AstrMessageEvent, brackets: str):
         """异步发送括号补全，不阻塞事件流"""
@@ -155,6 +171,7 @@ class OvenMultiPlugin(Star):
         blank = self.config.get("remove_blank_lines", {})
         thinking = self.config.get("iam_thinking", {})
         style = self.config.get("style_learning", {})
+        mem0_cfg = self.config.get("mem0", {})
 
         response = "🍳 插座烤箱状态\n\n"
         response += f"🔗 括号匹配: {'✅ 启用' if bm.get('enabled') else '❌ 禁用'}\n"
@@ -175,6 +192,17 @@ class OvenMultiPlugin(Star):
                 response += f"   └─ 通用: {summary['universal_count']} 条\n"
                 response += f"   └─ 情境: {summary['contextual_count']} 条\n"
                 response += f"   └─ 特定: {summary['specific_count']} 条\n"
+
+        mem0_enabled = isinstance(mem0_cfg, dict) and mem0_cfg.get("enable", True)
+        response += f"🧠 mem0 记忆: {'✅ 启用' if mem0_enabled else '❌ 禁用'}\n"
+        if mem0_enabled and self.mem0:
+            try:
+                uid = self.mem0.user_id(event)
+                response += f"   └─ 用户 ID: {uid}\n"
+            except Exception:
+                pass
+            scope = mem0_cfg.get("memory_scope", "session")
+            response += f"   └─ 作用域: {scope}\n"
 
         yield event.plain_result(response)
 
@@ -271,8 +299,8 @@ class OvenMultiPlugin(Star):
         }
         await self.style_data_manager.add_message_to_history(session_id, message)
 
-    @filter.on_llm_request()
-    async def on_llm_request(self, event: AstrMessageEvent, req):
+    @filter.on_llm_request(priority=10)
+    async def on_llm_request_style(self, event: AstrMessageEvent, req):
         if not self.style_injector:
             return
         cfg = self.config.get("style_learning", {})
@@ -376,3 +404,97 @@ class OvenMultiPlugin(Star):
         except Exception as e:
             logger.error(f"[烤箱-风格学习] 手动触发学习分析失败: {e}")
             yield event.plain_result(f"学习分析失败：{e}")
+
+    # ==================== mem0 长期记忆 ====================
+
+    @filter.on_llm_request(priority=5)
+    async def on_llm_request_mem0(self, event: AstrMessageEvent, req):
+        if not self.mem0:
+            return
+        mem0_cfg = self.config.get("mem0", {})
+        if not isinstance(mem0_cfg, dict) or not mem0_cfg.get("enable", True):
+            return
+        prompt = (req.prompt or event.get_message_str() or "").strip()
+        if self.mem0.should_skip(event, prompt):
+            return
+        try:
+            memories = await self.mem0.search_memories(prompt, self.mem0.user_id(event))
+        except Exception as exc:
+            logger.warning(f"[烤箱-mem0] 检索失败: {exc}")
+            return
+        if not memories:
+            return
+        if mem0_cfg.get("inject_as_system_prompt", True):
+            req.system_prompt = (req.system_prompt or "") + Mem0Client.format_memory_context(memories)
+        else:
+            req.prompt = f"{Mem0Client.format_memory_context(memories)}\n{req.prompt or prompt}"
+        event.set_extra("mem0_memory_prompt", prompt)
+        event.set_extra("mem0_memory_user_id", self.mem0.user_id(event))
+
+    @filter.on_llm_response(priority=5)
+    async def on_llm_response_mem0(self, event: AstrMessageEvent, response):
+        if not self.mem0:
+            return
+        mem0_cfg = self.config.get("mem0", {})
+        if not isinstance(mem0_cfg, dict) or not mem0_cfg.get("enable", True):
+            return
+        user_text = event.get_extra("mem0_memory_prompt") or event.get_message_str() or ""
+        user_text = user_text.strip()
+        assistant_text = (response.completion_text or "").strip()
+        if not user_text or not assistant_text:
+            return
+        if response.role == "err":
+            return
+        if self.mem0.should_skip(event, user_text):
+            return
+        try:
+            uid = event.get_extra("mem0_memory_user_id") or self.mem0.user_id(event)
+            await self.mem0.add_memory(user_text=user_text, assistant_text=assistant_text, user_id=uid)
+        except Exception as exc:
+            logger.warning(f"[烤箱-mem0] 保存失败: {exc}")
+
+    @filter.command("mem0")
+    async def mem0_command(self, event: AstrMessageEvent):
+        if not self.mem0:
+            yield event.plain_result("mem0 长期记忆功能未初始化。")
+            return
+        parts = (event.get_message_str() or "").split(maxsplit=1)
+        subcommand = parts[1].strip() if len(parts) > 1 else "status"
+
+        if subcommand == "status":
+            mem0_cfg = self.config.get("mem0", {})
+            if not isinstance(mem0_cfg, dict):
+                mem0_cfg = {}
+            enabled = mem0_cfg.get("enable", True)
+            api_key = str(mem0_cfg.get("mem0_api_key", "") or "")
+            agent_id = str(mem0_cfg.get("agent_id", "") or "")
+            scope = mem0_cfg.get("memory_scope", "session")
+            uid = self.mem0.user_id(event)
+            yield event.plain_result(
+                f"🧠 Mem0 记忆\n"
+                f"状态: {'已启用' if enabled else '已禁用'}\n"
+                f"API Key: {'已设置' if api_key else '未设置'}\n"
+                f"Agent ID: {agent_id or '未设置'}\n"
+                f"作用域: {scope}\n"
+                f"用户 ID: {uid}"
+            )
+        elif subcommand == "search":
+            query = parts[2] if len(parts) > 2 else ""
+            if not query:
+                yield event.plain_result("用法: /mem0 search <查询内容>")
+                return
+            try:
+                memories = await self.mem0.search_memories(query, self.mem0.user_id(event))
+                if memories:
+                    text = "找到的记忆:\n" + "\n".join(f"- {m}" for m in memories)
+                else:
+                    text = "没有找到相关记忆。"
+                yield event.plain_result(text)
+            except Exception as exc:
+                yield event.plain_result(f"检索失败: {exc}")
+        else:
+            yield event.plain_result(
+                "用法:\n"
+                "/mem0 status - 查看 mem0 状态\n"
+                "/mem0 search <内容> - 搜索记忆"
+            )
