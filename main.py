@@ -247,19 +247,15 @@ class OvenMultiPlugin(Star):
                 elif result[0] == "repeat":
                     yield event.chain_result(result[1])
 
-    # ==================== 增强模式 - 群聊历史记录 ====================
-
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def on_group_message_record(self, event: AstrMessageEvent):
+        # 增强模式 - 记录消息
         eh_cfg = self.config.get("group_history_enhancement", {})
-        if not isinstance(eh_cfg, dict) or not eh_cfg.get("enable", False):
-            return
-        if not self._is_enabled(event):
-            return
-        try:
-            self._record_message(event, eh_cfg)
-        except Exception as e:
-            logger.error(f"[烤箱-增强] 记录消息失败: {e}")
+        if isinstance(eh_cfg, dict) and eh_cfg.get("enable", False):
+            try:
+                self._record_message(event, eh_cfg)
+            except Exception as e:
+                logger.error(f"[烤箱-增强] 记录消息失败: {e}")
+
+    # ==================== 增强模式 - 消息历史记录 ====================
 
     async def _record_message(self, event: AstrMessageEvent, cfg: dict):
         import datetime
@@ -332,6 +328,13 @@ class OvenMultiPlugin(Star):
         include_sender_id = eh_cfg.get("include_sender_id", True)
         mention_parse = eh_cfg.get("mention_parse", True)
         instructions = tag_utils.build_interaction_instructions(mention_parse, include_sender_id)
+        instructions += (
+            "\nIf a history message contains `[Image]` and visual details are necessary, "
+            "you may call `enhance_use_image(message_id, image_index, attach_to_model, write_to_history, prompt)`. "
+            "By default it does both: attach image to this run context and write description back into chat history. "
+            "Set `attach_to_model=false` for history-only. "
+            "Set `write_to_history=false` for attach-only."
+        )
 
         if react_mode and event.get_message_type() == filter.EventMessageType.GROUP_MESSAGE:
             prompt = req.prompt or event.get_message_str() or ""
@@ -343,9 +346,6 @@ class OvenMultiPlugin(Star):
                 "Only output your response and do not output any other information. "
                 "You MUST use the SAME language as the chatroom is using."
             )
-            include_sender_id = eh_cfg.get("include_sender_id", True)
-            mention_parse = eh_cfg.get("mention_parse", True)
-            instructions = tag_utils.build_interaction_instructions(mention_parse, include_sender_id)
             req.system_prompt += instructions
             req.contexts = []
         else:
