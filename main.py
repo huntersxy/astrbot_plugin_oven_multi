@@ -166,6 +166,16 @@ class OvenMultiPlugin(Star):
         except Exception as e:
             logger.error(f"[插座烤箱] 发送括号补全失败: {e}")
 
+    async def _send_repeat_reply(self, event: AstrMessageEvent, result):
+        """异步发送复读/打断消息，不阻塞事件流"""
+        try:
+            if result[0] == "break":
+                await event.send(event.plain_result(result[1]))
+            elif result[0] == "repeat":
+                await event.send(event.chain_result(result[1]))
+        except Exception as e:
+            logger.error(f"[插座烤箱] 发送复读消息失败: {e}")
+
     @filter.command("烤箱状态")
     async def oven_status(self, event: AstrMessageEvent):
         bm = self.config.get("bracket_matching", {})
@@ -229,10 +239,7 @@ class OvenMultiPlugin(Star):
         if isinstance(rep, dict) and rep.get("enabled"):
             result = self.repeater.check(event.unified_msg_origin, event.message_obj.message, rep)
             if result:
-                if result[0] == "break":
-                    yield event.plain_result(result[1])
-                elif result[0] == "repeat":
-                    yield event.chain_result(result[1])
+                asyncio.create_task(self._send_repeat_reply(event, result))
 
     # ==================== 移除空行 ====================
 
