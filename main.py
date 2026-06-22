@@ -338,8 +338,8 @@ class OvenMultiPlugin(Star):
 
         if react_mode and event.get_message_type() == filter.EventMessageType.GROUP_MESSAGE:
             prompt = req.prompt or event.get_message_str() or ""
-            req.prompt = (
-                f"You are now in a chatroom. The chat history is as follows:\n{bounded_chats}\n\n"
+            req.system_prompt += (
+                f"\n\nYou are now in a chatroom. The chat history is as follows:\n{bounded_chats}\n\n"
                 f"Now, a new message is coming: `{prompt}`. "
                 "Please react to it. Your entire output is your reply to this message. "
                 "Quote the message which is coming in most cases. "
@@ -347,10 +347,11 @@ class OvenMultiPlugin(Star):
                 "You MUST use the SAME language as the chatroom is using."
             )
             req.system_prompt += instructions
+            req.prompt = ""
             req.contexts = []
         else:
-            prompt = req.prompt or event.get_message_str() or ""
-            req.prompt = f"{bounded_chats}\n\n{prompt}"
+            req.system_prompt += f"\n\n以下参考聊天记录：\n{bounded_chats}\n\n{instructions}"
+            req.prompt = req.prompt or event.get_message_str() or ""
 
     # ==================== 增强模式 - 标签解析 ====================
 
