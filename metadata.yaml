@@ -1,0 +1,8 @@
+name: astrbot_plugin_oven_multi
+display_name: 插座的多功能烤箱
+desc: 整合多种实用功能的插件，目前包含括号自动匹配、消息复读、移除空行和思考表情功能，未来将融合更多插件
+version: v1.3.0
+author: 汐兮雨
+repo: https://github.com/user/astrbot_plugin_oven_multi
+support_platforms:
+  - aiocqhttp

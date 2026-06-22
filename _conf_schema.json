@@ -1,0 +1,141 @@
+{
+  "blacklist_groups": {
+    "description": "黑名单群组",
+    "hint": "不启用插件的群号码列表",
+    "type": "list",
+    "default": []
+  },
+  "blacklist_users": {
+    "description": "黑名单用户",
+    "hint": "不启用插件的 QQ 用户号码列表",
+    "type": "list",
+    "default": []
+  },
+  "bracket_matching": {
+    "description": "括号自动匹配功能",
+    "hint": "自动补全缺失的括号，让消息中的括号成对出现",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用括号自动匹配功能",
+        "hint": "开启后自动检测并补全消息中的括号",
+        "type": "bool",
+        "default": true
+      },
+      "check_group_messages": {
+        "description": "检查群组消息",
+        "hint": "是否检查群组消息中的括号匹配",
+        "type": "bool",
+        "default": true
+      },
+      "check_private_messages": {
+        "description": "检查私聊消息",
+        "hint": "是否检查私聊消息中的括号匹配",
+        "type": "bool",
+        "default": false
+      }
+    }
+  },
+  "repetition": {
+    "description": "消息复读功能",
+    "hint": "有概率复读相同的消息，增加趣味性",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用消息复读功能",
+        "hint": "开启后有概率复读相同的消息",
+        "type": "bool",
+        "default": true
+      },
+      "break_spell_probability": {
+        "description": "打断施法概率",
+        "hint": "复读时触发打断施法的概率 (0-1)",
+        "type": "float",
+        "slider": {
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "default": 0.3
+      },
+      "break_spell_text": {
+        "description": "打断施法文本",
+        "hint": "打断施法时显示的文本",
+        "type": "string",
+        "default": "打断施法！"
+      },
+      "repeat_threshold": {
+        "description": "复读触发阈值",
+        "hint": "相同消息出现多少次后触发复读",
+        "type": "int",
+        "slider": {
+          "min": 1,
+          "max": 10,
+          "step": 1
+        },
+        "default": 2
+      }
+    }
+  },
+  "remove_blank_lines": {
+    "description": "移除空行功能",
+    "hint": "自动清理机器人回复中的多余空行",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用移除空行功能",
+        "hint": "开启后自动清理机器人回复中的多余空行",
+        "type": "bool",
+        "default": true
+      },
+      "max_consecutive_newlines": {
+        "description": "最大连续换行数",
+        "hint": "保留的最大连续换行符数量",
+        "type": "int",
+        "slider": {
+          "min": 0,
+          "max": 10,
+          "step": 1
+        },
+        "default": 1
+      }
+    }
+  },
+  "iam_thinking": {
+    "description": "思考表情功能",
+    "hint": "在处理LLM请求时自动贴表情提示用户正在思考",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用思考表情功能",
+        "hint": "开启后在处理LLM请求时自动贴表情",
+        "type": "bool",
+        "default": true
+      },
+      "thinking_emoji_ids": {
+        "description": "思考中表情ID列表",
+        "hint": "等待LLM响应时贴的表情ID列表",
+        "type": "list",
+        "default": [66]
+      },
+      "done_emoji_ids": {
+        "description": "完成表情ID列表",
+        "hint": "LLM响应完成后贴的表情ID列表",
+        "type": "list",
+        "default": [74]
+      },
+      "remove_thinking_on_done": {
+        "description": "完成后移除思考中表情",
+        "hint": "LLM响应完成后是否移除思考中表情",
+        "type": "bool",
+        "default": true
+      },
+      "add_done_emoji": {
+        "description": "完成后添加完成表情",
+        "hint": "LLM响应完成后是否添加完成表情",
+        "type": "bool",
+        "default": true
+      }
+    }
+  }
+}
