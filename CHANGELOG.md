@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.8.2 (2026-06-23)
+
+### Bug Fixes
+
+- **修复主动回复**: 修正 `event.request_llm()` 调用方式，`yield` 直接传递 `ProviderRequest` 而非 `async for` 迭代
+
+### New Features
+
+- **主动回复**: 移植增强模式的主动回复功能，支持 probability（概率触发）和 model_choice（LLM 判定触发）两种模式
+
+---
+
 ## v1.8.1 (2026-06-22)
 
 ### Bug Fixes

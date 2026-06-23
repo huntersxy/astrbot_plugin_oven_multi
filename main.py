@@ -104,7 +104,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.8.1")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.8.2")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -404,12 +404,11 @@ class OvenMultiPlugin(Star):
             )
             if not conv:
                 return
-            async for result in event.request_llm(
+            yield event.request_llm(
                 prompt=event.get_message_str() or "",
                 session_id=event.session_id,
                 conversation=conv,
-            ):
-                yield result
+            )
 
     # ==================== 移除空行 ====================
 
