@@ -129,7 +129,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.8.6")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.8.7")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -341,11 +341,22 @@ class OvenMultiPlugin(Star):
         stack.clear()
         return await self._judge_model_choice(event, origin, messages)
 
+    def _has_text_content(self, event: AstrMessageEvent) -> bool:
+        """检查消息是否包含有效文本内容"""
+        msg = event.message_obj
+        if not msg or not getattr(msg, "message", None):
+            return False
+        for comp in msg.message:
+            if isinstance(comp, Comp.Plain):
+                if (comp.text or "").strip():
+                    return True
+        return False
+
     async def _should_active_reply(self, event: AstrMessageEvent) -> bool:
         """判断当前消息是否应该触发主动回复"""
         if not self._allow_active_reply(event):
             return False
-        if not (event.get_message_str() or "").strip():
+        if not self._has_text_content(event):
             return False
 
         ar = self.config.get("active_reply", {})
