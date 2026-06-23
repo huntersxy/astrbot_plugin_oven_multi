@@ -129,7 +129,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.8.5")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.8.6")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -344,6 +344,8 @@ class OvenMultiPlugin(Star):
     async def _should_active_reply(self, event: AstrMessageEvent) -> bool:
         """判断当前消息是否应该触发主动回复"""
         if not self._allow_active_reply(event):
+            return False
+        if not (event.get_message_str() or "").strip():
             return False
 
         ar = self.config.get("active_reply", {})
