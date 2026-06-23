@@ -276,7 +276,7 @@
   },
   "active_reply": {
     "description": "主动回复",
-    "hint": "在群聊中主动回复（无需被 @）。依赖用户创建了对话会话。",
+    "hint": "在群聊中主动回复（无需被 @）。无对话时自动创建。",
     "type": "object",
     "items": {
       "enable": {

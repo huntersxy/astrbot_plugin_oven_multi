@@ -104,7 +104,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.8.2")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.8.3")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -391,16 +391,18 @@ class OvenMultiPlugin(Star):
 
         # 主动回复
         if await self._should_active_reply(event):
-            session_curr_cid = (
+            conv_id = (
                 await self.context.conversation_manager.get_curr_conversation_id(
                     event.unified_msg_origin,
                 )
             )
-            if not session_curr_cid:
-                return
+            if not conv_id:
+                conv_id = await self.context.conversation_manager.new_conversation(
+                    event.unified_msg_origin,
+                )
             conv = await self.context.conversation_manager.get_conversation(
                 event.unified_msg_origin,
-                session_curr_cid,
+                conv_id,
             )
             if not conv:
                 return

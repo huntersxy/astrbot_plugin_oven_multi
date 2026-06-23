@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.8.3 (2026-06-23)
+
+### Bug Fixes
+
+- **主动回复自动创建对话**: 无对话历史时自动调用 `conversation_manager.new_conversation()` 创建新对话，不再因无对话而跳过
+
+---
+
 ## v1.8.2 (2026-06-23)
 
 ### Bug Fixes
