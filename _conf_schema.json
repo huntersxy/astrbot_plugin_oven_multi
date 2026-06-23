@@ -273,5 +273,61 @@
         "default": 12
       }
     }
+  },
+  "active_reply": {
+    "description": "主动回复",
+    "hint": "在群聊中主动回复（无需被 @）。依赖用户创建了对话会话。",
+    "type": "object",
+    "items": {
+      "enable": {
+        "description": "启用",
+        "hint": "启用主动回复。建议关闭 AstrBot 内置主动回复与内置引用回复。",
+        "type": "bool",
+        "default": false
+      },
+      "mode": {
+        "description": "触发模式",
+        "hint": "可选 probability（概率触发）或 model_choice（模型选择触发）。",
+        "type": "string",
+        "default": "probability"
+      },
+      "possibility": {
+        "description": "回复概率",
+        "hint": "当 mode=probability 时生效，范围建议 0.0 - 1.0。",
+        "type": "float",
+        "default": 0.1
+      },
+      "model_stack_size": {
+        "description": "模型触发栈长度",
+        "hint": "当 mode=model_choice 时生效，累计到该条数后触发一次模型判定。",
+        "type": "int",
+        "default": 8
+      },
+      "model_history_messages": {
+        "description": "模型判定历史条数",
+        "hint": "当 mode=model_choice 时生效，判定时附带的额外历史消息条数（0 表示不附带）。",
+        "type": "int",
+        "default": 0
+      },
+      "model_choice_provider_id": {
+        "description": "模型判定提供商 ID",
+        "hint": "当 mode=model_choice 时生效。用于判定是否主动回复的 LLM Provider。留空使用当前会话默认。",
+        "type": "string",
+        "_special": "select_provider",
+        "default": ""
+      },
+      "model_choice_prompt": {
+        "description": "模型判定提示词",
+        "hint": "可使用 {stack_size}、{messages}、{history_count}、{history_context} 占位符，模型需只输出 REPLY 或 SKIP。",
+        "type": "string",
+        "default": "你正在群聊中扮演助手。以下是最近 {stack_size} 条群聊消息：\n{messages}\n\n额外历史上下文（最近 {history_count} 条）：\n{history_context}\n\n请判断你是否应该主动回复。如果需要回复，只输出 REPLY；如果不需要，只输出 SKIP。"
+      },
+      "whitelist": {
+        "description": "白名单",
+        "hint": "英文逗号分隔的 unified_msg_origin 或群 ID。留空表示所有群可触发。",
+        "type": "string",
+        "default": ""
+      }
+    }
   }
 }

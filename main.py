@@ -1,5 +1,8 @@
 import asyncio
+import datetime
+import random
 import re
+import uuid
 from collections import defaultdict
 
 from mcp import types as mcp_types
@@ -7,6 +10,7 @@ from mcp import types as mcp_types
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, StarTools, register
 from astrbot.api import llm_tool, logger, AstrBotConfig
+from astrbot.api.provider import Provider
 import astrbot.api.message_components as Comp
 
 from .learning_style.data_manager import DataManager as StyleDataManager
@@ -124,6 +128,10 @@ class OvenMultiPlugin(Star):
         self.mem0 = None
         self._init_mem0()
 
+        # 主动回复
+        self.active_reply_stacks: dict[str, list[str]] = defaultdict(list)
+        self.model_choice_histories: dict[str, list[str]] = defaultdict(list)
+
     def _init_mem0(self):
         cfg = self.config.get("mem0", {})
         if isinstance(cfg, dict) and cfg.get("enable", True):
@@ -176,6 +184,138 @@ class OvenMultiPlugin(Star):
         except Exception as e:
             logger.error(f"[插座烤箱] 发送复读消息失败: {e}")
 
+    # ==================== 主动回复 ====================
+
+    def _allow_active_reply(self, event: AstrMessageEvent) -> bool:
+        """检查是否允许主动回复"""
+        ar = self.config.get("active_reply", {})
+        if not isinstance(ar, dict) or not ar.get("enable", False):
+            return False
+        if event.is_at_or_wake_command:
+            return False
+        whitelist = str(ar.get("whitelist", "") or "").strip()
+        if whitelist:
+            allowed = [x.strip() for x in whitelist.split(",") if x.strip()]
+            if allowed:
+                origin = event.unified_msg_origin
+                gid = str(event.get_group_id() or "")
+                if origin not in allowed and gid not in allowed:
+                    return False
+        return True
+
+    def _resolve_model_choice_provider(self, event: AstrMessageEvent) -> Provider | None:
+        """解析 model_choice 模式的判定用 Provider"""
+        ar = self.config.get("active_reply", {})
+        if not isinstance(ar, dict):
+            return None
+        provider_id = str(ar.get("model_choice_provider_id", "") or "").strip()
+        if provider_id:
+            provider = self.context.get_provider_by_id(provider_id)
+            if provider and isinstance(provider, Provider):
+                return provider
+        return self.context.get_using_provider(event.unified_msg_origin)
+
+    async def _judge_model_choice(
+        self, event: AstrMessageEvent, origin: str, messages: list[str]
+    ) -> bool:
+        """调用 LLM 判断是否应该主动回复"""
+        ar = self.config.get("active_reply", {})
+        if not isinstance(ar, dict):
+            return False
+
+        history = self.model_choice_histories[origin]
+        history_max = ar.get("model_history_messages", 0)
+        history_lines = history[-history_max:] if history_max > 0 else []
+        history_context = "\n".join(history_lines) if history_lines else "(无)"
+
+        provider = self._resolve_model_choice_provider(event)
+        if not provider:
+            return False
+
+        prompt_tmpl = ar.get(
+            "model_choice_prompt",
+            "你正在群聊中扮演助手。以下是最近 {stack_size} 条群聊消息：\n{messages}\n\n"
+            "额外历史上下文（最近 {history_count} 条）：\n{history_context}\n\n"
+            "请判断你是否应该主动回复。如果需要回复，只输出 REPLY；如果不需要，只输出 SKIP。",
+        )
+        try:
+            judge_prompt = prompt_tmpl.format(
+                stack_size=len(messages),
+                messages="\n".join(messages),
+                history_count=len(history_lines),
+                history_context=history_context,
+            )
+        except Exception:
+            judge_prompt = (
+                f"{prompt_tmpl}\n\n最近消息:\n{chr(10).join(messages)}\n\n"
+                f"额外历史上下文({len(history_lines)}):\n{history_context}\n\n"
+                "请仅输出 REPLY 或 SKIP。"
+            )
+
+        try:
+            judge_resp = await asyncio.wait_for(
+                provider.text_chat(
+                    prompt=judge_prompt,
+                    session_id=uuid.uuid4().hex,
+                    persist=False,
+                ),
+                timeout=30,
+            )
+        except Exception as e:
+            logger.warning(f"[烤箱-主动回复] 模型判定失败: {e}")
+            return False
+
+        decision = (judge_resp.completion_text or "").strip().upper()
+        return decision.startswith("REPLY")
+
+    async def _need_active_reply_model_choice(self, event: AstrMessageEvent) -> bool:
+        """model_choice 模式：累积消息栈，满后触发 LLM 判定"""
+        origin = event.unified_msg_origin
+        ar = self.config.get("active_reply", {})
+        if not isinstance(ar, dict):
+            return False
+
+        text = (event.get_message_str() or "").strip() or "[Empty]"
+        nickname = event.message_obj.sender.nickname
+        sender_id = event.get_sender_id()
+        stack = self.active_reply_stacks[origin]
+        history = self.model_choice_histories[origin]
+
+        stack.append(f"[{nickname}/{sender_id}]: {text}")
+        history.append(
+            f"[{nickname}/{sender_id}/{datetime.datetime.now().strftime('%H:%M:%S')}]: {text}"
+        )
+
+        history_limit = max(
+            60,
+            ar.get("model_stack_size", 8) * 6,
+            ar.get("model_history_messages", 0) * 6,
+        )
+        if len(history) > history_limit:
+            del history[:-history_limit]
+
+        if len(stack) < ar.get("model_stack_size", 8):
+            return False
+
+        messages = stack[-ar.get("model_stack_size", 8) :]
+        stack.clear()
+        return await self._judge_model_choice(event, origin, messages)
+
+    async def _should_active_reply(self, event: AstrMessageEvent) -> bool:
+        """判断当前消息是否应该触发主动回复"""
+        if not self._allow_active_reply(event):
+            return False
+
+        ar = self.config.get("active_reply", {})
+        if not isinstance(ar, dict):
+            return False
+
+        mode = str(ar.get("mode", "probability") or "probability").strip()
+        if mode == "model_choice":
+            return await self._need_active_reply_model_choice(event)
+
+        return random.random() < ar.get("possibility", 0.1)
+
     @filter.command("烤箱状态")
     async def oven_status(self, event: AstrMessageEvent):
         bm = self.config.get("bracket_matching", {})
@@ -216,6 +356,14 @@ class OvenMultiPlugin(Star):
             scope = mem0_cfg.get("memory_scope", "session")
             response += f"   └─ 作用域: {scope}\n"
 
+        ar = self.config.get("active_reply", {})
+        ar_enabled = isinstance(ar, dict) and ar.get("enable", False)
+        response += f"🎯 主动回复: {'✅ 启用' if ar_enabled else '❌ 禁用'}\n"
+        if ar_enabled:
+            response += f"   └─ 模式: {ar.get('mode', 'probability')}\n"
+            if ar.get("mode") == "probability":
+                response += f"   └─ 回复概率: {ar.get('possibility', 0.1):.0%}\n"
+
         yield event.plain_result(response)
 
     def _is_enabled(self, event):
@@ -240,6 +388,28 @@ class OvenMultiPlugin(Star):
             result = self.repeater.check(event.unified_msg_origin, event.message_obj.message, rep)
             if result:
                 asyncio.create_task(self._send_repeat_reply(event, result))
+
+        # 主动回复
+        if await self._should_active_reply(event):
+            session_curr_cid = (
+                await self.context.conversation_manager.get_curr_conversation_id(
+                    event.unified_msg_origin,
+                )
+            )
+            if not session_curr_cid:
+                return
+            conv = await self.context.conversation_manager.get_conversation(
+                event.unified_msg_origin,
+                session_curr_cid,
+            )
+            if not conv:
+                return
+            async for result in event.request_llm(
+                prompt=event.get_message_str() or "",
+                session_id=event.session_id,
+                conversation=conv,
+            ):
+                yield result
 
     # ==================== 移除空行 ====================
 
