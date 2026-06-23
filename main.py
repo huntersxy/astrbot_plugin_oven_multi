@@ -104,7 +104,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.8.3")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.8.4")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -266,7 +266,17 @@ class OvenMultiPlugin(Star):
             return False
 
         decision = (judge_resp.completion_text or "").strip().upper()
-        return decision.startswith("REPLY")
+        if decision.startswith("REPLY"):
+            logger.info(
+                f"[烤箱-主动回复] model_choice | 判定通过(REPLY) | "
+                f"origin={origin} stack_size={len(messages)}"
+            )
+            return True
+        logger.info(
+            f"[烤箱-主动回复] model_choice | 判定拒绝(SKIP) | "
+            f"origin={origin} stack_size={len(messages)} output={decision}"
+        )
+        return False
 
     async def _need_active_reply_model_choice(self, event: AstrMessageEvent) -> bool:
         """model_choice 模式：累积消息栈，满后触发 LLM 判定"""
@@ -295,6 +305,11 @@ class OvenMultiPlugin(Star):
             del history[:-history_limit]
 
         if len(stack) < ar.get("model_stack_size", 8):
+            logger.info(
+                f"[烤箱-主动回复] model_choice | 栈填充 | "
+                f"origin={origin} progress={len(stack)}/{ar.get('model_stack_size', 8)} "
+                f"sender={sender_id}"
+            )
             return False
 
         messages = stack[-ar.get("model_stack_size", 8) :]
@@ -314,7 +329,17 @@ class OvenMultiPlugin(Star):
         if mode == "model_choice":
             return await self._need_active_reply_model_choice(event)
 
-        return random.random() < ar.get("possibility", 0.1)
+        # probability 模式
+        possibility = ar.get("possibility", 0.1)
+        sample = random.random()
+        hit = sample < possibility
+        logger.info(
+            f"[烤箱-主动回复] probability | "
+            f"origin={event.unified_msg_origin} "
+            f"{'命中' if hit else '未命中'} "
+            f"(sample={sample:.4f} threshold={possibility:.4f})"
+        )
+        return hit
 
     @filter.command("烤箱状态")
     async def oven_status(self, event: AstrMessageEvent):
