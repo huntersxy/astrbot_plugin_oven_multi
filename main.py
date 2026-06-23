@@ -1,3 +1,28 @@
+# Copyright (C) 2026 汐兮雨
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# Modified from:
+#   - astrbot_plugin_pairit (AGPL-3.0) by GamerNoTitle — bracket matching
+#   - astrbot_plugin_astrbot_enhance_mode by 阿汐 — active reply, model_choice
+#   - astrbot_plugin_repetition by FengYing1314 — message repetition
+#   - astrbot_plugin_iamthinking (AGPL-3.0) by sssn-tech — thinking emoji reaction
+#   - astrbot_plugin_iearning_style (AGPL-3.0) by qa296 — style learning integration
+#   - astrbot_plugin_remove_blank_lines (MIT) by Codex — remove blank lines from LLM output
+#   - astrbot_plugin_mem0_memory by Codex — mem0 memory API client
+# Date: 2026-06-23
+
 import asyncio
 import datetime
 import random
@@ -104,7 +129,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.8.4")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.8.5")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
