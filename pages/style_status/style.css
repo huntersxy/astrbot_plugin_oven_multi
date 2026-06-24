@@ -117,39 +117,267 @@ button:hover { background: #4f46e5; }
 
 .session-card {
   background: #1a1a2e;
+  border: 1px solid transparent;
   border-radius: 8px;
   padding: 16px;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.session-card:hover {
+  border-color: #6366f1;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.2);
 }
 
 .session-header {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 12px;
+  align-items: center;
+  margin-bottom: 8px;
 }
 
 .session-name {
   font-weight: 600;
   color: #fff;
+  font-size: 1rem;
+}
+
+.click-hint {
+  font-size: 11px;
+  color: #6366f1;
+  opacity: 0.7;
+}
+
+.session-card:hover .click-hint {
+  opacity: 1;
 }
 
 .session-stats {
   font-size: 12px;
   color: #888;
+  margin-bottom: 10px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .session-stats span {
-  margin-left: 12px;
-}
-
-.stat-tag {
-  display: inline-block;
-  background: #333;
+  background: #16213e;
   padding: 2px 8px;
   border-radius: 4px;
-  margin: 2px;
+}
+
+/* 预览标签 */
+.session-previews {
+  border-top: 1px solid #2a2a4a;
+  padding-top: 10px;
+}
+
+.preview-section {
+  margin-bottom: 6px;
+}
+
+.preview-label {
+  font-size: 10px;
+  color: #666;
+  display: block;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.preview-tag {
+  display: inline-block;
+  background: #16213e;
+  color: #aaa;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin: 2px 4px 2px 0;
   font-size: 11px;
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.preview-empty {
+  font-size: 11px;
+  color: #555;
+}
+
+/* ==================== 详情弹窗 ==================== */
+
+.detail-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 999;
+}
+
+.detail-overlay.active {
+  display: block;
+}
+
+.detail-panel {
+  display: none;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 90%;
+  max-width: 720px;
+  max-height: 85vh;
+  background: #16213e;
+  border-radius: 12px;
+  z-index: 1000;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.detail-panel.active {
+  display: flex;
+}
+
+.detail-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #2a2a4a;
+  flex-shrink: 0;
+}
+
+.detail-panel-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+#detail-close {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: color 0.2s, background 0.2s;
+}
+
+#detail-close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.detail-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.detail-section {
+  margin-bottom: 20px;
+}
+
+.detail-section-title {
+  font-size: 1rem;
+  color: #fff;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-count {
+  font-size: 11px;
+  background: #6366f1;
+  color: #fff;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-weight: 400;
+}
+
+.detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-item {
+  background: #1a1a2e;
+  border-radius: 6px;
+  padding: 12px;
+  border-left: 3px solid #6366f1;
+}
+
+.detail-content {
+  font-size: 13px;
+  color: #e0e0e0;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.detail-meta {
+  font-size: 11px;
+  color: #666;
+  margin-top: 6px;
+}
+
+.detail-scene {
+  color: #10b981;
+  font-weight: 500;
+}
+
+.detail-behavior {
+  color: #f59e0b;
+  font-weight: 500;
+}
+
+.detail-empty {
+  font-size: 12px;
+  color: #555;
+  padding: 8px 0;
+}
+
+.detail-msg {
+  background: #1a1a2e;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.detail-msg-meta {
+  font-size: 10px;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.detail-msg-content {
+  font-size: 12px;
+  color: #ccc;
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 @media (max-width: 600px) {
   .card-grid { grid-template-columns: 1fr; }
+  .detail-panel {
+    width: 100%;
+    max-width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+    top: 0;
+    left: 0;
+    transform: none;
+  }
+  .session-stats {
+    gap: 6px;
+  }
+  .session-stats span {
+    font-size: 11px;
+  }
 }

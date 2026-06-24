@@ -133,7 +133,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.9.5")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.10.0")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -181,11 +181,47 @@ class OvenMultiPlugin(Star):
             ["GET"],
             "获取余额信息",
         )
+        self.context.register_web_api(
+            f"/{PLUGIN_NAME}/session_detail",
+            self._api_session_detail,
+            ["GET"],
+            "获取单个会话的完整风格学习数据",
+        )
 
     async def _api_balance(self):
         """获取余额查询结果"""
         results = await self.balance_checker.query_all()
         return jsonify({"success": True, "data": results})
+
+    async def _api_session_detail(self):
+        """获取单个会话的完整风格学习数据"""
+        from astrbot.api.web import request
+
+        session_id = request.query.get("session_id", "")
+        if not session_id:
+            return jsonify({"success": False, "error": "缺少 session_id 参数"})
+
+        if not self.style_data_manager:
+            return jsonify({"success": False, "error": "风格学习未初始化"})
+
+        universal = self.style_data_manager.get_universal_for_session(session_id)
+        contextual = self.style_data_manager.get_contextual_for_session(session_id)
+        specific = self.style_data_manager.get_specific_for_session(session_id)
+        history = self.style_data_manager.get_chat_history(session_id, limit=50)
+
+        return jsonify({
+            "success": True,
+            "data": {
+                "session_id": session_id,
+                "display_name": (
+                    session_id.split("_")[-1] if "_" in session_id else session_id
+                ),
+                "universal": universal,
+                "contextual": contextual,
+                "specific": specific,
+                "history": history,
+            },
+        })
 
     async def _api_style_status(self):
         """获取所有会话的风格学习数据"""
