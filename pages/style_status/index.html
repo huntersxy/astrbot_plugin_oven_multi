@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>烤箱 - 风格状态</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎛️ 烤箱 - 风格学习状态</h1>
+      <button id="refreshBtn" class="btn-primary">🔄 刷新</button>
+    </header>
+
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <p>加载中...</p>
+    </div>
+
+    <div id="error" class="error" style="display: none;">
+      <p>加载失败</p>
+      <button id="retryBtn" class="btn-secondary">重试</button>
+    </div>
+
+    <div id="empty" class="empty" style="display: none;">
+      <p>暂无风格学习数据</p>
+      <p class="hint">风格学习功能需要在群聊中启用并积累足够的消息</p>
+    </div>
+
+    <div id="sessions" class="sessions" style="display: none;"></div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

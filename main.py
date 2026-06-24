@@ -25,10 +25,13 @@
 
 import asyncio
 import datetime
+import json
 import random
 import re
 import uuid
 from collections import defaultdict
+
+from quart import jsonify
 
 from mcp import types as mcp_types
 
@@ -129,7 +132,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.8.7")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.8.8")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -156,6 +159,54 @@ class OvenMultiPlugin(Star):
         # 主动回复
         self.active_reply_stacks: dict[str, list[str]] = defaultdict(list)
         self.model_choice_histories: dict[str, list[str]] = defaultdict(list)
+
+        # 注册 Web API
+        self._register_web_api()
+
+    def _register_web_api(self):
+        """注册 Web API 用于插件页面"""
+        self.context.register_web_api(
+            f"/{PLUGIN_NAME}/style_status",
+            self._api_style_status,
+            ["GET"],
+            "获取风格学习状态",
+        )
+
+    async def _api_style_status(self):
+        """获取所有会话的风格学习数据"""
+        if not self.style_data_manager:
+            return jsonify({"success": True, "data": {}})
+
+        # 收集所有会话的数据
+        result = {}
+        for session_id in self.style_data_manager.universal:
+            universal = self.style_data_manager.get_universal_for_session(session_id)
+            contextual = self.style_data_manager.get_contextual_for_session(session_id)
+            specific = self.style_data_manager.get_specific_for_session(session_id)
+            history = self.style_data_manager.get_chat_history(session_id, limit=20)
+
+            # 计算统计信息
+            total_traits = len(universal) + len(contextual) + len(specific)
+            last_updated = max(
+                (t.get("last_updated", 0) for t in universal if t.get("last_updated")),
+                default=0,
+            )
+
+            result[session_id] = {
+                "session_id": session_id,
+                "display_name": session_id.split("_")[-1] if "_" in session_id else session_id,
+                "universal_count": len(universal),
+                "contextual_count": len(contextual),
+                "specific_count": len(specific),
+                "total_traits": total_traits,
+                "history_count": len(history),
+                "last_updated": last_updated,
+                "universal_preview": [u.get("content", "")[:50] for u in universal[:3]],
+                "contextual_preview": [f"{c.get('scene', '')} → {c.get('behavior', '')}"[:50] for c in contextual[:3]],
+                "specific_preview": [s.get("content", "")[:50] for s in specific[:3]],
+            }
+
+        return jsonify({"success": True, "data": result})
 
     def _init_mem0(self):
         cfg = self.config.get("mem0", {})
