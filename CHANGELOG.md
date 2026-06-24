@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.9.5 (2026-06-24)
+
+### Bug Fixes
+
+- **Dashboard Page**: 修复余额数据不显示的问题，内容容器默认显示
+
+---
+
 ## v1.9.4 (2026-06-24)
 
 ### Refactoring

@@ -21,15 +21,15 @@ async function loadBalance() {
   const content = document.getElementById("balance-content");
   const error = document.getElementById("balance-error");
   
-  loading.style.display = "block";
-  content.style.display = "none";
+  content.style.display = "block";
   error.style.display = "none";
   
   try {
     const result = await bridge.apiGet("balance");
-    if (result.success && result.data && result.data.length > 0) {
+    if (result && result.success && result.data && result.data.length > 0) {
       renderBalance(result.data);
-      content.style.display = "block";
+    } else {
+      error.style.display = "block";
     }
   } catch (err) {
     error.style.display = "block";
@@ -55,15 +55,13 @@ async function loadStyle() {
   const content = document.getElementById("style-content");
   const empty = document.getElementById("style-empty");
   
-  loading.style.display = "block";
-  content.style.display = "none";
+  content.style.display = "block";
   empty.style.display = "none";
   
   try {
     const result = await bridge.apiGet("style_status");
-    if (result.success && Object.keys(result.data || {}).length > 0) {
+    if (result && result.success && Object.keys(result.data || {}).length > 0) {
       renderStyle(result.data);
-      content.style.display = "block";
     } else {
       empty.style.display = "block";
     }
