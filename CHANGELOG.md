@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.16.0 (2026-06-24)
+
+### Refactoring
+
+- **统一风格学习为单一通用风格**: 移除情境（contextual）和特定（specific）风格层级，只学习总体语言风格。
+- **移除 Embedding 依赖**: 移除 Embedding Provider 相关代码（语义注入、缓存、维护合并），风格注入回退为按熟练度简单排序选取。
+- **移除 `/风格维护` 指令**: 不再需要手动触发维护任务，定时任务只保留周期性学习分析。
+- **默认分析间隔改为 6 小时**: `analysis_interval_seconds` 默认值从 3600 改为 21600。
+- **简化配置项**: 移除 `maintenance_interval_seconds`、`max_specific_per_session`、`specific_promotion_threshold`、`max_contextual_per_session`、`embedding_provider_id`、`embedding_threshold`、`max_contextual_inject`、`max_specific_inject`、`embedding_inject_enabled`、`max_contextual_per_session`。
+- **简化数据管理**: `DataManager` 仅保留 `universal` 和 `chat_history` 两类数据。
+- **简化页面**: Dashboard 仅展示通用风格和聊天记录。
+
+---
+
+## v1.15.0 (2026-06-24)
+
+### New Features
+
+- **Embedding 语义注入**: 新增配置项 `embedding_inject_enabled`（默认关闭）。开启后，注入 LLM 提示词时会根据当前用户消息的语义，从所有风格表征中选取最相关的几条，而非固定按熟练度/触发次数选取。需已配置 Embedding Provider。
+- 风格表征 embedding 自动缓存（按内容 MD5 哈希），仅首次或变更时计算，不影响后续回复速度。
+
+---
+
+## v1.14.0 (2026-06-24)
+
+### New Features
+
+- **注入数量上限**: 新增三个配置项 `max_universal_inject`（默认 5）、`max_contextual_inject`（默认 3）、`max_specific_inject`（默认 3），控制注入到 system prompt 的各类型风格数量，防止累积百条后提示词过长。
+- 通用风格按熟练度（proficiency）降序选取，情境只取非缓冲位数据，特定风格按触发次数（trigger_count）降序选取。
+
+---
+
 ## v1.13.0 (2026-06-24)
 
 ### New Features

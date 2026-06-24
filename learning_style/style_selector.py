@@ -15,8 +15,6 @@
 #
 # Modified from astrbot_plugin_iearning_style (AGPL-3.0) by qa296
 
-from typing import Any
-
 
 class StyleSelector:
     @staticmethod
@@ -24,16 +22,3 @@ class StyleSelector:
         if not contents:
             return ""
         return f"{label}：{'、'.join(contents)}"
-
-    @staticmethod
-    def build_contextual_text(contextuals: list[dict[str, Any]]) -> str:
-        if not contextuals:
-            return ""
-        parts = [
-            f"{t['scene']}\u2192{t['behavior']}"
-            for t in contextuals
-            if t.get("scene") and t.get("behavior")
-        ]
-        if not parts:
-            return ""
-        return f"情境提示：{'；'.join(parts)}"

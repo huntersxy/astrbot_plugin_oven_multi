@@ -87,8 +87,6 @@ function renderStyle(data) {
   container.innerHTML = entries.map(session => {
     const displayName = session.display_name || session.session_id;
     const universal = session.universal || [];
-    const contextual = session.contextual || [];
-    const specific = session.specific || [];
     const history = session.history || [];
     
     return `
@@ -98,8 +96,6 @@ function renderStyle(data) {
             <div class="session-name">${escapeHtml(displayName)}</div>
             <div class="session-stats">
               <span>通用 ${universal.length}</span>
-              <span>情境 ${contextual.length}</span>
-              <span>特定 ${specific.length}</span>
               <span>记录 ${history.length}</span>
             </div>
           </div>
@@ -110,16 +106,6 @@ function renderStyle(data) {
             <div class="detail-item">
               <p class="detail-content">${escapeHtml(item.content || "")}</p>
               <p class="detail-meta">熟练度: ${item.proficiency ?? "?"} | 确认轮次: ${item.confirmed_rounds ?? "?"}</p>
-            </div>`)}
-          ${renderSection("情境风格", contextual, item => `
-            <div class="detail-item">
-              <p class="detail-content"><span class="detail-scene">场景:</span> ${escapeHtml(item.scene || "")}</p>
-              <p class="detail-content"><span class="detail-behavior">回应:</span> ${escapeHtml(item.behavior || "")}</p>
-            </div>`)}
-          ${renderSection("特定风格", specific, item => `
-            <div class="detail-item">
-              <p class="detail-content">${escapeHtml(item.content || "")}</p>
-              <p class="detail-meta">触发: ${item.trigger_count ?? "?"} 次 | 正则: ${escapeHtml(item.trigger_regex || "无")}</p>
             </div>`)}
           ${renderSection("聊天记录", history, msg => `
             <div class="detail-msg">

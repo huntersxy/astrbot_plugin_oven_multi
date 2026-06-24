@@ -140,7 +140,7 @@
   },
   "style_learning": {
     "description": "风格学习功能",
-    "hint": "从聊天中学习群聊的说话风格和内部梗，并注入到LLM回复中",
+    "hint": "从聊天中学习群聊的说话风格，并注入到LLM回复中",
     "type": "object",
     "items": {
       "enabled": {
@@ -160,19 +160,13 @@
         "description": "风格注入目标 Provider ID",
         "_special": "select_provider",
         "default": "",
-        "hint": "选择风格分析使用的 LLM Provider。留空则使用当前会话默认 Provider。和参考插件用法一致。"
+        "hint": "选择风格分析使用的 LLM Provider。留空则使用当前会话默认 Provider。"
       },
       "analysis_interval_seconds": {
         "description": "聊天记录分析频率（秒）",
-        "hint": "每隔多少秒对积累的聊天记录进行一次学习分析。默认值为3600（1小时）。",
+        "hint": "每隔多少秒对积累的聊天记录进行一次学习分析。默认值为21600（6小时）。",
         "type": "int",
-        "default": 3600
-      },
-      "maintenance_interval_seconds": {
-        "description": "风格维护任务频率（秒）",
-        "hint": "每隔多少秒进行一次表征合并和容量清理。默认值为86400（24小时）。",
-        "type": "int",
-        "default": 86400
+        "default": 21600
       },
       "min_history_for_analysis": {
         "description": "触发分析的最少消息数",
@@ -180,40 +174,11 @@
         "type": "int",
         "default": 10
       },
-      "max_specific_per_session": {
-        "description": "每个会话的最大特定表征容量",
-        "hint": "每个会话最多可以存储多少条特定表征。默认值为200。",
+      "max_universal_inject": {
         "type": "int",
-        "default": 200
-      },
-      "specific_promotion_threshold": {
-        "description": "特定表征升格为通用的触发次数阈值",
-        "hint": "特定表征触发次数达到此值时将在下次分析时提示LLM考虑纳入通用表征。默认值为5。",
-        "type": "int",
+        "description": "注入提示词的最大通用风格数量",
+        "hint": "按熟练度降序，最多注入多少条通用风格到 system prompt。默认 5。设为 0 则不注入。",
         "default": 5
-      },
-      "max_contextual_per_session": {
-        "description": "每个会话的最大情境表征容量",
-        "hint": "每个会话最多可以存储多少条情境表征。默认值为50。",
-        "type": "int",
-        "default": 50
-      },
-      "embedding_provider_id": {
-        "type": "string",
-        "description": "Embedding 提供商 ID",
-        "default": "",
-        "hint": "选择用于风格维护的 Embedding Provider。留空则自动检测首个可用的 Embedding Provider。未配置或检测失败时使用 difflib（字符相似度）作为后备。"
-      },
-      "embedding_threshold": {
-        "type": "float",
-        "description": "Embedding 合并阈值（余弦相似度）",
-        "hint": "余弦相似度阈值，高于此值的情境表征会被合并到通用/特定。默认 0.75。仅在 embedding_provider_id 配置时生效。",
-        "default": 0.75,
-        "slider": {
-          "min": 0,
-          "max": 1,
-          "step": 0.05
-        }
       }
     }
   },

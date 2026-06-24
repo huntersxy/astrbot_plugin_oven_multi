@@ -133,7 +133,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.13.0")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.16.0")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -194,16 +194,12 @@ class OvenMultiPlugin(Star):
         result = {}
         for session_id in self.style_data_manager.universal:
             universal = self.style_data_manager.get_universal_for_session(session_id)
-            contextual = self.style_data_manager.get_contextual_for_session(session_id)
-            specific = self.style_data_manager.get_specific_for_session(session_id)
             history = self.style_data_manager.get_chat_history(session_id, limit=50)
 
             result[session_id] = {
                 "session_id": session_id,
                 "display_name": session_id.split("_")[-1] if "_" in session_id else session_id,
                 "universal": universal,
-                "contextual": contextual,
-                "specific": specific,
                 "history": history,
             }
 
@@ -228,42 +224,9 @@ class OvenMultiPlugin(Star):
                 self.style_scheduler = StyleScheduler(self.style_data_manager, self.style_learning_manager, self.config)
                 self.style_injector = StyleInjector(self.style_data_manager, self.config)
 
-                # 解析 Embedding Provider
-                self.style_scheduler.embedding_provider = (
-                    self._resolve_embedding_provider(cfg)
-                )
-                if self.style_scheduler.embedding_provider:
-                    logger.info(
-                        "[烤箱-风格学习] Embedding Provider 就绪"
-                    )
-                else:
-                    logger.info(
-                        "[烤箱-风格学习] 无 Embedding Provider，使用 difflib 后备"
-                    )
-
                 logger.info("[烤箱-风格学习] 初始化完成")
             except Exception as e:
                 logger.error(f"[烤箱-风格学习] 初始化失败: {e}")
-
-    def _resolve_embedding_provider(self, style_cfg: dict):
-        """解析 Embedding Provider，返回 EmbeddingProvider 实例或 None。"""
-        provider_id = str(style_cfg.get("embedding_provider_id") or "").strip()
-        try:
-            if provider_id:
-                from astrbot.core.provider.provider import EmbeddingProvider
-                provider = self.context.get_provider_by_id(provider_id)
-                if provider and isinstance(provider, EmbeddingProvider):
-                    return provider
-                logger.warning(
-                    f"[烤箱-风格学习] 配置的 embedding_provider_id '{provider_id}' "
-                    f"无效或类型不匹配，尝试自动检测..."
-                )
-            providers = self.context.get_all_embedding_providers()
-            if providers:
-                return providers[0]
-        except Exception as e:
-            logger.warning(f"[烤箱-风格学习] 解析 Embedding Provider 失败: {e}")
-        return None
 
     async def initialize(self):
         if self.style_scheduler:
@@ -491,8 +454,6 @@ class OvenMultiPlugin(Star):
             summary = self.style_injector.get_style_summary(session_id)
             if summary["has_styles"]:
                 response += f"   └─ 通用: {summary['universal_count']} 条\n"
-                response += f"   └─ 情境: {summary['contextual_count']} 条\n"
-                response += f"   └─ 特定: {summary['specific_count']} 条\n"
 
         mem0_enabled = isinstance(mem0_cfg, dict) and mem0_cfg.get("enable", True)
         response += f"🧠 mem0 记忆: {'✅ 启用' if mem0_enabled else '❌ 禁用'}\n"
@@ -662,16 +623,10 @@ class OvenMultiPlugin(Star):
             return
 
         response = "当前会话风格状态：\n"
-        response += f"通用表征：{summary['universal_count']} 条\n"
-        response += f"情境表征：{summary['contextual_count']} 条\n"
-        response += f"特定表征：{summary['specific_count']} 条\n"
+        response += f"通用风格：{summary['universal_count']} 条\n"
 
         if summary["universal_preview"]:
-            response += f"通用 Top-3：{', '.join(summary['universal_preview'])}\n"
-        if summary["contextual_preview"]:
-            response += f"情境 Top-3：{', '.join(summary['contextual_preview'])}\n"
-        if summary["specific_preview"]:
-            response += f"特定 Top-3：{', '.join(summary['specific_preview'])}"
+            response += f"Top-{min(3, summary['universal_count'])}：{', '.join(summary['universal_preview'])}"
 
         yield event.plain_result(response.strip())
 
@@ -685,12 +640,6 @@ class OvenMultiPlugin(Star):
         if session_id in self.style_data_manager.universal:
             self.style_data_manager.universal[session_id] = []
             self.style_data_manager._dirty_universal = True
-        if session_id in self.style_data_manager.contextual:
-            self.style_data_manager.contextual[session_id] = []
-            self.style_data_manager._dirty_contextual = True
-        if session_id in self.style_data_manager.specific:
-            self.style_data_manager.specific[session_id] = []
-            self.style_data_manager._dirty_specific = True
 
         asyncio.create_task(self.style_data_manager._schedule_save())
         yield event.plain_result("已清空当前会话的所有学习风格。")
@@ -719,16 +668,10 @@ class OvenMultiPlugin(Star):
 
             summary = self.style_injector.get_style_summary(session_id)
             response = "学习分析完成！\n"
-            response += f"通用表征：{summary['universal_count']} 条\n"
-            response += f"情境表征：{summary['contextual_count']} 条\n"
-            response += f"特定表征：{summary['specific_count']} 条"
+            response += f"通用风格：{summary['universal_count']} 条"
 
             if summary["universal_preview"]:
-                response += f"\n通用 Top-3：{', '.join(summary['universal_preview'])}"
-            if summary["contextual_preview"]:
-                response += f"\n情境 Top-3：{', '.join(summary['contextual_preview'])}"
-            if summary["specific_preview"]:
-                response += f"\n特定 Top-3：{', '.join(summary['specific_preview'])}"
+                response += f"\nTop-{min(3, summary['universal_count'])}：{', '.join(summary['universal_preview'])}"
 
             yield event.plain_result(response)
 
@@ -847,17 +790,3 @@ class OvenMultiPlugin(Star):
                 "/mem0 search <内容> - 搜索记忆"
             )
 
-    @filter.command("风格维护")
-    async def style_maintenance(self, event: AstrMessageEvent):
-        """手动触发风格维护任务（表征合并 + 容量清理）"""
-        if not self.style_scheduler:
-            yield event.plain_result("风格学习功能未初始化。")
-            return
-
-        yield event.plain_result("🔍 正在执行风格维护，请稍候...")
-        try:
-            logs = await self.style_scheduler.perform_maintenance(verbose=True)
-            yield event.plain_result("\n".join(logs))
-        except Exception as e:
-            logger.error(f"[烤箱-风格学习] 手动执行风格维护失败: {e}")
-            yield event.plain_result(f"❌ 风格维护失败: {e}")
