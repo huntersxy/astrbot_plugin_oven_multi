@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.17.0 (2026-06-24)
+
+### Refactoring
+
+- **移除 mem0 长期记忆**: 删除 `mem0_client.py` 和相关所有代码（`/mem0` 命令、`on_llm_response_mem0`、`search_mem0_memory` 工具），从配置文件移除 `mem0` 配置块。
+- **重写 README**: 精简内容结构，移除 mem0 相关文档，增加致谢列表。
+
+---
+
 ## v1.16.0 (2026-06-24)
 
 ### Refactoring
