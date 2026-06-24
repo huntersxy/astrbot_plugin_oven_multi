@@ -2,32 +2,70 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <title>烤箱 - 风格状态</title>
+  <title>烤箱 - 多功能插件</title>
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>🎛️ 烤箱 - 风格学习状态</h1>
+      <h1>🎛️ 插座的多功能烤箱</h1>
       <button id="refreshBtn" class="btn-primary">🔄 刷新</button>
     </header>
 
-    <div id="loading" class="loading">
-      <div class="spinner"></div>
-      <p>加载中...</p>
-    </div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="style">风格学习</button>
+      <button class="tab" data-tab="active">主动回复</button>
+      <button class="tab" data-tab="mem0">mem0 记忆</button>
+    </nav>
 
-    <div id="error" class="error" style="display: none;">
-      <p>加载失败</p>
-      <button id="retryBtn" class="btn-secondary">重试</button>
-    </div>
+    <!-- 风格学习 -->
+    <section id="tab-style" class="tab-content active">
+      <div id="style-loading" class="loading">
+        <div class="spinner"></div>
+        <p>加载中...</p>
+      </div>
+      <div id="style-error" class="error" style="display: none;">
+        <p>加载失败</p>
+        <button class="btn-secondary retry-btn">重试</button>
+      </div>
+      <div id="style-empty" class="empty" style="display: none;">
+        <p>暂无风格学习数据</p>
+        <p class="hint">风格学习功能需要在群聊中启用并积累足够的消息</p>
+      </div>
+      <div id="style-sessions" class="sessions" style="display: none;"></div>
+    </section>
 
-    <div id="empty" class="empty" style="display: none;">
-      <p>暂无风格学习数据</p>
-      <p class="hint">风格学习功能需要在群聊中启用并积累足够的消息</p>
-    </div>
+    <!-- 主动回复 -->
+    <section id="tab-active" class="tab-content">
+      <div id="active-loading" class="loading">
+        <div class="spinner"></div>
+        <p>加载中...</p>
+      </div>
+      <div id="active-error" class="error" style="display: none;">
+        <p>加载失败</p>
+        <button class="btn-secondary retry-btn">重试</button>
+      </div>
+      <div id="active-content" class="feature-content">
+        <p class="feature-desc">主动回复功能无需 @ 即可在群聊中回复消息</p>
+        <div id="active-stats" class="stats-grid"></div>
+      </div>
+    </section>
 
-    <div id="sessions" class="sessions" style="display: none;"></div>
+    <!-- mem0 记忆 -->
+    <section id="tab-mem0" class="tab-content">
+      <div id="mem0-loading" class="loading">
+        <div class="spinner"></div>
+        <p>加载中...</p>
+      </div>
+      <div id="mem0-error" class="error" style="display: none;">
+        <p>加载失败</p>
+        <button class="btn-secondary retry-btn">重试</button>
+      </div>
+      <div id="mem0-content" class="feature-content">
+        <p class="feature-desc">mem0 长期记忆通过工具调用方式检索</p>
+        <div id="mem0-stats" class="stats-grid"></div>
+      </div>
+    </section>
   </div>
 
   <script type="module" src="./app.js"></script>

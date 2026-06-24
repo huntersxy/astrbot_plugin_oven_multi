@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.8.9 (2026-06-23)
+
+### Refactoring
+
+- **Dashboard Page**: 重构页面结构，添加标签页支持，为未来功能预留扩展空间
+
+---
+
 ## v1.8.8 (2026-06-23)
 
 ### New Features

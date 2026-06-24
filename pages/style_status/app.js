@@ -1,33 +1,77 @@
 const bridge = window.AstrBotPluginPage;
 let context = null;
 
+// 当前活动标签
+let currentTab = "style";
+
 async function init() {
   try {
     context = await bridge.ready();
-    await loadStyleStatus();
+    initTabs();
+    loadAllData();
   } catch (err) {
-    showError();
     console.error("初始化失败:", err);
   }
 }
 
+// 初始化标签页切换
+function initTabs() {
+  const tabs = document.querySelectorAll(".tab");
+  tabs.forEach(tab => {
+    tab.addEventListener("click", () => {
+      const tabName = tab.dataset.tab;
+      switchTab(tabName);
+    });
+  });
+  
+  // 刷新按钮
+  document.getElementById("refreshBtn").addEventListener("click", loadAllData);
+  
+  // 重试按钮
+  document.querySelectorAll(".retry-btn").forEach(btn => {
+    btn.addEventListener("click", loadAllData);
+  });
+}
+
+// 切换标签页
+function switchTab(tabName) {
+  currentTab = tabName;
+  
+  // 更新标签样式
+  document.querySelectorAll(".tab").forEach(tab => {
+    tab.classList.toggle("active", tab.dataset.tab === tabName);
+  });
+  
+  // 更新内容显示
+  document.querySelectorAll(".tab-content").forEach(content => {
+    content.classList.toggle("active", content.id === `tab-${tabName}`);
+  });
+}
+
+// 加载所有数据
+async function loadAllData() {
+  await loadStyleStatus();
+}
+
+// ==================== 风格学习 ====================
+
 async function loadStyleStatus() {
-  showLoading();
+  showLoading("style");
   try {
     const result = await bridge.apiGet("style_status");
     if (result.success && Object.keys(result.data || {}).length > 0) {
       renderSessions(result.data);
     } else {
-      showEmpty();
+      showEmpty("style");
     }
   } catch (err) {
-    showError();
+    showError("style");
     console.error("加载失败:", err);
   }
 }
 
 function renderSessions(data) {
-  const container = document.getElementById("sessions");
+  const container = document.getElementById("style-sessions");
   const entries = Object.values(data);
 
   container.innerHTML = entries.map(session => {
@@ -50,7 +94,7 @@ function renderSessions(data) {
     return `
       <div class="session-card">
         <div class="session-header">
-          <div>
+          <div class="session-info">
             <div class="session-name">群组: ${escapeHtml(session.display_name)}</div>
             <div class="session-id">${escapeHtml(session.session_id)}</div>
           </div>
@@ -95,31 +139,42 @@ function renderSessions(data) {
     `;
   }).join("");
 
-  document.getElementById("loading").style.display = "none";
-  document.getElementById("error").style.display = "none";
-  document.getElementById("empty").style.display = "none";
+  hideAll("style");
   container.style.display = "grid";
 }
 
-function showLoading() {
-  document.getElementById("loading").style.display = "block";
-  document.getElementById("error").style.display = "none";
-  document.getElementById("empty").style.display = "none";
-  document.getElementById("sessions").style.display = "none";
+// ==================== 状态切换 ====================
+
+function showLoading(tab) {
+  document.getElementById(`${tab}-loading`).style.display = "block";
+  document.getElementById(`${tab}-error`).style.display = "none";
+  if (document.getElementById(`${tab}-empty`)) {
+    document.getElementById(`${tab}-empty`).style.display = "none";
+  }
 }
 
-function showError() {
-  document.getElementById("loading").style.display = "none";
-  document.getElementById("error").style.display = "block";
-  document.getElementById("empty").style.display = "none";
-  document.getElementById("sessions").style.display = "none";
+function showError(tab) {
+  document.getElementById(`${tab}-loading`).style.display = "none";
+  document.getElementById(`${tab}-error`).style.display = "block";
+  if (document.getElementById(`${tab}-empty`)) {
+    document.getElementById(`${tab}-empty`).style.display = "none";
+  }
 }
 
-function showEmpty() {
-  document.getElementById("loading").style.display = "none";
-  document.getElementById("error").style.display = "none";
-  document.getElementById("empty").style.display = "block";
-  document.getElementById("sessions").style.display = "none";
+function showEmpty(tab) {
+  document.getElementById(`${tab}-loading`).style.display = "none";
+  document.getElementById(`${tab}-error`).style.display = "none";
+  if (document.getElementById(`${tab}-empty`)) {
+    document.getElementById(`${tab}-empty`).style.display = "block";
+  }
+}
+
+function hideAll(tab) {
+  document.getElementById(`${tab}-loading`).style.display = "none";
+  document.getElementById(`${tab}-error`).style.display = "none";
+  if (document.getElementById(`${tab}-empty`)) {
+    document.getElementById(`${tab}-empty`).style.display = "none";
+  }
 }
 
 function escapeHtml(text) {
@@ -127,10 +182,6 @@ function escapeHtml(text) {
   div.textContent = text;
   return div.innerHTML;
 }
-
-// 绑定按钮事件
-document.getElementById("refreshBtn").addEventListener("click", loadStyleStatus);
-document.getElementById("retryBtn")?.addEventListener("click", loadStyleStatus);
 
 // 启动
 init();

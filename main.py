@@ -132,7 +132,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.8.8")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.8.9")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
