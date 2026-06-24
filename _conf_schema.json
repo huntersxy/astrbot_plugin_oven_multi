@@ -347,8 +347,8 @@
         "editor_mode": true,
         "editor_language": "yaml",
         "editor_theme": "vs-dark",
-        "hint": "用于配置如何解析余额，格式见说明",
-        "default": "services:\n  Deepseek:\n    url: \"https://api.deepseek.com/user/balance\"\n    headers:\n      Accept: \"application/json\"\n      Authorization: \"Bearer your_api_key\"\n    result_template: \"Deepseek: {{balance_infos.0.total_balance}} 元\""
+        "hint": "用于配置如何解析余额。内置类型只需 type + api_key；自定义需 url + headers + result_template（{{...}} 格式）",
+        "default": "# 内置类型示例（只需 type 和 api_key）\nservices:\n  deepseek:\n    type: deepseek\n    api_key: \"your_api_key\"\n  siliconflow:\n    type: siliconflow\n    api_key: \"your_api_key\"\n\n# 自定义示例（需要完整配置）\n#  custom_service:\n#    url: \"https://api.example.com/balance\"\n#    headers:\n#      Authorization: \"Bearer your_api_key\"\n#    result_template: \"余额: {{data.balance}} 元\""
       },
       "config_mode": {
         "description": "配置模式",

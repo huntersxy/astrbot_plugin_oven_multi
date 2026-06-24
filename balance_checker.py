@@ -172,11 +172,15 @@ class BalanceChecker:
                 url = info.get("url")
                 method = info.get("method", "GET").upper()
                 headers = info.get("headers", {})
-                result_template = info.get("result_template", "{data}")
+                result_template = info.get("result_template", "")
 
                 if not url:
                     label = display_name or name
                     return {"name": label, "value": "缺失 URL", "success": False}
+                
+                if not result_template:
+                    label = display_name or name
+                    return {"name": label, "value": "缺失 result_template（需要 {{...}} 格式）", "success": False}
 
             elif parser_type in _BUILTIN_PARSERS:
                 preset = dict(_BUILTIN_PARSERS[parser_type])
