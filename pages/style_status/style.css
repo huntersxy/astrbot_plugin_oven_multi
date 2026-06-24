@@ -108,56 +108,63 @@ button:hover { background: #4f46e5; }
 
 .balance-card.error .balance-value { color: #f87171; }
 
-/* 风格学习会话列表 */
+/* ==================== 风格学习 - 折叠卡片 ==================== */
+
 .session-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .session-card {
   background: #1a1a2e;
-  border: 1px solid transparent;
+  border: 1px solid #2a2a4a;
   border-radius: 8px;
-  padding: 16px;
-  cursor: pointer;
+  overflow: hidden;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.session-card:hover {
+.session-card:hover,
+.session-card.expanded {
   border-color: #6366f1;
-  box-shadow: 0 0 12px rgba(99, 102, 241, 0.2);
 }
 
-.session-header {
+.session-card.expanded {
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.15);
+}
+
+/* 可点击的头部区域 */
+.session-card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  padding: 14px 16px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.session-card-header:hover {
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.session-header-left {
+  flex: 1;
+  min-width: 0;
 }
 
 .session-name {
   font-weight: 600;
   color: #fff;
   font-size: 1rem;
-}
-
-.click-hint {
-  font-size: 11px;
-  color: #6366f1;
-  opacity: 0.7;
-}
-
-.session-card:hover .click-hint {
-  opacity: 1;
+  margin-bottom: 4px;
 }
 
 .session-stats {
-  font-size: 12px;
+  font-size: 11px;
   color: #888;
-  margin-bottom: 10px;
   display: flex;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -167,127 +174,34 @@ button:hover { background: #4f46e5; }
   border-radius: 4px;
 }
 
-/* 预览标签 */
-.session-previews {
-  border-top: 1px solid #2a2a4a;
-  padding-top: 10px;
-}
-
-.preview-section {
-  margin-bottom: 6px;
-}
-
-.preview-label {
-  font-size: 10px;
-  color: #666;
-  display: block;
-  margin-bottom: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.preview-tag {
-  display: inline-block;
-  background: #16213e;
-  color: #aaa;
-  padding: 2px 8px;
-  border-radius: 4px;
-  margin: 2px 4px 2px 0;
-  font-size: 11px;
-  white-space: nowrap;
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  vertical-align: middle;
-}
-
-.preview-empty {
-  font-size: 11px;
-  color: #555;
-}
-
-/* ==================== 详情弹窗 ==================== */
-
-.detail-overlay {
-  display: none;
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.6);
-  z-index: 999;
-}
-
-.detail-overlay.active {
-  display: block;
-}
-
-.detail-panel {
-  display: none;
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 90%;
-  max-width: 720px;
-  max-height: 85vh;
-  background: #16213e;
-  border-radius: 12px;
-  z-index: 1000;
-  flex-direction: column;
-  overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-}
-
-.detail-panel.active {
-  display: flex;
-}
-
-.detail-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 20px;
-  border-bottom: 1px solid #2a2a4a;
+.expand-icon {
+  font-size: 12px;
+  color: #6366f1;
+  transition: transform 0.2s;
   flex-shrink: 0;
+  margin-left: 12px;
 }
 
-.detail-panel-header h2 {
-  margin: 0;
-  font-size: 1.1rem;
+/* 展开后的内容区域 */
+.session-card-body {
+  border-top: 1px solid #2a2a4a;
+  padding: 16px;
 }
 
-#detail-close {
-  background: none;
-  border: none;
-  color: #888;
-  font-size: 1.2rem;
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 4px;
-  transition: color 0.2s, background 0.2s;
-}
-
-#detail-close:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.detail-body {
-  padding: 20px;
-  overflow-y: auto;
-  flex: 1;
-}
+/* ==================== 详情内容样式 ==================== */
 
 .detail-section {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
+}
+
+.detail-section:last-child {
+  margin-bottom: 0;
 }
 
 .detail-section-title {
-  font-size: 1rem;
+  font-size: 0.95rem;
   color: #fff;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -305,13 +219,13 @@ button:hover { background: #4f46e5; }
 .detail-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .detail-item {
-  background: #1a1a2e;
+  background: #0d1b2a;
   border-radius: 6px;
-  padding: 12px;
+  padding: 10px 12px;
   border-left: 3px solid #6366f1;
 }
 
@@ -320,6 +234,10 @@ button:hover { background: #4f46e5; }
   color: #e0e0e0;
   line-height: 1.5;
   word-break: break-word;
+}
+
+.detail-content + .detail-content {
+  margin-top: 4px;
 }
 
 .detail-meta {
@@ -341,11 +259,11 @@ button:hover { background: #4f46e5; }
 .detail-empty {
   font-size: 12px;
   color: #555;
-  padding: 8px 0;
+  padding: 6px 0;
 }
 
 .detail-msg {
-  background: #1a1a2e;
+  background: #0d1b2a;
   border-radius: 6px;
   padding: 10px 12px;
 }
@@ -365,19 +283,7 @@ button:hover { background: #4f46e5; }
 
 @media (max-width: 600px) {
   .card-grid { grid-template-columns: 1fr; }
-  .detail-panel {
-    width: 100%;
-    max-width: 100%;
-    max-height: 100vh;
-    border-radius: 0;
-    top: 0;
-    left: 0;
-    transform: none;
-  }
-  .session-stats {
-    gap: 6px;
-  }
-  .session-stats span {
-    font-size: 11px;
-  }
+  .session-stats { gap: 4px; }
+  .session-stats span { font-size: 10px; padding: 1px 6px; }
+  .session-card-body { padding: 12px; }
 }

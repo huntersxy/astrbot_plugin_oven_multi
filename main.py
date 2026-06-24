@@ -133,7 +133,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.10.0")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.11.0")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -181,80 +181,30 @@ class OvenMultiPlugin(Star):
             ["GET"],
             "获取余额信息",
         )
-        self.context.register_web_api(
-            f"/{PLUGIN_NAME}/session_detail",
-            self._api_session_detail,
-            ["GET"],
-            "获取单个会话的完整风格学习数据",
-        )
-
     async def _api_balance(self):
         """获取余额查询结果"""
         results = await self.balance_checker.query_all()
         return jsonify({"success": True, "data": results})
 
-    async def _api_session_detail(self):
-        """获取单个会话的完整风格学习数据"""
-        from astrbot.api.web import request
-
-        session_id = request.query.get("session_id", "")
-        if not session_id:
-            return jsonify({"success": False, "error": "缺少 session_id 参数"})
-
-        if not self.style_data_manager:
-            return jsonify({"success": False, "error": "风格学习未初始化"})
-
-        universal = self.style_data_manager.get_universal_for_session(session_id)
-        contextual = self.style_data_manager.get_contextual_for_session(session_id)
-        specific = self.style_data_manager.get_specific_for_session(session_id)
-        history = self.style_data_manager.get_chat_history(session_id, limit=50)
-
-        return jsonify({
-            "success": True,
-            "data": {
-                "session_id": session_id,
-                "display_name": (
-                    session_id.split("_")[-1] if "_" in session_id else session_id
-                ),
-                "universal": universal,
-                "contextual": contextual,
-                "specific": specific,
-                "history": history,
-            },
-        })
-
     async def _api_style_status(self):
-        """获取所有会话的风格学习数据"""
+        """获取所有会话的完整风格学习数据"""
         if not self.style_data_manager:
             return jsonify({"success": True, "data": {}})
 
-        # 收集所有会话的数据
         result = {}
         for session_id in self.style_data_manager.universal:
             universal = self.style_data_manager.get_universal_for_session(session_id)
             contextual = self.style_data_manager.get_contextual_for_session(session_id)
             specific = self.style_data_manager.get_specific_for_session(session_id)
-            history = self.style_data_manager.get_chat_history(session_id, limit=20)
-
-            # 计算统计信息
-            total_traits = len(universal) + len(contextual) + len(specific)
-            last_updated = max(
-                (t.get("last_updated", 0) for t in universal if t.get("last_updated")),
-                default=0,
-            )
+            history = self.style_data_manager.get_chat_history(session_id, limit=50)
 
             result[session_id] = {
                 "session_id": session_id,
                 "display_name": session_id.split("_")[-1] if "_" in session_id else session_id,
-                "universal_count": len(universal),
-                "contextual_count": len(contextual),
-                "specific_count": len(specific),
-                "total_traits": total_traits,
-                "history_count": len(history),
-                "last_updated": last_updated,
-                "universal_preview": [u.get("content", "")[:50] for u in universal[:3]],
-                "contextual_preview": [f"{c.get('scene', '')} → {c.get('behavior', '')}"[:50] for c in contextual[:3]],
-                "specific_preview": [s.get("content", "")[:50] for s in specific[:3]],
+                "universal": universal,
+                "contextual": contextual,
+                "specific": specific,
+                "history": history,
             }
 
         return jsonify({"success": True, "data": result})
@@ -862,3 +812,18 @@ class OvenMultiPlugin(Star):
                 "/mem0 status - 查看 mem0 状态\n"
                 "/mem0 search <内容> - 搜索记忆"
             )
+
+    @filter.command("风格维护")
+    async def style_maintenance(self, event: AstrMessageEvent):
+        """手动触发风格维护任务（表征合并 + 容量清理）"""
+        if not self.style_scheduler:
+            yield event.plain_result("风格学习功能未初始化。")
+            return
+
+        yield event.plain_result("正在执行风格维护（表征合并 + 容量清理），请稍候...")
+        try:
+            await self.style_scheduler.perform_maintenance()
+            yield event.plain_result("✅ 风格维护完成。")
+        except Exception as e:
+            logger.error(f"[烤箱-风格学习] 手动执行风格维护失败: {e}")
+            yield event.plain_result(f"❌ 风格维护失败: {e}")

@@ -79,10 +79,11 @@ class Scheduler:
         while self.is_running:
             await asyncio.sleep(maintenance_interval)
             logger.info("[烤箱-风格学习] 开始执行周期性风格维护...")
-            await self._perform_maintenance()
+            await self.perform_maintenance()
             await asyncio.sleep(0)
 
-    async def _perform_maintenance(self):
+    async def perform_maintenance(self):
+        """对所有有情境表征的会话执行表征合并和容量清理。"""
         all_sessions = list(self.data_manager.contextual.keys())
         for session_id in all_sessions:
             try:
