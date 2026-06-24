@@ -2,7 +2,8 @@ const bridge = window.AstrBotPluginPage;
 
 async function init() {
   try {
-    await bridge.ready();
+    const ctx = await bridge.ready();
+    console.log("[调试] bridge 就绪, context:", JSON.stringify(ctx, null, 2));
     document.getElementById("refreshBtn").addEventListener("click", loadAll);
     await loadAll();
   } catch (err) {
@@ -26,9 +27,17 @@ async function loadBalance() {
   
   try {
     const result = await bridge.apiGet("balance");
+    console.log("[调试] balance apiGet 返回:", JSON.stringify(result, null, 2));
+    console.log("[调试] result.success:", result?.success, "result.data:", result?.data);
+    
     if (result && result.success && result.data && result.data.length > 0) {
       renderBalance(result.data);
+    } else if (Array.isArray(result) && result.length > 0) {
+      // 如果 bridge 解包了响应，result 直接就是数组
+      console.log("[调试] result 是数组，直接渲染");
+      renderBalance(result);
     } else {
+      console.warn("[调试] 条件不满足，显示错误提示");
       error.style.display = "block";
     }
   } catch (err) {
@@ -60,9 +69,16 @@ async function loadStyle() {
   
   try {
     const result = await bridge.apiGet("style_status");
+    console.log("[调试] style_status apiGet 返回:", JSON.stringify(result, null, 2));
+    
     if (result && result.success && Object.keys(result.data || {}).length > 0) {
       renderStyle(result.data);
+    } else if (result && typeof result === "object" && !Array.isArray(result) && Object.keys(result).length > 0) {
+      // 如果 bridge 解包了响应，result 直接就是 data 对象
+      console.log("[调试] result 是裸对象，直接渲染");
+      renderStyle(result);
     } else {
+      console.warn("[调试] 风格学习条件不满足", result);
       empty.style.display = "block";
     }
   } catch (err) {
