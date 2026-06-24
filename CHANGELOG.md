@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.9.3 (2026-06-24)
+
+### Bug Fixes
+
+- **Dashboard Page**: 修复余额查询 loading 状态默认显示的问题
+
+---
+
 ## v1.9.2 (2026-06-24)
 
 ### Bug Fixes
