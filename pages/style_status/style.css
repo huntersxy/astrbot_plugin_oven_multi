@@ -5,7 +5,7 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: #1a1a2e;
   color: #e0e0e0;
   min-height: 100vh;
@@ -13,7 +13,7 @@ body {
 }
 
 .container {
-  max-width: 1200px;
+  max-width: 1000px;
   margin: 0 auto;
 }
 
@@ -21,57 +21,15 @@ header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
   padding-bottom: 16px;
   border-bottom: 1px solid #333;
 }
 
-h1 {
-  font-size: 1.5rem;
-  color: #fff;
-}
+h1 { font-size: 1.5rem; color: #fff; }
+h2 { font-size: 1.2rem; color: #fff; margin-bottom: 16px; }
 
-/* 标签页 */
-.tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 24px;
-  border-bottom: 1px solid #333;
-  padding-bottom: 0;
-}
-
-.tab {
-  background: transparent;
-  color: #888;
-  border: none;
-  padding: 12px 24px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  border-bottom: 2px solid transparent;
-  transition: all 0.2s;
-  margin-bottom: -1px;
-}
-
-.tab:hover {
-  color: #e0e0e0;
-}
-
-.tab.active {
-  color: #6366f1;
-  border-bottom-color: #6366f1;
-}
-
-.tab-content {
-  display: none;
-}
-
-.tab-content.active {
-  display: block;
-}
-
-/* 按钮 */
-.btn-primary {
+button {
   background: #6366f1;
   color: white;
   border: none;
@@ -79,239 +37,67 @@ h1 {
   border-radius: 8px;
   cursor: pointer;
   font-size: 14px;
-  transition: background 0.2s;
 }
 
-.btn-primary:hover {
-  background: #4f46e5;
+button:hover { background: #4f46e5; }
+
+.section {
+  background: #16213e;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
 }
 
-.btn-secondary {
-  background: #374151;
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: background 0.2s;
-}
-
-.btn-secondary:hover {
-  background: #4b5563;
-}
-
-/* 加载状态 */
-.loading, .error, .empty {
+.loading {
   text-align: center;
-  padding: 60px 20px;
+  padding: 40px;
+  color: #888;
 }
 
 .spinner {
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   border: 3px solid #333;
   border-top-color: #6366f1;
   border-radius: 50%;
   animation: spin 1s linear infinite;
-  margin: 0 auto 16px;
+  margin: 0 auto 12px;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .error {
+  text-align: center;
+  padding: 20px;
   color: #f87171;
 }
 
-.hint {
-  color: #888;
-  font-size: 14px;
-  margin-top: 8px;
+.empty {
+  text-align: center;
+  padding: 20px;
+  color: #666;
 }
 
-/* 功能内容区 */
-.feature-content {
-  padding: 0;
-}
-
-.feature-desc {
-  color: #888;
-  margin-bottom: 20px;
-  font-size: 14px;
-}
-
-/* 统计网格 */
-.stats-grid {
+/* 余额卡片网格 */
+.card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-.stat-card {
-  background: #16213e;
-  border-radius: 12px;
-  padding: 20px;
-  border: 1px solid #333;
-}
-
-.stat-card-value {
-  font-size: 2rem;
-  font-weight: 700;
-  color: #6366f1;
-  margin-bottom: 8px;
-}
-
-.stat-card-label {
-  font-size: 14px;
-  color: #888;
-}
-
-/* 会话列表 */
-.sessions {
-  display: grid;
-  gap: 16px;
-}
-
-.session-card {
-  background: #16213e;
-  border-radius: 12px;
-  padding: 20px;
-  border: 1px solid #333;
-}
-
-.session-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 16px;
-}
-
-.session-info {
-  flex: 1;
-}
-
-.session-name {
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: #fff;
-  margin-bottom: 4px;
-}
-
-.session-id {
-  font-size: 12px;
-  color: #555;
-  word-break: break-all;
-}
-
-/* 统计 */
-.stats {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
-  margin-bottom: 16px;
 }
 
-.stat {
+.balance-card {
   background: #1a1a2e;
   border-radius: 8px;
-  padding: 12px;
-  text-align: center;
-}
-
-.stat-value {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #6366f1;
-}
-
-.stat-label {
-  font-size: 12px;
-  color: #888;
-  margin-top: 4px;
-}
-
-/* 预览 */
-.preview-section {
-  margin-top: 12px;
-}
-
-.preview-title {
-  font-size: 12px;
-  color: #666;
-  margin-bottom: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.preview-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.preview-item {
-  background: #1a1a2e;
-  border-radius: 6px;
-  padding: 8px 12px;
-  font-size: 13px;
-  color: #b0b0b0;
-  border-left: 3px solid #6366f1;
-}
-
-.preview-item.contextual {
-  border-left-color: #10b981;
-}
-
-.preview-item.specific {
-  border-left-color: #f59e0b;
-}
-
-.preview-item.empty-preview {
-  color: #555;
-  font-style: italic;
-}
-
-.last-updated {
-  font-size: 12px;
-  color: #666;
-  margin-top: 12px;
-  text-align: right;
-}
-
-/* 余额列表 */
-.balance-content {
-  padding: 0;
-}
-
-.balance-list {
-  display: grid;
-  gap: 12px;
-}
-
-.balance-item {
-  background: #16213e;
-  border-radius: 12px;
-  padding: 16px 20px;
-  border: 1px solid #333;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.balance-item.success {
+  padding: 16px;
   border-left: 4px solid #10b981;
 }
 
-.balance-item.error {
-  border-left: 4px solid #f87171;
-}
+.balance-card.error { border-left-color: #f87171; }
 
 .balance-name {
-  font-weight: 600;
-  color: #e0e0e0;
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 4px;
 }
 
 .balance-value {
@@ -320,26 +106,50 @@ h1 {
   color: #6366f1;
 }
 
-.balance-item.error .balance-value {
-  color: #f87171;
+.balance-card.error .balance-value { color: #f87171; }
+
+/* 风格学习会话列表 */
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-/* 响应式 */
-@media (max-width: 768px) {
-  .tabs {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-  
-  .tab {
-    white-space: nowrap;
-  }
-  
-  .stats {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  
-  .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
+.session-card {
+  background: #1a1a2e;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.session-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.session-name {
+  font-weight: 600;
+  color: #fff;
+}
+
+.session-stats {
+  font-size: 12px;
+  color: #888;
+}
+
+.session-stats span {
+  margin-left: 12px;
+}
+
+.stat-tag {
+  display: inline-block;
+  background: #333;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin: 2px;
+  font-size: 11px;
+}
+
+@media (max-width: 600px) {
+  .card-grid { grid-template-columns: 1fr; }
 }

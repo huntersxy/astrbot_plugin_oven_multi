@@ -332,15 +332,9 @@
   },
   "balance": {
     "description": "余额查询",
-    "hint": "通过 API 查询各服务商余额，仅在 Dashboard 页面查看。",
+    "hint": "通过 API 查询各服务商余额，在 Dashboard 页面查看。",
     "type": "object",
     "items": {
-      "enable": {
-        "description": "启用",
-        "hint": "启用余额查询功能。",
-        "type": "bool",
-        "default": false
-      },
       "config_content": {
         "description": "API配置内容",
         "type": "text",

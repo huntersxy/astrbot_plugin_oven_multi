@@ -103,14 +103,11 @@ class BalanceChecker:
 
     async def query_all(self) -> list[dict]:
         cfg = self.config.get("balance", {})
-        if not isinstance(cfg, dict) or not cfg.get("enable", False):
-            return []
-
-        config_content = cfg.get("config_content", "")
-        config_mode = cfg.get("config_mode", "yaml")
+        config_content = cfg.get("config_content", "") if isinstance(cfg, dict) else ""
+        config_mode = cfg.get("config_mode", "yaml") if isinstance(cfg, dict) else "yaml"
 
         if not config_content.strip():
-            return [{"name": "配置缺失", "value": "未配置 config_content", "success": False}]
+            return [{"name": "配置缺失", "value": "请在配置中添加 services", "success": False}]
 
         try:
             if config_mode == "yaml":
