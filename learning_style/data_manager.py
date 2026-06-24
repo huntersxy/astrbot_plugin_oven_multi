@@ -18,13 +18,20 @@
 import asyncio
 import difflib
 import json
+import math
 import os
 import re
 from typing import Any
 
 from astrbot.api import logger
 
+try:
+    from astrbot.core.provider.provider import EmbeddingProvider
+except ImportError:
+    EmbeddingProvider = None
+
 CONTEXTUAL_BUFFER_RATIO = 0.2
+DIFFLIB_THRESHOLD = 0.85
 
 
 class DataManager:
@@ -184,47 +191,242 @@ class DataManager:
             self._dirty_contextual = True
             asyncio.create_task(self._schedule_save())
 
-    def merge_contextual_buffer(self, session_id: str, threshold: float = 0.85):
-        if session_id not in self.contextual:
-            return
+    # ---------------------------------------------------------------------------
+    # Embedding 工具
+    # ---------------------------------------------------------------------------
 
+    @staticmethod
+    def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
+        if len(vec_a) != len(vec_b) or not vec_a:
+            return -1.0
+        dot = 0.0
+        norm_a = 0.0
+        norm_b = 0.0
+        for a, b in zip(vec_a, vec_b):
+            dot += a * b
+            norm_a += a * a
+            norm_b += b * b
+        if norm_a <= 0 or norm_b <= 0:
+            return -1.0
+        return dot / (math.sqrt(norm_a) * math.sqrt(norm_b))
+
+    @staticmethod
+    def _text_key(text: str) -> str:
+        return text.strip()[:200]
+
+    # ---------------------------------------------------------------------------
+    # 情境缓冲合并（支持 Embedding / difflib 双模式）
+    # ---------------------------------------------------------------------------
+
+    async def merge_contextual_buffer(
+        self,
+        session_id: str,
+        threshold: float = 0.75,
+        embedding_provider: Any = None,
+    ) -> dict:
+        """
+        将缓冲位的情境表征尝试合并到通用/特定。
+
+        参数:
+            session_id: 会话标识
+            threshold:  相似度阈值。embedding 模式默认 0.75，difflib 模式用内部 DIFFLIB_THRESHOLD (0.85)
+            embedding_provider: EmbeddingProvider 实例。为 None 时使用 difflib。
+
+        返回合并统计:
+        {
+            "total_buffers": N,
+            "merged_to_universal": N,
+            "merged_to_specific": N,
+            "remained": N,
+            "details": ["场景→行为 → 合并到通用「...」(相似度 0.92)", ...],
+            "mode": "embedding" | "difflib"
+        }
+        """
+        stats = {
+            "total_buffers": 0,
+            "merged_to_universal": 0,
+            "merged_to_specific": 0,
+            "remained": 0,
+            "details": [],
+            "mode": "difflib",
+        }
+        if session_id not in self.contextual:
+            return stats
+
+        use_embedding = (
+            embedding_provider is not None
+            and EmbeddingProvider is not None
+            and isinstance(embedding_provider, EmbeddingProvider)
+        )
+
+        effective_threshold = (
+            threshold if use_embedding else DIFFLIB_THRESHOLD
+        )
+
+        # —— Pre‑compute universal / specific embeddings  ——
+        uni_texts: list[str] = []
+        spec_texts: list[str] = []
+        if use_embedding:
+            uni_texts = [
+                u["content"] for u in
+                (self.universal.get(session_id) or [])
+            ]
+            spec_texts = [
+                s["content"] for s in
+                (self.specific.get(session_id) or [])
+            ]
+            # 并发请求所有 embedding
+            uni_embs, spec_embs = await asyncio.gather(
+                self._batch_embed(uni_texts, embedding_provider),
+                self._batch_embed(spec_texts, embedding_provider),
+            )
+        else:
+            uni_embs = []
+            spec_embs = []
+
+        # —— 逐条处理缓冲  ——
         remaining = []
         for item in self.contextual[session_id]:
             if not item.get("_in_buffer"):
                 remaining.append(item)
                 continue
 
-            text = f"{item['scene']}\u2192{item['behavior']}"
+            text = f"{item['scene']}→{item['behavior']}"
+            stats["total_buffers"] += 1
             merged = False
 
-            if session_id in self.universal:
-                for u in self.universal[session_id]:
-                    score = difflib.SequenceMatcher(None, text, u["content"]).ratio()
-                    if score > threshold:
-                        u["proficiency"] = min(100, u.get("proficiency", 0) + 5)
-                        merged = True
-                        logger.debug(f"[烤箱-风格学习] 情境 '{text}' 合并到通用 '{u['content']}'")
-                        break
+            # 匹配通用
+            if use_embedding:
+                merged, detail = await self._match_embedding(
+                    text, uni_texts, uni_embs, effective_threshold,
+                    "通用", embedding_provider,
+                )
+                if merged:
+                    idx = detail["_idx"]
+                    u = self.universal[session_id][idx]
+                    u["proficiency"] = min(100, u.get("proficiency", 0) + 5)
+                    stats["merged_to_universal"] += 1
+                    stats["details"].append(detail["log"])
+                    continue
+            else:
+                if session_id in self.universal:
+                    for u in self.universal[session_id]:
+                        score = difflib.SequenceMatcher(None, text, u["content"]).ratio()
+                        if score > effective_threshold:
+                            u["proficiency"] = min(100, u.get("proficiency", 0) + 5)
+                            merged = True
+                            stats["merged_to_universal"] += 1
+                            log = f"情境「{text}」→ 合并到通用「{u['content'][:40]}」(difflib {score:.2f})"
+                            stats["details"].append(log)
+                            logger.debug(f"[烤箱-风格学习] {log}")
+                            break
+                if merged:
+                    continue
 
-            if merged:
-                continue
-
-            if session_id in self.specific:
-                for s in self.specific[session_id]:
-                    score = difflib.SequenceMatcher(None, text, s["content"]).ratio()
-                    if score > threshold:
-                        s["trigger_count"] = s.get("trigger_count", 0) + 1
-                        merged = True
-                        logger.debug(f"[烤箱-风格学习] 情境 '{text}' 合并到特定 '{s['content']}'")
-                        break
+            # 匹配特定
+            if use_embedding:
+                merged, detail = await self._match_embedding(
+                     text, spec_texts, spec_embs, effective_threshold,
+                     "特定", embedding_provider,
+                 )
+                if merged:
+                    idx = detail["_idx"]
+                    s = self.specific[session_id][idx]
+                    s["trigger_count"] = s.get("trigger_count", 0) + 1
+                    stats["merged_to_specific"] += 1
+                    stats["details"].append(detail["log"])
+                    continue
+            else:
+                if not merged and session_id in self.specific:
+                    for s in self.specific[session_id]:
+                        score = difflib.SequenceMatcher(None, text, s["content"]).ratio()
+                        if score > effective_threshold:
+                            s["trigger_count"] = s.get("trigger_count", 0) + 1
+                            merged = True
+                            stats["merged_to_specific"] += 1
+                            log = f"情境「{text}」→ 合并到特定「{s['content'][:40]}」(difflib {score:.2f})"
+                            stats["details"].append(log)
+                            logger.debug(f"[烤箱-风格学习] {log}")
+                            break
 
             if not merged:
+                stats["remained"] += 1
+                stats["details"].append(f"情境「{text}」→ 未匹配，留在缓冲")
                 remaining.append(item)
 
         self.contextual[session_id] = remaining
         self._refresh_buffer_markers(session_id)
         self._dirty_contextual = True
         asyncio.create_task(self._schedule_save())
+
+        if use_embedding:
+            stats["mode"] = "embedding"
+        return stats
+
+    async def _batch_embed(
+        self, texts: list[str], provider: Any
+    ) -> list[list[float]]:
+        """并发获取一批文本的 embedding 向量。"""
+        if not texts:
+            return []
+        tasks = [provider.get_embedding(t) for t in texts]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        out: list[list[float]] = []
+        for r in results:
+            if isinstance(r, Exception):
+                logger.warning(f"[烤箱-风格学习] embedding 请求失败: {r}")
+                out.append([])
+            elif isinstance(r, list) and r:
+                out.append(r)
+            else:
+                out.append([])
+        return out
+
+    async def _match_embedding(
+        self,
+        text: str,
+        candidates_texts: list[str],
+        candidates_embs: list[list[float]],
+        threshold: float,
+        label: str,
+        provider: Any,
+    ) -> tuple[bool, dict]:
+        """
+        用 embedding 余弦相似度在候选列表中找最佳匹配。
+
+        返回:
+            (matched, {"_idx": int, "log": str}) 或 (False, {})
+        """
+        if not candidates_texts or not candidates_embs:
+            return False, {}
+
+        try:
+            text_emb = await provider.get_embedding(text)
+        except Exception as e:
+            logger.warning(f"[烤箱-风格学习] 缓冲条目 embedding 失败: {e}")
+            return False, {}
+
+        if not text_emb:
+            return False, {}
+
+        best_idx = -1
+        best_score = -1.0
+        for i, cand_emb in enumerate(candidates_embs):
+            score = self.cosine_similarity(text_emb, cand_emb)
+            if score > best_score:
+                best_score = score
+                best_idx = i
+
+        if best_idx >= 0 and best_score > threshold:
+            matched_text = candidates_texts[best_idx][:50]
+            log = (
+                f"情境「{text}」→ 合并到{label}「{matched_text}」"
+                f"(余弦 {best_score:.3f})"
+            )
+            logger.debug(f"[烤箱-风格学习] {log}")
+            return True, {"_idx": best_idx, "log": log}
+
+        return False, {}
 
     async def save_contextual(self):
         async with self.lock:

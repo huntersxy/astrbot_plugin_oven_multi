@@ -133,7 +133,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.11.0")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.13.0")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -227,9 +227,43 @@ class OvenMultiPlugin(Star):
                 self.style_learning_manager = LearningManager(self, self.style_data_manager, self.config)
                 self.style_scheduler = StyleScheduler(self.style_data_manager, self.style_learning_manager, self.config)
                 self.style_injector = StyleInjector(self.style_data_manager, self.config)
+
+                # 解析 Embedding Provider
+                self.style_scheduler.embedding_provider = (
+                    self._resolve_embedding_provider(cfg)
+                )
+                if self.style_scheduler.embedding_provider:
+                    logger.info(
+                        "[烤箱-风格学习] Embedding Provider 就绪"
+                    )
+                else:
+                    logger.info(
+                        "[烤箱-风格学习] 无 Embedding Provider，使用 difflib 后备"
+                    )
+
                 logger.info("[烤箱-风格学习] 初始化完成")
             except Exception as e:
                 logger.error(f"[烤箱-风格学习] 初始化失败: {e}")
+
+    def _resolve_embedding_provider(self, style_cfg: dict):
+        """解析 Embedding Provider，返回 EmbeddingProvider 实例或 None。"""
+        provider_id = str(style_cfg.get("embedding_provider_id") or "").strip()
+        try:
+            if provider_id:
+                from astrbot.core.provider.provider import EmbeddingProvider
+                provider = self.context.get_provider_by_id(provider_id)
+                if provider and isinstance(provider, EmbeddingProvider):
+                    return provider
+                logger.warning(
+                    f"[烤箱-风格学习] 配置的 embedding_provider_id '{provider_id}' "
+                    f"无效或类型不匹配，尝试自动检测..."
+                )
+            providers = self.context.get_all_embedding_providers()
+            if providers:
+                return providers[0]
+        except Exception as e:
+            logger.warning(f"[烤箱-风格学习] 解析 Embedding Provider 失败: {e}")
+        return None
 
     async def initialize(self):
         if self.style_scheduler:
@@ -820,10 +854,10 @@ class OvenMultiPlugin(Star):
             yield event.plain_result("风格学习功能未初始化。")
             return
 
-        yield event.plain_result("正在执行风格维护（表征合并 + 容量清理），请稍候...")
+        yield event.plain_result("🔍 正在执行风格维护，请稍候...")
         try:
-            await self.style_scheduler.perform_maintenance()
-            yield event.plain_result("✅ 风格维护完成。")
+            logs = await self.style_scheduler.perform_maintenance(verbose=True)
+            yield event.plain_result("\n".join(logs))
         except Exception as e:
             logger.error(f"[烤箱-风格学习] 手动执行风格维护失败: {e}")
             yield event.plain_result(f"❌ 风格维护失败: {e}")

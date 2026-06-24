@@ -197,6 +197,23 @@
         "hint": "每个会话最多可以存储多少条情境表征。默认值为50。",
         "type": "int",
         "default": 50
+      },
+      "embedding_provider_id": {
+        "type": "string",
+        "description": "Embedding 提供商 ID",
+        "default": "",
+        "hint": "选择用于风格维护的 Embedding Provider。留空则自动检测首个可用的 Embedding Provider。未配置或检测失败时使用 difflib（字符相似度）作为后备。"
+      },
+      "embedding_threshold": {
+        "type": "float",
+        "description": "Embedding 合并阈值（余弦相似度）",
+        "hint": "余弦相似度阈值，高于此值的情境表征会被合并到通用/特定。默认 0.75。仅在 embedding_provider_id 配置时生效。",
+        "default": 0.75,
+        "slider": {
+          "min": 0,
+          "max": 1,
+          "step": 0.05
+        }
       }
     }
   },

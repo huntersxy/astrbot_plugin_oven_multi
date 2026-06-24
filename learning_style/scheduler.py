@@ -28,6 +28,7 @@ class Scheduler:
         self.data_manager = data_manager
         self.learning_manager = learning_manager
         self.config = config
+        self.embedding_provider = None
         self.analysis_task: asyncio.Task | None = None
         self.maintenance_task: asyncio.Task | None = None
         self.is_running = False
@@ -82,14 +83,73 @@ class Scheduler:
             await self.perform_maintenance()
             await asyncio.sleep(0)
 
-    async def perform_maintenance(self):
-        """对所有有情境表征的会话执行表征合并和容量清理。"""
+    async def perform_maintenance(self, verbose: bool = False) -> list[str]:
+        """
+        对所有有情境表征的会话执行表征合并和容量清理。
+
+        参数:
+            verbose: 是否收集并返回详细操作日志
+
+        返回:
+            详细日志行列表（verbose=True 时），timer 调用时为空列表
+        """
+        logs = []
         all_sessions = list(self.data_manager.contextual.keys())
+        logs.append(f"📋 待处理会话: {len(all_sessions)} 个")
+
+        total_merged_uni = 0
+        total_merged_spec = 0
+        total_remained = 0
+        total_buffers = 0
+        used_mode = "difflib"
+
+        style_cfg = self.config.get("style_learning", {})
+        embedding_threshold = float(
+            style_cfg.get("embedding_threshold", 0.75)
+        )
+
         for session_id in all_sessions:
+            display = session_id.split("_")[-1] if "_" in session_id else session_id
             try:
-                self.data_manager.merge_contextual_buffer(session_id)
+                stats = await self.data_manager.merge_contextual_buffer(
+                    session_id,
+                    threshold=embedding_threshold,
+                    embedding_provider=getattr(self, 'embedding_provider', None),
+                )
+                if stats.get("mode") == "embedding":
+                    used_mode = "embedding"
+                if stats["total_buffers"] == 0:
+                    logs.append(f"  ⏭️  {display}: 无缓冲条目，跳过")
+                else:
+                    logs.append(
+                        f"  🔄 {display}: "
+                        f"缓冲 {stats['total_buffers']} 条 → "
+                        f"通用 {stats['merged_to_universal']} / "
+                        f"特定 {stats['merged_to_specific']} / "
+                        f"滞留 {stats['remained']}"
+                    )
+                    if verbose and stats["details"]:
+                        for d in stats["details"]:
+                            logs.append(f"    {d}")
+                total_buffers += stats["total_buffers"]
+                total_merged_uni += stats["merged_to_universal"]
+                total_merged_spec += stats["merged_to_specific"]
+                total_remained += stats["remained"]
             except Exception as e:
+                logs.append(f"  ❌ {display}: 出错 — {e}")
                 logger.error(f"[烤箱-风格学习] 维护会话 {session_id} 时出错: {e}")
 
         await self.data_manager.force_save()
-        logger.info("[烤箱-风格学习] 风格维护完成（情境缓冲合并）。")
+        summary = (
+            f"✅ 维护完成: 共处理 {total_buffers} 条缓冲条目 → "
+            f"合并到通用 {total_merged_uni} / 特定 {total_merged_spec} / "
+            f"滞留 {total_remained}"
+            f" | 模式: {used_mode}"
+            f"{' (阈值 ' + str(embedding_threshold) + ')' if used_mode == 'embedding' else ''}"
+        )
+        logs.append(summary)
+        logger.info(f"[烤箱-风格学习] {summary}")
+
+        if verbose:
+            return logs
+        return []

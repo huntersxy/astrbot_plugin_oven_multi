@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.13.0 (2026-06-24)
+
+### New Features
+
+- **Embedding 驱动的风格维护**: 风格维护 (`/风格维护`) 现在支持使用 AstrBot Embedding Provider 进行语义合并。自动检测首个可用 Embedding Provider，也可通过配置 `style_learning.embedding_provider_id` 指定。未配置时自动回退到字符相似度（difflib）。
+- **配置项 `embedding_provider_id`**: 指定用于风格维护的 Embedding Provider ID，留空则自动检测。
+- **配置项 `embedding_threshold`**: 余弦相似度合并阈值，默认 0.75。
+- 维护日志增加 `模式: embedding` / `模式: difflib` 提示，方便确认使用的匹配算法。
+
+---
+
+## v1.12.0 (2026-06-24)
+
+### New Features
+
+- **`/风格维护` 详细日志**: 现在执行时逐会话输出缓冲条目数、合并到通用/特定/滞留数，verbose 模式还会展示每条缓冲的合并明细（相似度分数）
+
+---
+
 ## v1.11.0 (2026-06-24)
 
 ### New Features
