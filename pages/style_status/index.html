@@ -15,6 +15,7 @@
     <nav class="tabs">
       <button class="tab active" data-tab="style">风格学习</button>
       <button class="tab" data-tab="active">主动回复</button>
+      <button class="tab" data-tab="balance">余额查询</button>
       <button class="tab" data-tab="mem0">mem0 记忆</button>
     </nav>
 
@@ -48,6 +49,25 @@
       <div id="active-content" class="feature-content">
         <p class="feature-desc">主动回复功能无需 @ 即可在群聊中回复消息</p>
         <div id="active-stats" class="stats-grid"></div>
+      </div>
+    </section>
+
+    <!-- 余额查询 -->
+    <section id="tab-balance" class="tab-content">
+      <div id="balance-loading" class="loading">
+        <div class="spinner"></div>
+        <p>查询中...</p>
+      </div>
+      <div id="balance-error" class="error" style="display: none;">
+        <p>查询失败</p>
+        <button class="btn-secondary retry-btn">重试</button>
+      </div>
+      <div id="balance-empty" class="empty" style="display: none;">
+        <p>余额功能未启用或未配置</p>
+        <p class="hint">请在插件配置中启用 balance.enable 并配置 services</p>
+      </div>
+      <div id="balance-content" class="balance-content" style="display: none;">
+        <div id="balance-list" class="balance-list"></div>
       </div>
     </section>
 

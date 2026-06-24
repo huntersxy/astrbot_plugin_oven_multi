@@ -46,6 +46,7 @@ from .learning_style.learning_manager import LearningManager
 from .learning_style.scheduler import Scheduler as StyleScheduler
 from .learning_style.style_injector import StyleInjector
 from .mem0_client import Mem0Client
+from .balance_checker import BalanceChecker
 
 PLUGIN_NAME = "astrbot_plugin_oven_multi"
 
@@ -132,7 +133,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.8.9")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.9.0")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -160,6 +161,9 @@ class OvenMultiPlugin(Star):
         self.active_reply_stacks: dict[str, list[str]] = defaultdict(list)
         self.model_choice_histories: dict[str, list[str]] = defaultdict(list)
 
+        # 余额查询
+        self.balance_checker = BalanceChecker(self.config)
+
         # 注册 Web API
         self._register_web_api()
 
@@ -171,6 +175,17 @@ class OvenMultiPlugin(Star):
             ["GET"],
             "获取风格学习状态",
         )
+        self.context.register_web_api(
+            f"/{PLUGIN_NAME}/balance",
+            self._api_balance,
+            ["GET"],
+            "获取余额信息",
+        )
+
+    async def _api_balance(self):
+        """获取余额查询结果"""
+        results = await self.balance_checker.query_all()
+        return jsonify({"success": True, "data": results})
 
     async def _api_style_status(self):
         """获取所有会话的风格学习数据"""

@@ -281,6 +281,49 @@ h1 {
   text-align: right;
 }
 
+/* 余额列表 */
+.balance-content {
+  padding: 0;
+}
+
+.balance-list {
+  display: grid;
+  gap: 12px;
+}
+
+.balance-item {
+  background: #16213e;
+  border-radius: 12px;
+  padding: 16px 20px;
+  border: 1px solid #333;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.balance-item.success {
+  border-left: 4px solid #10b981;
+}
+
+.balance-item.error {
+  border-left: 4px solid #f87171;
+}
+
+.balance-name {
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.balance-value {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #6366f1;
+}
+
+.balance-item.error .balance-value {
+  color: #f87171;
+}
+
 /* 响应式 */
 @media (max-width: 768px) {
   .tabs {

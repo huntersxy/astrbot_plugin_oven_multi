@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.9.0 (2026-06-24)
+
+### New Features
+
+- **余额查询**: 集成 balance 插件功能，可在 Dashboard 页面查看各服务商余额
+
+---
+
 ## v1.8.9 (2026-06-23)
 
 ### Refactoring

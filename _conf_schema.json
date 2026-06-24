@@ -329,5 +329,33 @@
         "default": ""
       }
     }
+  },
+  "balance": {
+    "description": "余额查询",
+    "hint": "通过 API 查询各服务商余额，仅在 Dashboard 页面查看。",
+    "type": "object",
+    "items": {
+      "enable": {
+        "description": "启用",
+        "hint": "启用余额查询功能。",
+        "type": "bool",
+        "default": false
+      },
+      "config_content": {
+        "description": "API配置内容",
+        "type": "text",
+        "editor_mode": true,
+        "editor_language": "yaml",
+        "editor_theme": "vs-dark",
+        "hint": "用于配置如何解析余额，格式见说明",
+        "default": "services:"
+      },
+      "config_mode": {
+        "description": "配置模式",
+        "type": "string",
+        "options": ["simple", "yaml"],
+        "default": "yaml"
+      }
+    }
   }
 }

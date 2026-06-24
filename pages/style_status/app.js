@@ -50,7 +50,7 @@ function switchTab(tabName) {
 
 // 加载所有数据
 async function loadAllData() {
-  await loadStyleStatus();
+  await Promise.all([loadStyleStatus(), loadBalance()]);
 }
 
 // ==================== 风格学习 ====================
@@ -175,6 +175,40 @@ function hideAll(tab) {
   if (document.getElementById(`${tab}-empty`)) {
     document.getElementById(`${tab}-empty`).style.display = "none";
   }
+}
+
+// ==================== 余额查询 ====================
+
+async function loadBalance() {
+  showLoading("balance");
+  try {
+    const result = await bridge.apiGet("balance");
+    if (result.success && result.data && result.data.length > 0) {
+      renderBalance(result.data);
+    } else {
+      showEmpty("balance");
+    }
+  } catch (err) {
+    showError("balance");
+    console.error("余额查询失败:", err);
+  }
+}
+
+function renderBalance(data) {
+  const container = document.getElementById("balance-list");
+  
+  container.innerHTML = data.map(item => {
+    const className = item.success ? "success" : "error";
+    return `
+      <div class="balance-item ${className}">
+        <div class="balance-name">${escapeHtml(item.name)}</div>
+        <div class="balance-value">${escapeHtml(item.value)}</div>
+      </div>
+    `;
+  }).join("");
+
+  hideAll("balance");
+  document.getElementById("balance-content").style.display = "block";
 }
 
 function escapeHtml(text) {
