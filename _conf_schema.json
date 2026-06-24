@@ -348,7 +348,7 @@
         "editor_language": "yaml",
         "editor_theme": "vs-dark",
         "hint": "用于配置如何解析余额，格式见说明",
-        "default": "services:"
+        "default": "services:\n  Deepseek:\n    url: \"https://api.deepseek.com/user/balance\"\n    headers:\n      Accept: \"application/json\"\n      Authorization: \"Bearer your_api_key\"\n    result_template: \"Deepseek: {{balance_infos.0.total_balance}} 元\""
       },
       "config_mode": {
         "description": "配置模式",
