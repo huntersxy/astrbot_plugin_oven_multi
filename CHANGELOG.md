@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.19.0 (2026-06-24)
+
+### New Features
+
+- **System prompt 兼容增强**: 集成 `SystemPromptRewriter`，在风格注入前剥离平台 LTM 注入并去重，减少 prompt 膨胀。
+  来源于 `astrbot_plugin_group_chat_plus` (AGPL-3.0) by Him666233。
+
+---
+
 ## v1.18.0 (2026-06-24)
 
 ### Bug Fixes

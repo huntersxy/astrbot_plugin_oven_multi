@@ -129,7 +129,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.18.0")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.19.0")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -573,9 +573,13 @@ class OvenMultiPlugin(Star):
         session_id = event.unified_msg_origin
         user_message = event.get_message_str() or ""
 
+        # 前置清理：剥离平台 LTM 注入并去重，为风格注入提供干净的基础
+        from .learning_style.system_prompt_rewriter import clean as clean_system_prompt
+
         original_prompt = req.system_prompt or ""
+        cleaned_prompt = clean_system_prompt(original_prompt)
         new_prompt = self.style_injector.inject_style_to_prompt(
-            session_id, original_prompt, user_message=user_message
+            session_id, cleaned_prompt, user_message=user_message
         )
         req.system_prompt = new_prompt
 
