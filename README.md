@@ -51,7 +51,10 @@
 | `add_done_emoji` | 完成后添加完成表情 | `true` |
 
 ### 风格学习 (`style_learning`)
-> 风格注入前会自动剥离平台 LTM（Long-Term Memory）注入并进行去重，减少 prompt 膨胀。
+
+> 风格内容通过 `req.extra_user_content_parts` 注入（不修改 system_prompt），并标记为临时内容（`mark_as_temp()`，不持久化到会话历史），充分兼容其他插件的 prompt 注入。
+>
+> 注入前会自动剥离平台 LTM（Long-Term Memory）注入并进行去重，减少 prompt 膨胀。
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
@@ -60,7 +63,7 @@
 | `style_provider_id` | 风格分析用的 LLM Provider，留空使用当前会话默认 | `` |
 | `analysis_interval_seconds` | 分析频率（秒），默认 6 小时 | `21600` |
 | `min_history_for_analysis` | 触发分析的最少消息数 | `10` |
-| `max_universal_inject` | 注入 system prompt 的最大风格条数 | `5` |
+| `max_universal_inject` | 每次注入的通用风格特征数量 | `5` |
 
 ### 主动回复 (`active_reply`)
 | 配置项 | 说明 | 默认值 |

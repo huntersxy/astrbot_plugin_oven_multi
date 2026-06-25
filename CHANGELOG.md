@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.20.0 (2026-06-24)
+
+### Refactoring
+
+- **风格注入迁移至 extra_user_content_parts**: 风格内容不再注入 system_prompt，改为通过 `req.extra_user_content_parts` 注入，并调用 `mark_as_temp()` 标记为临时内容（不持久化到会话历史），提升 LLM Provider prefix cache 命中率。
+- **差分捕捉其他插件注入**: 在 `on_llm_request` 中快照其他插件的 `contexts`/`prompt`/`extra_user_content_parts` 状态，记录差异日志。
+- 来源于 `astrbot_plugin_iris_chat_memory` (AGPL-3.0) 的注入策略和 `astrbot_plugin_group_chat_plus` (AGPL-3.0) 的差分机制。
+
 ## v1.19.0 (2026-06-24)
 
 ### New Features

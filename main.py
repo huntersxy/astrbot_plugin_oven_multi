@@ -129,7 +129,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.19.0")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.20.0")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -571,17 +571,74 @@ class OvenMultiPlugin(Star):
             return
 
         session_id = event.unified_msg_origin
-        user_message = event.get_message_str() or ""
 
-        # 前置清理：剥离平台 LTM 注入并去重，为风格注入提供干净的基础
-        from .learning_style.system_prompt_rewriter import clean as clean_system_prompt
+        # ── 差分捕捉：快照其他插件的注入 ──
+        _d = {}  # debug info
+        try:
+            _d["ctx_before"] = list(req.contexts) if isinstance(req.contexts, list) else []
+        except Exception:
+            _d["ctx_before"] = []
+        try:
+            _d["prompt_before"] = req.prompt or ""
+        except Exception:
+            _d["prompt_before"] = ""
+        try:
+            _d["extra_count_before"] = (
+                len(req.extra_user_content_parts)
+                if hasattr(req, "extra_user_content_parts")
+                and isinstance(req.extra_user_content_parts, list)
+                else 0
+            )
+        except Exception:
+            _d["extra_count_before"] = 0
+
+        # ── 前置清理：剥离平台 LTM 并去重 ──
+        from .learning_style.system_prompt_rewriter import SystemPromptRewriter
 
         original_prompt = req.system_prompt or ""
-        cleaned_prompt = clean_system_prompt(original_prompt)
-        new_prompt = self.style_injector.inject_style_to_prompt(
-            session_id, cleaned_prompt, user_message=user_message
-        )
-        req.system_prompt = new_prompt
+        rewrite_result = SystemPromptRewriter.rewrite(original_prompt, "")
+        if rewrite_result.ltm_detected or rewrite_result.duplicate_suspected:
+            logger.info(
+                f"[烤箱-风格学习] system_prompt 清理: "
+                f"ltm={rewrite_result.ltm_detected}, "
+                f"dup={rewrite_result.duplicate_suspected}, "
+                f"chars={len(original_prompt)}→{len(rewrite_result.merged_system_prompt)}"
+            )
+        req.system_prompt = rewrite_result.merged_system_prompt
+
+        # ── 风格注入 → extra_user_content_parts ──
+        style_text = self.style_injector.build_injection_text(session_id)
+        if style_text:
+            _d["style_len"] = len(style_text)
+            from astrbot.core.agent.message import TextPart
+
+            part = TextPart(text=style_text)
+            if hasattr(part, "mark_as_temp"):
+                part.mark_as_temp()
+                _d["mark_as_temp"] = True
+            else:
+                _d["mark_as_temp"] = False
+            req.extra_user_content_parts.append(part)
+
+        # ── 差分日志 ──
+        try:
+            if hasattr(req, "extra_user_content_parts") and isinstance(
+                req.extra_user_content_parts, list
+            ):
+                _d["extra_count_after"] = len(req.extra_user_content_parts)
+                other_count = (
+                    _d["extra_count_after"] - _d["extra_count_before"] - (1 if style_text else 0)
+                )
+                if other_count > 0:
+                    logger.info(
+                        f"[烤箱-风格学习] 检测到其他插件注入: "
+                        f"{other_count} 个 extra_user_content_parts"
+                    )
+        except Exception:
+            pass
+
+        _d["injected"] = bool(style_text)
+        logger.debug(f"[烤箱-风格学习] on_llm_request 摘要: {_d}")
 
     @filter.command("风格状态")
     async def style_status(self, event: AstrMessageEvent):

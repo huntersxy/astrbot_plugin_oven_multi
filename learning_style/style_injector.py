@@ -87,6 +87,18 @@ class StyleInjector:
             logger.error(f"[烤箱-风格学习] 构建风格文本时发生错误: {e}")
             return None
 
+    def build_injection_text(self, session_id: str) -> str | None:
+        """构建注入到 extra_user_content_parts 的完整文本。"""
+        style_text = self.build_raw_style_text(session_id)
+        if not style_text:
+            return None
+        return (
+            "<style_guidelines>\n"
+            "在回复时，请尽量采用以下风格特点："
+            f"{style_text}\n"
+            "</style_guidelines>"
+        )
+
     def get_style_summary(self, session_id: str) -> dict[str, Any]:
         universal = self.data_manager.get_universal_for_session(session_id)
         total = len(universal)
