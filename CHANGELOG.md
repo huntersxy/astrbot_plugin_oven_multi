@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.18.0 (2026-06-24)
+
+### Bug Fixes
+
+- **LLM 输出 JSON 解析鲁棒性**: 新增 `_manual_extract_strings` 手动回退解析，处理特征描述中 LLM 生成的未转义双引号。更新 prompt 提示 LLM 避免在特征中使用引号。
+
+---
+
 ## v1.17.0 (2026-06-24)
 
 ### Refactoring
