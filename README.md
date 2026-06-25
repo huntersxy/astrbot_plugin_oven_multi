@@ -115,6 +115,8 @@ GNU Affero General Public License v3.0
 - astrbot_plugin_repetition by FengYing1314 — 消息复读
 - astrbot_plugin_iamthinking (AGPL-3.0) by sssn-tech — 思考表情
 - astrbot_plugin_iearning_style (AGPL-3.0) by qa296 — 风格学习
+- astrbot_plugin_group_chat_plus (AGPL-3.0) by Him666233 — System prompt 兼容增强与差分捕捉机制
+- astrbot_plugin_iris_chat_memory (AGPL-3.0) by  — `extra_user_content_parts` 注入策略与 `mark_as_temp()` 实践
 - astrbot_plugin_remove_blank_lines (MIT) by Codex — 移除空行
 - astrbot_plugin_balance by BUGJI — 余额查询
 - astrbot_plugin_group_chat_plus (AGPL-3.0) by Him666233 — System prompt 兼容增强
