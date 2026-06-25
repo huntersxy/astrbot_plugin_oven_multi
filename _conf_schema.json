@@ -259,5 +259,107 @@
         "default": "yaml"
       }
     }
+  },
+  "favor_system": {
+    "description": "好感度系统",
+    "hint": "跟踪和管理用户的好感度，自动调整AI对用户的态度",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用好感度系统",
+        "type": "bool",
+        "default": true
+      },
+      "admins_id": {
+        "description": "管理员QQ号列表",
+        "type": "list",
+        "default": [],
+        "hint": "支持多个管理员，使用列表格式"
+      },
+      "black_threshold": {
+        "description": "拉黑触发次数",
+        "type": "int",
+        "default": 3,
+        "hint": "低好感计数器达到该次数后自动拉黑"
+      },
+      "black_favor_limit": {
+        "description": "自动拉黑好感度阈值",
+        "type": "int",
+        "default": -20,
+        "hint": "当好感度低于该值时可能触发拉黑"
+      },
+      "min_favor_value": {
+        "description": "最低好感度值",
+        "type": "int",
+        "default": -30,
+        "hint": "好感度减少下限"
+      },
+      "max_favor_value": {
+        "description": "最高好感度值",
+        "type": "int",
+        "default": 149,
+        "hint": "好感度增加上限"
+      },
+      "clean_response": {
+        "description": "是否清理回复中的标记",
+        "type": "bool",
+        "default": true,
+        "hint": "开启后会从回复中删除[好感度]等标记文本"
+      },
+      "clean_patterns": {
+        "description": "要清理的正则表达式",
+        "type": "list",
+        "default": ["【.*?】", "\\[好感度.*?\\]"],
+        "hint": "用正则表达式匹配需要从回复中删除的内容"
+      },
+      "auto_blacklist_clean": {
+        "description": "自动清理自动拉黑的用户",
+        "type": "bool",
+        "default": true,
+        "hint": "开启后定期自动移除过期的自动拉黑用户"
+      },
+      "auto_blacklist_time": {
+        "description": "自动拉黑保留时间（小时）",
+        "type": "int",
+        "default": 24,
+        "hint": "自动拉黑的用户经过此时间后自动移出"
+      },
+      "session_based_favor": {
+        "description": "会话独立好感度",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后每个会话的好感度独立计算"
+      },
+      "session_based_blacklist": {
+        "description": "会话独立黑名单",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后每个会话的黑名单独立计算"
+      },
+      "session_based_counter": {
+        "description": "会话独立计数器",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后每个会话的计数器独立计算"
+      },
+      "auto_decrease_counter": {
+        "description": "低好感计数器自动减少",
+        "type": "bool",
+        "default": true,
+        "hint": "开启后低好感计数器会定期自动减少"
+      },
+      "auto_decrease_counter_hours": {
+        "description": "计数器减少间隔（小时）",
+        "type": "int",
+        "default": 24,
+        "hint": "每隔多少小时自动减少一次计数器"
+      },
+      "auto_decrease_counter_amount": {
+        "description": "计数器每次减少数量",
+        "type": "int",
+        "default": 1,
+        "hint": "每次自动减少的计数器数值"
+      }
+    }
   }
 }

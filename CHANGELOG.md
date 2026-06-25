@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.21.0 (2026-06-24)
+
+### New Features
+
+- **好感度系统**: 集成 likability-level (AGPL-3.0) by wuyan1003 的好感度管理功能。
+  - LLM 回复末尾添加 `[好感度上升/下降/持平]` 标记，自动更新用户好感度
+  - 好感度等级影响 AI 对用户的态度（极度厌恶 → 挚爱）
+  - 低好感度自动拉黑，支持定时清理
+  - 注入方式采用 `extra_user_content_parts` + `mark_as_temp()`，与风格学习一致
+  - 新指令：`/好感度` 查询、`/管理` 管理员维护
+  - 配置项 `favor_system` 含 16 项可调参数
+
 ## v1.20.0 (2026-06-24)
 
 ### Refactoring
