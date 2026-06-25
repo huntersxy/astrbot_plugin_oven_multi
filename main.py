@@ -600,6 +600,12 @@ class OvenMultiPlugin(Star):
             )
         req.system_prompt = rewrite_result.merged_system_prompt
 
+        # ── 静态好感度指令 → system_prompt（不随用户变化，不影响缓存） ──
+        if self.favor_manager:
+            from .favor_manager import FavorManager
+
+            req.system_prompt += "\n\n" + FavorManager.INSTRUCTION_TEXT
+
         # ── 差分捕捉：快照其他插件的注入 ──
         _d = {}  # debug info
         try:
@@ -652,10 +658,10 @@ class OvenMultiPlugin(Star):
                     _d["mark_as_temp"] = False
                 req.extra_user_content_parts.append(part)
 
-        # ── 好感度注入 → extra_user_content_parts ──
+        # ── 好感度关系描述 → extra_user_content_parts（动态，随好感度变化） ──
         favor_text = None
         if self.favor_manager:
-            favor_text = self.favor_manager.build_injection_text(
+            favor_text = self.favor_manager.build_relationship_text(
                 user_id, session_id if self.favor_manager.session_based_favor else None
             )
             if favor_text:

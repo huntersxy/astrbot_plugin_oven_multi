@@ -326,16 +326,20 @@ class FavorManager:
         else:
             return "挚爱"
 
-    def build_injection_text(self, user_id: str, session_id: str = None) -> str:
-        """构建好感度注入文本（用于 extra_user_content_parts）。"""
+    # ── 静态指令（不变，适合放 system_prompt） ──
+    INSTRUCTION_TEXT = (
+        "<favor_instruction>\n"
+        "请根据你和用户的对话质量，在回复末尾添加好感度变化标记："
+        "[好感度大幅上升]、[好感度上升]、[好感度持平]、"
+        "[好感度下降]或[好感度大幅下降]。"
+        "不要添加其他格式的标记。\n"
+        "</favor_instruction>"
+    )
+
+    def build_relationship_text(self, user_id: str, session_id: str = None) -> str:
+        """构建动态的好感度关系描述（适合放 extra_user_content_parts）。"""
         favor_value = self.get_favor(user_id, session_id)
         return (
-            "<favor_instruction>\n"
-            "请根据你和用户的对话质量，在回复末尾添加好感度变化标记："
-            "[好感度大幅上升]、[好感度上升]、[好感度持平]、"
-            "[好感度下降]或[好感度大幅下降]。"
-            "不要添加其他格式的标记。\n"
-            "</favor_instruction>\n"
             f"<favor_relationship>\n"
             f"{self.get_favor_level(favor_value)}\n"
             f"</favor_relationship>"
