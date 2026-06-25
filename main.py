@@ -111,7 +111,7 @@ async def _extract_forward_content(event: AstrMessageEvent) -> str | None:
             seg_types.append(f"dict:{seg.get('type', 'unknown')}")
         else:
             seg_types.append(type(seg).__name__)
-    logger.debug(f"[烤箱-合并转发] 消息段类型: {seg_types}")
+    logger.info(f"[烤箱-合并转发] 消息段类型: {seg_types}")
 
     forward_id = ""
 
@@ -122,11 +122,11 @@ async def _extract_forward_content(event: AstrMessageEvent) -> str | None:
         for seg in message_segments:
             if isinstance(seg, ForwardComp):
                 forward_id = str(getattr(seg, "id", ""))
-                logger.debug(f"[烤箱-合并转发] 检测到 Forward 组件: id={forward_id}")
+                logger.info(f"[烤箱-合并转发] 检测到 Forward 组件: id={forward_id}")
                 break
             if isinstance(seg, dict) and seg.get("type") == "forward":
                 forward_id = str(seg.get("data", {}).get("id", ""))
-                logger.debug(f"[烤箱-合并转发] 检测到 dict forward: id={forward_id}")
+                logger.info(f"[烤箱-合并转发] 检测到 dict forward: id={forward_id}")
                 break
     except ImportError as e:
         logger.debug(f"[烤箱-合并转发] Forward 组件导入失败: {e}")
@@ -183,7 +183,7 @@ async def _extract_forward_content(event: AstrMessageEvent) -> str | None:
             logger.debug(f"[烤箱-合并转发] Reply 检测异常: {e}")
 
     if not forward_id:
-        logger.debug("[烤箱-合并转发] 未检测到 forward_id")
+        logger.info("[烤箱-合并转发] 未检测到 forward_id")
         return None
 
     # 调用 get_forward_msg API
