@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.22.0 (2026-06-25)
+
+### New Features
+
+- **合并转发消息解析 Tool**: 新增 `parse_forward_message` LLM Tool，自动检测群聊中的合并转发（Forward）消息并供 LLM 调用获取内容。
+  - 支持直接发送的合并转发和回复中引用的合并转发
+  - 通过 OneBot11 `get_forward_msg` API 提取文本内容
+  - LLM 可主动调用 tool 获取转发内容，按需加载不占上下文空间
+  - 配置项 `forward_message.enabled` 控制开关（默认开启）
+  - 来源于 `astrbot_plugin_group_context` (AGPL-3.0) 的合并转发解析逻辑
+
 ## v1.21.0 (2026-06-24)
 
 ### New Features

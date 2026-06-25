@@ -46,6 +46,21 @@ from .balance_checker import BalanceChecker
 
 PLUGIN_NAME = "astrbot_plugin_oven_multi"
 
+# 合并转发消息缓存：unified_msg_origin -> 解析后的文本内容
+_forward_cache: dict[str, str] = {}
+
+# LLM Tool 相关导入（运行时可用）
+try:
+    from pydantic import Field
+    from pydantic.dataclasses import dataclass as pydantic_dataclass
+    from astrbot.core.agent.tool import FunctionTool, ToolExecResult
+    from astrbot.core.agent.run_context import ContextWrapper
+    from astrbot.core.astr_agent_context import AstrAgentContext
+
+    _TOOL_IMPORTS_OK = True
+except Exception:
+    _TOOL_IMPORTS_OK = False
+
 
 def collapse_blank_lines(text, max_newlines=1):
     limit = max(int(max_newlines), 0)
@@ -73,6 +88,166 @@ PAIR_LIST = {
     "〘": "〙", "〙": "〘",
     "〚": "〛", "〛": "〚",
 }
+
+
+async def _extract_forward_content(event: AstrMessageEvent) -> str | None:
+    """检测并提取合并转发消息内容
+
+    遍历消息组件检测 Forward/Reply 组件，
+    调用 OneBot11 get_forward_msg API 提取文本内容。
+
+    Returns:
+        格式化后的合并转发文本，未检测到则返回 None
+    """
+    message_segments = getattr(event.message_obj, "message", None)
+    if not message_segments or not isinstance(message_segments, list):
+        return None
+
+    forward_id = ""
+
+    # 场景1: 直接发送的合并转发
+    try:
+        from astrbot.api.message_components import Forward as ForwardComp
+
+        for seg in message_segments:
+            if isinstance(seg, ForwardComp):
+                forward_id = str(getattr(seg, "id", ""))
+                break
+            if isinstance(seg, dict) and seg.get("type") == "forward":
+                forward_id = str(seg.get("data", {}).get("id", ""))
+                break
+    except Exception:
+        pass
+
+    # 场景2: 回复中引用的合并转发
+    if not forward_id:
+        try:
+            from astrbot.api.message_components import Reply as ReplyComp
+
+            for seg in message_segments:
+                if isinstance(seg, ReplyComp):
+                    reply_id = getattr(seg, "id", "")
+                    if not reply_id:
+                        break
+                    bot = getattr(event, "bot", None)
+                    if bot is None:
+                        break
+                    try:
+                        result = await asyncio.wait_for(
+                            bot.call_action("get_msg", message_id=int(str(reply_id))),
+                            timeout=5.0,
+                        )
+                        if result and isinstance(result, dict):
+                            original_segments = result.get("message", [])
+                            if isinstance(original_segments, list):
+                                for segment in original_segments:
+                                    if (
+                                        isinstance(segment, dict)
+                                        and segment.get("type") == "forward"
+                                    ):
+                                        forward_id = str(
+                                            segment.get("data", {}).get("id", "")
+                                        )
+                                        break
+                    except Exception:
+                        pass
+                    break
+        except Exception:
+            pass
+
+    if not forward_id:
+        return None
+
+    # 调用 get_forward_msg API
+    bot = getattr(event, "bot", None)
+    if bot is None:
+        return None
+
+    try:
+        forward_data = await asyncio.wait_for(
+            bot.call_action("get_forward_msg", id=forward_id),
+            timeout=10.0,
+        )
+    except Exception:
+        return None
+
+    if not forward_data or not isinstance(forward_data, dict):
+        return None
+
+    messages = forward_data.get("messages", [])
+    if not messages:
+        return None
+
+    lines: list[str] = ["【合并转发内容】"]
+    for node in messages:
+        sender_name = node.get("sender", {}).get("nickname", "未知用户") or "未知用户"
+        raw_content = node.get("message") or node.get("content", [])
+
+        text_parts: list[str] = []
+        if isinstance(raw_content, list):
+            for seg in raw_content:
+                if isinstance(seg, dict):
+                    seg_type = seg.get("type", "")
+                    seg_data = seg.get("data", {})
+                    if seg_type == "text":
+                        text_parts.append(seg_data.get("text", ""))
+                    elif seg_type == "at":
+                        text_parts.append(f"[At: {seg_data.get('qq', '')}]")
+                    elif seg_type == "image":
+                        text_parts.append("[图片]")
+        elif isinstance(raw_content, str):
+            text_parts.append(raw_content)
+
+        node_text = f"{sender_name}: {''.join(text_parts)}".strip()
+        if node_text and node_text != f"{sender_name}:":
+            lines.append(node_text)
+
+    if len(lines) == 1:
+        return None
+
+    return "\n".join(lines)
+
+
+if _TOOL_IMPORTS_OK:
+
+    @pydantic_dataclass
+    class ParseForwardTool(FunctionTool[AstrAgentContext]):
+        """解析合并转发消息的 Tool
+
+        当用户发送合并转发消息时，LLM 可调用此工具获取转发的文本内容。
+        """
+
+        name: str = "parse_forward_message"
+        description: str = (
+            "解析用户消息中的合并转发（Forward）内容。"
+            "当用户发送或引用合并转发消息时，调用此工具获取其中的文本对话内容。"
+            "返回格式为每条消息一行：发送者: 内容"
+        )
+        parameters: dict = Field(
+            default_factory=lambda: {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            }
+        )
+
+        async def call(
+            self, context: ContextWrapper[AstrAgentContext], **kwargs
+        ) -> ToolExecResult:
+            """执行合并转发解析
+
+            Returns:
+                合并转发文本内容，或提示无转发内容
+            """
+            try:
+                event = context.context.event
+                key = event.unified_msg_origin
+                content = _forward_cache.pop(key, None)
+                if content:
+                    return f"【合并转发解析结果】\n{content}"
+                return "当前消息中没有检测到合并转发内容。"
+            except Exception as e:
+                return f"解析合并转发失败: {e}"
 
 
 class BracketMatcher:
@@ -129,7 +304,7 @@ class ThinkingManager:
                     pass
 
 
-@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.21.0")
+@register(PLUGIN_NAME, "汐兮雨", "插座的多功能烤箱", "1.22.0")
 class OvenMultiPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
@@ -160,8 +335,22 @@ class OvenMultiPlugin(Star):
         # 余额查询
         self.balance_checker = BalanceChecker(self.config)
 
+        # 注册合并转发解析 Tool
+        self._register_forward_tool()
+
         # 注册 Web API
         self._register_web_api()
+
+    def _register_forward_tool(self):
+        """注册 parse_forward_message LLM Tool"""
+        if not _TOOL_IMPORTS_OK:
+            logger.debug("[烤箱-合并转发] LLM Tool 导入不可用，跳过注册")
+            return
+        try:
+            self.context.add_llm_tools(ParseForwardTool())
+            logger.info("[烤箱-合并转发] 已注册 parse_forward_message Tool")
+        except Exception as e:
+            logger.warning(f"[烤箱-合并转发] 注册 Tool 失败: {e}")
 
     def _register_web_api(self):
         """注册 Web API 用于插件页面"""
@@ -474,6 +663,17 @@ class OvenMultiPlugin(Star):
         if not self._is_enabled(event):
             return
         content = event.message_obj.message_str
+
+        # 检测合并转发消息并缓存内容
+        cfg = self.config.get("forward_message", {})
+        if isinstance(cfg, dict) and cfg.get("enabled", True):
+            forward_text = await _extract_forward_content(event)
+            if forward_text:
+                _forward_cache[event.unified_msg_origin] = forward_text
+                logger.info(
+                    f"[烤箱-合并转发] 已缓存转发内容 "
+                    f"({len(forward_text)} 字符) | origin={event.unified_msg_origin}"
+                )
 
         bm = self.config.get("bracket_matching", {})
         if isinstance(bm, dict) and bm.get("enabled"):
