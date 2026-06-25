@@ -189,6 +189,7 @@ async def _extract_forward_content(event: AstrMessageEvent) -> str | None:
     # 调用 get_forward_msg API
     bot = getattr(event, "bot", None)
     if bot is None:
+        logger.info("[烤箱-合并转发] event.bot 不存在，无法调用 API")
         return None
 
     try:
@@ -196,14 +197,22 @@ async def _extract_forward_content(event: AstrMessageEvent) -> str | None:
             bot.call_action("get_forward_msg", id=forward_id),
             timeout=10.0,
         )
-    except Exception:
+        logger.info(f"[烤箱-合并转发] get_forward_msg API 返回: {type(forward_data)}, keys={list(forward_data.keys()) if isinstance(forward_data, dict) else 'N/A'}")
+    except asyncio.TimeoutError:
+        logger.info(f"[烤箱-合并转发] get_forward_msg API 超时: forward_id={forward_id}")
+        return None
+    except Exception as e:
+        logger.info(f"[烤箱-合并转发] get_forward_msg API 失败: {e}")
         return None
 
     if not forward_data or not isinstance(forward_data, dict):
+        logger.info(f"[烤箱-合并转发] API 返回无效: forward_data={forward_data}")
         return None
 
     messages = forward_data.get("messages", [])
+    logger.info(f"[烤箱-合并转发] messages 数量: {len(messages)}")
     if not messages:
+        logger.info("[烤箱-合并转发] messages 为空数组，可能是 NapCat API 限制")
         return None
 
     lines: list[str] = ["【合并转发内容】"]
