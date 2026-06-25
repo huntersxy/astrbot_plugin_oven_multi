@@ -1,7 +1,7 @@
 name: astrbot_plugin_oven_multi
 display_name: 插座的多功能烤箱
 desc: 整合多种实用功能的插件，包含括号自动匹配、消息复读、移除空行、思考表情、风格学习（分析群聊风格并注入LLM回复）、主动回复和余额查询
-version: v1.22.0
+version: v1.22.1
 author: 汐兮雨
 repo: https://github.com/huntersxy/astrbot_plugin_oven_multi
 support_platforms:
