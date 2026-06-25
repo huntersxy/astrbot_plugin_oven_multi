@@ -220,8 +220,7 @@ class OvenMultiPlugin(Star):
         if isinstance(fcfg, dict) and fcfg.get("enabled", True):
             try:
                 from .favor_manager import FavorManager
-                data_dir = StarTools.get_data_dir(PLUGIN_NAME)
-                self.favor_manager = FavorManager(data_dir, self.config)
+                self.favor_manager = FavorManager(self.config)
             except Exception as e:
                 logger.error(f"[烤箱-好感度] 初始化失败: {e}")
 

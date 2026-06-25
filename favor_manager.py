@@ -31,10 +31,8 @@ class FavorManager:
     Modified from likability-level by wuyan1003 (AGPL-3.0)
     """
 
-    DATA_DIR = Path("data") / "FavorSystem"
-
-    def __init__(self, data_dir: str | Path, config: dict[str, Any]):
-        self.data_dir = Path(data_dir) / "FavorSystem"
+    def __init__(self, config: dict[str, Any]):
+        self.data_dir = Path("data") / "FavorSystem"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self._read_config(config)
         self._load_all_data()
