@@ -51,6 +51,8 @@
 | `add_done_emoji` | 完成后添加完成表情 | `true` |
 
 ### 风格学习 (`style_learning`)
+> 风格注入前会自动剥离平台 LTM（Long-Term Memory）注入并进行去重，减少 prompt 膨胀。
+
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `enabled` | 启用 | `true` |
@@ -112,3 +114,4 @@ GNU Affero General Public License v3.0
 - astrbot_plugin_iearning_style (AGPL-3.0) by qa296 — 风格学习
 - astrbot_plugin_remove_blank_lines (MIT) by Codex — 移除空行
 - astrbot_plugin_balance by BUGJI — 余额查询
+- astrbot_plugin_group_chat_plus (AGPL-3.0) by Him666233 — System prompt 兼容增强
