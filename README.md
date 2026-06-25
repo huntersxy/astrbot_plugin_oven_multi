@@ -81,6 +81,20 @@
 | `config_content` | YAML 格式的服务配置 | 示例配置 |
 | `config_mode` | 配置模式 (`simple`/`yaml`) | `"yaml"` |
 
+### 好感度 (`favor_system`)
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `enabled` | 启用 | `true` |
+| `admins_id` | 管理员 QQ 号列表 | `[]` |
+| `black_threshold` | 拉黑触发次数 | `3` |
+| `black_favor_limit` | 自动拉黑好感度阈值 | `-20` |
+| `clean_response` | 清理回复中的好感度标记 | `true` |
+| `auto_blacklist_clean` | 自动清理过期的拉黑 | `true` |
+| `auto_blacklist_time` | 拉黑保留时间（小时） | `24` |
+| `session_based_favor` | 会话独立好感度 | `false` |
+| `auto_decrease_counter` | 计数器自动减少 | `true` |
+| `auto_decrease_counter_hours` | 计数器减少间隔（小时） | `24` |
+
 ## 命令
 
 | 命令 | 说明 |
@@ -89,6 +103,8 @@
 | `风格状态` | 查看当前会话的风格学习统计 |
 | `清空风格` | 清空当前会话的所有学习风格 |
 | `学习总结` | 手动触发一次风格学习分析 |
+| `好感度` | 查看自己当前的好感度值和等级 |
+| `管理` | （管理员）好感度/黑名单/白名单/计数器管理 |
 
 ## Dashboard
 
@@ -118,6 +134,7 @@ GNU Affero General Public License v3.0
 - astrbot_plugin_iearning_style (AGPL-3.0) by qa296 — 风格学习
 - astrbot_plugin_group_chat_plus (AGPL-3.0) by Him666233 — System prompt 兼容增强与差分捕捉机制
 - astrbot_plugin_iris_chat_memory (AGPL-3.0) by  — `extra_user_content_parts` 注入策略与 `mark_as_temp()` 实践
+- likability-level (AGPL-3.0) by wuyan1003 — 好感度管理
 - astrbot_plugin_remove_blank_lines (MIT) by Codex — 移除空行
 - astrbot_plugin_balance by BUGJI — 余额查询
 - astrbot_plugin_group_chat_plus (AGPL-3.0) by Him666233 — System prompt 兼容增强
