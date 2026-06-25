@@ -241,10 +241,17 @@ if _TOOL_IMPORTS_OK:
             """
             try:
                 event = context.context.event
+                # 优先从缓存获取（预检测的结果）
                 key = event.unified_msg_origin
                 content = _forward_cache.pop(key, None)
                 if content:
                     return f"【合并转发解析结果】\n{content}"
+
+                # 缓存中没有则实时检测当前消息
+                content = await _extract_forward_content(event)
+                if content:
+                    return f"【合并转发解析结果】\n{content}"
+
                 return "当前消息中没有检测到合并转发内容。"
             except Exception as e:
                 return f"解析合并转发失败: {e}"
