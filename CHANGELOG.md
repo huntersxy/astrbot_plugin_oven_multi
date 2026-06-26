@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.23.0 (2026-06-26)
+
+### Refactoring
+
+- **模块化重构**: 将单体 `main.py` 拆分为多层模块结构，提升复用性和可维护性。
+  - `core/config_manager.py`: 统一配置管理器，消除各模块重复的配置验证逻辑
+  - `core/base_feature.py`: 功能模块基类，定义统一接口规范
+  - `utils/constants.py`: 集中管理插件名称、版本号、功能常量
+  - `utils/decorators.py`: 通用错误处理/计时/日志装饰器
+  - `features/bracket_matcher.py`: 括号匹配功能独立模块
+  - `features/repeater.py`: 消息复读功能独立模块
+  - `features/thinking_manager.py`: 思考表情管理独立模块
+  - `features/forward_handler.py`: 合并转发处理独立模块（含缓存管理）
+  - `features/active_reply.py`: 主动回复功能独立模块
+  - `main.py`: 精简为插件入口，Handler 注册 + 功能模块协调
+
 ## v1.22.1 (2026-06-25)
 
 ### Bug Fixes
