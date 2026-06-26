@@ -42,7 +42,6 @@ from .utils.constants import (
     PLUGIN_DESC,
     FEATURE_BRACKET,
     FEATURE_REPETITION,
-    FEATURE_FORWARD,
     FEATURE_STYLE,
     FEATURE_FAVOR,
     FEATURE_ACTIVE_REPLY,
@@ -52,7 +51,6 @@ from .utils.constants import (
 from .features.bracket_matcher import BracketMatcher
 from .features.repeater import Repeater
 from .features.thinking_manager import ThinkingManager
-from .features.forward_handler import ForwardHandler
 from .features.active_reply import ActiveReply
 from .learning_style.data_manager import DataManager as StyleDataManager
 from .learning_style.learning_manager import LearningManager
@@ -60,64 +58,10 @@ from .learning_style.scheduler import Scheduler as StyleScheduler
 from .learning_style.style_injector import StyleInjector
 from .balance_checker import BalanceChecker
 
-# LLM Tool 相关导入（运行时可用）
-try:
-    from pydantic import Field
-    from pydantic.dataclasses import dataclass as pydantic_dataclass
-    from astrbot.core.agent.tool import FunctionTool, ToolExecResult
-    from astrbot.core.agent.run_context import ContextWrapper
-    from astrbot.core.astr_agent_context import AstrAgentContext
-
-    _TOOL_IMPORTS_OK = True
-except Exception:
-    _TOOL_IMPORTS_OK = False
-
-
 def collapse_blank_lines(text, max_newlines=1):
     limit = max(int(max_newlines), 0)
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     return re.sub(r"\n{" + str(limit + 1) + r",}", "\n" * limit, normalized)
-
-
-if _TOOL_IMPORTS_OK:
-
-    @pydantic_dataclass
-    class ParseForwardTool(FunctionTool[AstrAgentContext]):
-        """解析合并转发消息的 Tool"""
-
-        name: str = "parse_forward_message"
-        description: str = (
-            "解析用户消息中的合并转发（Forward）内容。"
-            "当用户发送或引用合并转发消息时，调用此工具获取其中的文本对话内容。"
-            "返回格式为每条消息一行：发送者: 内容"
-        )
-        parameters: dict = Field(
-            default_factory=lambda: {
-                "type": "object",
-                "properties": {},
-                "required": [],
-            }
-        )
-
-        _forward_handler: ForwardHandler = None
-
-        async def call(
-            self, context: ContextWrapper[AstrAgentContext], **kwargs
-        ) -> ToolExecResult:
-            try:
-                event = context.context.event
-                handler = self._forward_handler
-                if handler:
-                    key = event.unified_msg_origin
-                    content = handler.get_cached(key)
-                    if content:
-                        return f"【合并转发解析结果】\n{content}"
-                content = await handler.extract(event) if handler else None
-                if content:
-                    return f"【合并转发解析结果】\n{content}"
-                return "当前消息中没有检测到合并转发内容。"
-            except Exception as e:
-                return f"解析合并转发失败: {e}"
 
 
 @register(PLUGIN_NAME, PLUGIN_AUTHOR, PLUGIN_DESC, PLUGIN_VERSION)
@@ -140,7 +84,6 @@ class OvenMultiPlugin(Star):
         self.matcher = BracketMatcher()
         self.repeater = Repeater()
         self.thinking = ThinkingManager()
-        self.forward_handler = ForwardHandler()
         self.active_reply = ActiveReply()
 
         # 风格学习
@@ -156,9 +99,6 @@ class OvenMultiPlugin(Star):
 
         # 余额查询
         self.balance_checker = BalanceChecker(self.config)
-
-        # 注册合并转发解析 Tool
-        self._register_forward_tool()
 
         # 注册 Web API
         self._register_web_api()
@@ -191,18 +131,6 @@ class OvenMultiPlugin(Star):
             self.favor_manager = FavorManager(self.config)
         except Exception as e:
             logger.error(f"[烤箱-好感度] 初始化失败: {e}")
-
-    def _register_forward_tool(self):
-        if not _TOOL_IMPORTS_OK:
-            logger.debug("[烤箱-合并转发] LLM Tool 导入不可用，跳过注册")
-            return
-        try:
-            tool = ParseForwardTool()
-            tool._forward_handler = self.forward_handler
-            self.context.add_llm_tools(tool)
-            logger.info("[烤箱-合并转发] 已注册 parse_forward_message Tool")
-        except Exception as e:
-            logger.warning(f"[烤箱-合并转发] 注册 Tool 失败: {e}")
 
     def _register_web_api(self):
         self.context.register_web_api(
@@ -315,16 +243,6 @@ class OvenMultiPlugin(Star):
             return
 
         content = event.message_obj.message_str
-
-        # 合并转发检测与缓存
-        if self.config_mgr.is_feature_enabled(FEATURE_FORWARD):
-            forward_text = await self.forward_handler.extract(event)
-            if forward_text:
-                self.forward_handler.set_cache(event.unified_msg_origin, forward_text)
-                logger.info(
-                    f"[烤箱-合并转发] 已缓存转发内容 "
-                    f"({len(forward_text)} 字符) | origin={event.unified_msg_origin}"
-                )
 
         # 括号匹配
         if self.config_mgr.is_feature_enabled(FEATURE_BRACKET):

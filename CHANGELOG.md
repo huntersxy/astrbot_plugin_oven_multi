@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.24.0 (2026-06-26)
+
+### Removed
+
+- **移除合并转发功能**: 删除合并转发消息解析功能及其相关代码。
+  - 移除 `features/forward_handler.py` 模块
+  - 移除 `ParseForwardTool` LLM Tool 注册
+  - 移除 `FEATURE_FORWARD` 常量及相关日志
+
 ## v1.23.0 (2026-06-26)
 
 ### Refactoring

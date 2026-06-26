@@ -15,7 +15,7 @@
 
 # 插件基本信息
 PLUGIN_NAME = "astrbot_plugin_oven_multi"
-PLUGIN_VERSION = "1.23.0"
+PLUGIN_VERSION = "1.24.0"
 PLUGIN_AUTHOR = "汐兮雨"
 PLUGIN_DESC = "插座的多功能烤箱"
 
@@ -25,7 +25,6 @@ LOG_PREFIX = "烤箱"
 # 功能模块名称常量
 FEATURE_BRACKET = "bracket_matching"
 FEATURE_REPETITION = "repetition"
-FEATURE_FORWARD = "forward_message"
 FEATURE_STYLE = "style_learning"
 FEATURE_FAVOR = "favor_system"
 FEATURE_ACTIVE_REPLY = "active_reply"
@@ -53,6 +52,3 @@ PAIR_LIST = {
     "〘": "〙", "〙": "〘",
     "〚": "〛", "〛": "〚",
 }
-
-# 合并转发消息缓存
-_forward_cache: dict[str, str] = {}

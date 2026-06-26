@@ -16,5 +16,4 @@
 from .bracket_matcher import BracketMatcher
 from .repeater import Repeater
 from .thinking_manager import ThinkingManager
-from .forward_handler import ForwardHandler
 from .active_reply import ActiveReply
