@@ -43,7 +43,6 @@ from .utils.constants import (
     FEATURE_BRACKET,
     FEATURE_REPETITION,
     FEATURE_STYLE,
-    FEATURE_FAVOR,
     FEATURE_ACTIVE_REPLY,
     FEATURE_REMOVE_BLANK,
     FEATURE_THINKING,
@@ -93,10 +92,6 @@ class OvenMultiPlugin(Star):
         self.style_injector = None
         self._init_style_learning()
 
-        # 好感度系统
-        self.favor_manager = None
-        self._init_favor_system()
-
         # 余额查询
         self.balance_checker = BalanceChecker(self.config)
 
@@ -121,16 +116,6 @@ class OvenMultiPlugin(Star):
             logger.info("[烤箱-风格学习] 初始化完成")
         except Exception as e:
             logger.error(f"[烤箱-风格学习] 初始化失败: {e}")
-
-    def _init_favor_system(self):
-        if not self.config_mgr.is_feature_enabled(FEATURE_FAVOR):
-            return
-        try:
-            from .favor_manager import FavorManager
-
-            self.favor_manager = FavorManager(self.config)
-        except Exception as e:
-            logger.error(f"[烤箱-好感度] 初始化失败: {e}")
 
     def _register_web_api(self):
         self.context.register_web_api(
@@ -158,8 +143,6 @@ class OvenMultiPlugin(Star):
             await self.style_scheduler.stop()
         if self.style_data_manager:
             await self.style_data_manager.force_save()
-        if self.favor_manager:
-            self.favor_manager.force_save()
 
     # ── Web API ──
 
@@ -220,10 +203,6 @@ class OvenMultiPlugin(Star):
             summary = self.style_injector.get_style_summary(session_id)
             if summary["has_styles"]:
                 response += f"   └─ 通用: {summary['universal_count']} 条\n"
-
-        fcfg = self.config_mgr.get_feature_config(FEATURE_FAVOR)
-        favor_enabled = isinstance(fcfg, dict) and fcfg.get("enabled", True)
-        response += f"💖 好感度: {'✅ 启用' if favor_enabled else '❌ 禁用'}\n"
 
         ar = self.config_mgr.get_feature_config(FEATURE_ACTIVE_REPLY)
         ar_enabled = isinstance(ar, dict) and ar.get("enable", False)
@@ -391,12 +370,6 @@ class OvenMultiPlugin(Star):
             )
         req.system_prompt = rewrite_result.merged_system_prompt
 
-        # 静态好感度指令
-        if self.favor_manager:
-            from .favor_manager import FavorManager
-
-            req.system_prompt += "\n\n" + FavorManager.INSTRUCTION_TEXT
-
         # 差分捕捉
         _d = {}
         try:
@@ -417,19 +390,6 @@ class OvenMultiPlugin(Star):
         except Exception:
             _d["extra_count_before"] = 0
 
-        # 黑名单检查
-        user_id = str(event.get_sender_id())
-        _is_blacklisted = False
-        if self.favor_manager:
-            _is_blacklisted = self.favor_manager.is_blacklisted(
-                user_id,
-                session_id if self.favor_manager.session_based_blacklist else None,
-            )
-        if _is_blacklisted:
-            logger.debug(f"[烤箱-好感度] 用户 {user_id} 在黑名单中，拦截 LLM 请求")
-            event.stop_event()
-            return
-
         # 风格注入
         style_text = None
         if self.style_injector and self.config_mgr.is_feature_enabled(FEATURE_STYLE):
@@ -446,29 +406,13 @@ class OvenMultiPlugin(Star):
                     _d["mark_as_temp"] = False
                 req.extra_user_content_parts.append(part)
 
-        # 好感度关系描述
-        favor_text = None
-        if self.favor_manager:
-            favor_text = self.favor_manager.build_relationship_text(
-                user_id,
-                session_id if self.favor_manager.session_based_favor else None,
-            )
-            if favor_text:
-                _d["favor_len"] = len(favor_text)
-                from astrbot.core.agent.message import TextPart
-
-                part = TextPart(text=favor_text)
-                if hasattr(part, "mark_as_temp"):
-                    part.mark_as_temp()
-                req.extra_user_content_parts.append(part)
-
         # 差分日志
         try:
             if hasattr(req, "extra_user_content_parts") and isinstance(
                 req.extra_user_content_parts, list
             ):
                 _d["extra_count_after"] = len(req.extra_user_content_parts)
-                injected = bool(style_text) + bool(favor_text)
+                injected = bool(style_text)
                 other_count = _d["extra_count_after"] - _d["extra_count_before"] - injected
                 if other_count > 0:
                     logger.info(
@@ -477,43 +421,10 @@ class OvenMultiPlugin(Star):
         except Exception:
             pass
 
-        _d["injected"] = bool(style_text) or bool(favor_text)
+        _d["injected"] = bool(style_text)
         logger.debug(f"[烤箱] on_llm_request 摘要: {_d}")
 
-    @filter.on_llm_response()
-    async def on_llm_resp_favor(self, event: AstrMessageEvent, resp):
-        if not self.favor_manager:
-            return
-        if not self.config_mgr.is_feature_enabled(FEATURE_FAVOR):
-            return
-
-        fcfg = self.config_mgr.get_feature_config(FEATURE_FAVOR)
-        user_id = str(event.get_sender_id())
-        session_id = event.unified_msg_origin
-        text = resp.completion_text or ""
-
-        before = self.favor_manager.get_favor(
-            user_id, session_id if self.favor_manager.session_based_favor else None
-        )
-        self.favor_manager.update_favor(
-            user_id, text, session_id if self.favor_manager.session_based_favor else None
-        )
-        after = self.favor_manager.get_favor(
-            user_id, session_id if self.favor_manager.session_based_favor else None
-        )
-        if before != after:
-            logger.debug(
-                f"[烤箱-好感度] 用户 {user_id} "
-                f"{before} → {after} "
-                f"({self.favor_manager.get_favor_level_short(after)})"
-            )
-
-        if fcfg.get("clean_response", True):
-            cleaned = self.favor_manager.clean_response_text(text)
-            if cleaned != text:
-                resp.completion_text = cleaned
-
-    # ── Handler：风格/好感度命令 ──
+    # ── Handler：风格命令 ──
 
     @filter.command("风格状态")
     async def style_status(self, event: AstrMessageEvent):
@@ -576,163 +487,11 @@ class OvenMultiPlugin(Star):
             logger.error(f"[烤箱-风格学习] 手动触发学习分析失败: {e}")
             yield event.plain_result(f"学习分析失败：{e}")
 
-    # ── Handler：好感度命令 ──
+    # ── 工具方法 ──
 
-    @filter.command("好感度")
-    async def query_favor(self, event: AstrMessageEvent):
-        if not self.favor_manager:
-            yield event.plain_result("好感度系统未初始化。")
-            return
-        user_id = str(event.get_sender_id())
-        session_id = event.unified_msg_origin
-        f_session = session_id if self.favor_manager.session_based_favor else None
-
-        if self.favor_manager.is_blacklisted(
-            user_id,
-            session_id if self.favor_manager.session_based_blacklist else None,
-        ):
-            yield event.plain_result("你已被列入黑名单")
-            return
-
-        favor = self.favor_manager.get_favor(user_id, f_session)
-        level = self.favor_manager.get_favor_level_short(favor)
-        counter = self.favor_manager.get_low_counter(
-            user_id, session_id if self.favor_manager.session_based_counter else None
+    def _is_enabled(self, event):
+        uid = event.message_obj.sender.user_id
+        gid = event.message_obj.group_id
+        return not self.config_mgr.is_blacklisted(
+            group_id=str(gid), user_id=str(uid)
         )
-        yield event.plain_result(f"当前好感度：{favor} ({level})\n低好感度计数：{counter}")
-
-    @filter.command("管理")
-    async def admin_control(
-        self, event: AstrMessageEvent, cmd: str, target: str = None, value: int = None
-    ):
-        if not self.favor_manager:
-            yield event.plain_result("好感度系统未初始化。")
-            return
-        admins = self._parse_favor_admins()
-        if str(event.get_sender_id()) not in admins:
-            yield event.plain_result("⚠️ 你没有权限执行此操作")
-            return
-
-        fm = self.favor_manager
-        session_id = event.unified_msg_origin
-        f_session = session_id if fm.session_based_favor else None
-        bl_session = session_id if fm.session_based_blacklist else None
-        target = str(target).strip() if target else None
-
-        try:
-            if cmd == "好感度":
-                if target and value is not None:
-                    fm.set_favor(target, value, f_session)
-                    yield event.plain_result(f"✅ 用户 {target} 好感度已设为 {value}")
-                else:
-                    yield event.plain_result(
-                        json.dumps(
-                            fm.session_favor_data.get(session_id, {})
-                            if fm.session_based_favor
-                            else fm.favor_data,
-                            indent=2,
-                            ensure_ascii=False,
-                        )
-                    )
-            elif cmd == "黑名单":
-                if not target:
-                    yield event.plain_result(
-                        json.dumps(
-                            fm.session_blacklist.get(session_id, {})
-                            if fm.session_based_blacklist
-                            else fm.blacklist,
-                            indent=2,
-                            ensure_ascii=False,
-                        )
-                    )
-                else:
-                    if fm.is_blacklisted(target, bl_session):
-                        yield event.plain_result("⚠️ 该用户已在黑名单中")
-                    else:
-                        fm.add_to_blacklist(target, bl_session)
-                        yield event.plain_result(f"⛔ 用户 {target} 已加入黑名单")
-            elif cmd == "移出黑名单":
-                if not target:
-                    yield event.plain_result("⚠️ 请指定要移出黑名单的用户")
-                elif not fm.is_blacklisted(target, bl_session):
-                    yield event.plain_result("⚠️ 该用户不在黑名单中")
-                else:
-                    fm.remove_from_blacklist(target, bl_session)
-                    fm.reset_low_counter(
-                        target, session_id if fm.session_based_counter else None
-                    )
-                    fm.set_favor(target, 0, f_session)
-                    yield event.plain_result(
-                        f"✅ 用户 {target} 已移出黑名单，并重置好感度和计数器"
-                    )
-            elif cmd == "白名单":
-                if not target:
-                    yield event.plain_result(
-                        json.dumps(fm.whitelist, indent=2, ensure_ascii=False)
-                    )
-                else:
-                    if target in fm.whitelist:
-                        yield event.plain_result("⚠️ 该用户已在白名单中")
-                    else:
-                        fm.whitelist[target] = True
-                        fm._save_data(fm.whitelist, "whitelist.json")
-                        yield event.plain_result(f"✅ 用户 {target} 已加入白名单")
-            elif cmd == "移出白名单":
-                if not target:
-                    yield event.plain_result("⚠️ 请指定要移出白名单的用户")
-                elif target not in fm.whitelist:
-                    yield event.plain_result("⚠️ 该用户不在白名单中")
-                else:
-                    del fm.whitelist[target]
-                    fm._save_data(fm.whitelist, "whitelist.json")
-                    yield event.plain_result(f"✅ 用户 {target} 已移出白名单")
-            elif cmd == "计数器":
-                if not target:
-                    yield event.plain_result(
-                        f"当前计数器设置：\n"
-                        f"自动减少：{'开启' if fm.auto_decrease_enabled else '关闭'}\n"
-                        f"减少间隔：{fm.auto_decrease_hours}小时\n"
-                        f"减少数量：{fm.auto_decrease_amount}"
-                    )
-                else:
-                    if target == "开启":
-                        fm.auto_decrease_enabled = True
-                        yield event.plain_result("✅ 已开启计数器自动减少功能")
-                    elif target == "关闭":
-                        fm.auto_decrease_enabled = False
-                        yield event.plain_result("✅ 已关闭计数器自动减少功能")
-                    elif target == "间隔" and value is not None:
-                        if value <= 0:
-                            yield event.plain_result("⚠️ 间隔时间必须大于0")
-                        else:
-                            fm.auto_decrease_hours = value
-                            yield event.plain_result(
-                                f"✅ 已设置计数器减少间隔为 {value} 小时"
-                            )
-                    elif target == "数量" and value is not None:
-                        if value <= 0:
-                            yield event.plain_result("⚠️ 减少数量必须大于0")
-                        else:
-                            fm.auto_decrease_amount = value
-                            yield event.plain_result(
-                                f"✅ 已设置计数器每次减少数量为 {value}"
-                            )
-                    else:
-                        yield event.plain_result(
-                            "❌ 无效的参数，可用参数：开启/关闭/间隔/数量"
-                        )
-            else:
-                yield event.plain_result(
-                    "❌ 无效指令，可用命令：好感度/黑名单/移出黑名单/白名单/移出白名单/计数器"
-                )
-        except ValueError:
-            yield event.plain_result("❌ 数值参数必须为整数")
-        except Exception as e:
-            yield event.plain_result(f"⚠️ 操作失败：{str(e)}")
-
-    def _parse_favor_admins(self) -> list[str]:
-        fcfg = self.config_mgr.get_feature_config(FEATURE_FAVOR)
-        admins = fcfg.get("admins_id", [])
-        if isinstance(admins, str):
-            return [x.strip() for x in admins.split(",")]
-        return [str(x) for x in admins]
