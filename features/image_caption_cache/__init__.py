@@ -12,9 +12,19 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# Image caption cache integration. The cache and patcher core logic is
+# derived from astrbot_plugin_image_caption_cache (AGPL-3.0) by Florance.
+# Repository: https://github.com/FloranceYeh/astrbot_plugin_image_caption_cache
 
-from .bracket_matcher import BracketMatcher
-from .repeater import Repeater
-from .thinking_manager import ThinkingManager
-from .active_reply import ActiveReply
-from .image_caption_cache import ImageCaptionCacheFeature
+from .cache import ImageCaptionCache, CacheStats, resolve_image_caption_cache_ttl
+from .patcher import ImageCaptionCachePatcher
+from .feature import ImageCaptionCacheFeature
+
+__all__ = [
+    "ImageCaptionCache",
+    "CacheStats",
+    "resolve_image_caption_cache_ttl",
+    "ImageCaptionCachePatcher",
+    "ImageCaptionCacheFeature",
+]

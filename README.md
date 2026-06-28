@@ -13,6 +13,7 @@
 | 🎨 风格学习 | 统一学习群聊的总体说话风格，通过 `extra_user_content_parts` 注入 LLM |
 | 💬 主动回复 | 群聊中无需 @ 即可主动回复，支持概率触发和模型判定 |
 | 💰 余额查询 | 查询各服务商余额，可在 Dashboard 页面查看 |
+| 📷 图片转述缓存 | 缓存图片转述结果，减少重复的视觉模型调用，支持 TTL 和图片数量双策略 |
 
 ## 配置
 
@@ -74,6 +75,20 @@
 | `model_stack_size` | 模型判定栈长度 | `8` |
 | `model_choice_provider_id` | 模型判定用的 Provider | `` |
 
+### 图片转述缓存 (`image_caption_cache`)
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `enabled` | 启用 | `true` |
+| `enable_ttl_cache` | 启用 TTL 缓存策略 | `true` |
+| `image_caption_cache_ttl` | 缓存时长（秒） | `600` |
+| `enable_image_count_cache` | 启用图片数量缓存策略 | `true` |
+| `max_cached_images` | 最大缓存图片数量 | `200` |
+| `patch_main_agent` | 缓存主对话图片转述 | `true` |
+| `patch_quoted_message` | 缓存引用消息图片转述 | `true` |
+| `fingerprint_remote_images` | 远程图片使用内容指纹 | `true` |
+| `remote_fingerprint_timeout` | 远程图片指纹超时（秒） | `8` |
+| `remote_fingerprint_max_bytes` | 远程图片指纹最大下载字节数 | `20971520` |
+
 ### 余额查询 (`balance`)
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
@@ -88,6 +103,8 @@
 | `风格状态` | 查看当前会话的风格学习统计 |
 | `清空风格` | 清空当前会话的所有学习风格 |
 | `学习总结` | 手动触发一次风格学习分析 |
+| `image_caption_cache_stats` | 查看图片转述缓存状态 |
+| `image_caption_cache_clear` | 清空图片转述缓存 |
 
 ## Dashboard
 
@@ -118,4 +135,5 @@ GNU Affero General Public License v3.0
 - astrbot_plugin_group_chat_plus (AGPL-3.0) by Him666233 — System prompt 兼容增强与差分捕捉机制
 - astrbot_plugin_iris_chat_memory (AGPL-3.0) by  — `extra_user_content_parts` 注入策略与 `mark_as_temp()` 实践
 - astrbot_plugin_remove_blank_lines (MIT) by Codex — 移除空行
+- astrbot_plugin_image_caption_cache (AGPL-3.0) by Florance — 图片转述缓存
 - astrbot_plugin_balance by BUGJI — 余额查询
