@@ -15,7 +15,7 @@
 
 # 插件基本信息
 PLUGIN_NAME = "astrbot_plugin_oven_multi"
-PLUGIN_VERSION = "1.25.0"
+PLUGIN_VERSION = "1.27.0"
 PLUGIN_AUTHOR = "汐兮雨"
 PLUGIN_DESC = "插座的多功能烤箱"
 
@@ -29,6 +29,8 @@ FEATURE_STYLE = "style_learning"
 FEATURE_ACTIVE_REPLY = "active_reply"
 FEATURE_REMOVE_BLANK = "remove_blank_lines"
 FEATURE_THINKING = "iam_thinking"
+FEATURE_IMAGE_CAPTION_CACHE = "image_caption_cache"
+FEATURE_MENTION_PARSER = "mention_parser"
 
 # 括号匹配配对表
 PAIR_LIST = {

@@ -20,6 +20,7 @@
 #   - astrbot_plugin_iamthinking (AGPL-3.0) by sssn-tech — thinking emoji reaction
 #   - astrbot_plugin_iearning_style (AGPL-3.0) by qa296 — style learning integration
 #   - astrbot_plugin_remove_blank_lines (MIT) by Codex — remove blank lines from LLM output
+#   - astrbot_plugin_image_caption_cache (AGPL-3.0) by Florance — image caption caching
 # Date: 2026-06-23
 
 import asyncio
@@ -46,11 +47,15 @@ from .utils.constants import (
     FEATURE_ACTIVE_REPLY,
     FEATURE_REMOVE_BLANK,
     FEATURE_THINKING,
+    FEATURE_IMAGE_CAPTION_CACHE,
+    FEATURE_MENTION_PARSER,
 )
 from .features.bracket_matcher import BracketMatcher
 from .features.repeater import Repeater
 from .features.thinking_manager import ThinkingManager
 from .features.active_reply import ActiveReply
+from .features.image_caption_cache import ImageCaptionCacheFeature
+from .features.mention_parser import ActiveSpeakersTracker, transform_mention_in_chain
 from .learning_style.data_manager import DataManager as StyleDataManager
 from .learning_style.learning_manager import LearningManager
 from .learning_style.scheduler import Scheduler as StyleScheduler
@@ -94,6 +99,16 @@ class OvenMultiPlugin(Star):
 
         # 余额查询
         self.balance_checker = BalanceChecker(self.config)
+
+        # 图片转述缓存
+        self.image_caption_cache = ImageCaptionCacheFeature(self.config_mgr)
+        self.image_caption_cache.initialize()
+
+        # @功能 - 活跃发言人追踪
+        max_speakers = self.config_mgr.get_config_value(
+            FEATURE_MENTION_PARSER, "max_speakers", 50
+        )
+        self.speakers_tracker = ActiveSpeakersTracker(max_speakers=max_speakers)
 
         # 注册 Web API
         self._register_web_api()
@@ -143,6 +158,7 @@ class OvenMultiPlugin(Star):
             await self.style_scheduler.stop()
         if self.style_data_manager:
             await self.style_data_manager.force_save()
+        self.image_caption_cache.cleanup()
 
     # ── Web API ──
 
@@ -212,6 +228,13 @@ class OvenMultiPlugin(Star):
             if ar.get("mode") == "probability":
                 response += f"   └─ 回复概率: {ar.get('possibility', 0.1):.0%}\n"
 
+        icc = self.config_mgr.get_feature_config(FEATURE_IMAGE_CAPTION_CACHE)
+        icc_enabled = icc.get("enabled", True) if isinstance(icc, dict) else True
+        response += f"📷 图片转述缓存: {'✅ 启用' if icc_enabled else '❌ 禁用'}\n"
+        if icc_enabled:
+            response += f"   └─ TTL: {icc.get('image_caption_cache_ttl', 600)} 秒\n"
+            response += f"   └─ 上限: {icc.get('max_cached_images', 200)} 张\n"
+
         yield event.plain_result(response)
 
     # ── Handler：群消息处理 ──
@@ -222,6 +245,15 @@ class OvenMultiPlugin(Star):
             return
 
         content = event.message_obj.message_str
+
+        # 追踪活跃发言人（用于 @ 功能）
+        if self.config_mgr.is_feature_enabled(FEATURE_MENTION_PARSER):
+            user_id = event.get_sender_id()
+            nickname = event.message_obj.sender.nickname
+            if user_id and nickname:
+                self.speakers_tracker.record(
+                    event.unified_msg_origin, str(user_id), nickname
+                )
 
         # 括号匹配
         if self.config_mgr.is_feature_enabled(FEATURE_BRACKET):
@@ -288,6 +320,21 @@ class OvenMultiPlugin(Star):
             for comp in result.chain:
                 if isinstance(comp, Comp.Plain):
                     comp.text = collapse_blank_lines(comp.text, max_nl)
+
+    # ── Handler：Mention 标签解析（@ 功能）──
+
+    @filter.on_decorating_result(priority=-50)
+    async def parse_mention_tags(self, event: AstrMessageEvent):
+        """将 LLM 输出中的 <mention> 标签转换为平台 At 组件。"""
+        if not self.config_mgr.is_feature_enabled(FEATURE_MENTION_PARSER):
+            return
+        result = event.get_result()
+        if not result or not result.chain:
+            return
+        transformed = transform_mention_in_chain(result.chain)
+        if transformed is None:
+            return
+        result.chain = transformed
 
     # ── Handler：思考表情 ──
 
@@ -423,6 +470,52 @@ class OvenMultiPlugin(Star):
 
         _d["injected"] = bool(style_text)
         logger.debug(f"[烤箱] on_llm_request 摘要: {_d}")
+
+    # ── Handler：活跃发言人注入（@ 功能 ──
+
+    @filter.on_llm_request(priority=18)
+    async def on_llm_request_speakers(self, event: AstrMessageEvent, req):
+        """在风格注入之后追加活跃发言人列表，让 AI 知道可以 @ 谁。"""
+        if not self.config_mgr.is_feature_enabled(FEATURE_MENTION_PARSER):
+            return
+        if event.get_message_type() != filter.EventMessageType.GROUP_MESSAGE:
+            return
+
+        speakers_text = self.speakers_tracker.build_speakers_prompt(
+            event.unified_msg_origin
+        )
+        if not speakers_text:
+            return
+
+        from astrbot.core.agent.message import TextPart
+
+        part = TextPart(text=speakers_text)
+        if hasattr(part, "mark_as_temp"):
+            part.mark_as_temp()
+        req.extra_user_content_parts.append(part)
+        logger.debug(
+            f"[烤箱-@功能] 注入活跃发言人列表 | origin={event.unified_msg_origin}"
+        )
+
+    # ── Handler：AstrBot 加载完成 ──
+
+    @filter.on_astrbot_loaded()
+    async def on_astrbot_loaded(self):
+        """在 AstrBot 完全加载后再次尝试应用缓存补丁。"""
+        self.image_caption_cache.apply_patches_on_loaded()
+
+    # ── Handler：图片转述缓存命令 ──
+
+    @filter.command("image_caption_cache_stats")
+    async def image_caption_cache_stats(self, event: AstrMessageEvent):
+        """查看图片转述缓存状态。"""
+        yield event.plain_result(self.image_caption_cache.get_stats_text())
+
+    @filter.command("image_caption_cache_clear")
+    async def image_caption_cache_clear(self, event: AstrMessageEvent):
+        """清空图片转述缓存。"""
+        removed = self.image_caption_cache.clear_cache()
+        yield event.plain_result(f"已清空图片转述缓存（{removed} 条）。")
 
     # ── Handler：风格命令 ──
 

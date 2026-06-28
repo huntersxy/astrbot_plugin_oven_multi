@@ -1,6 +1,27 @@
 # Changelog
 
-## v1.25.0 (2026-06-26)
+## v1.27.0 (2026-06-28)
+
+### New Features
+
+- **@功能 - 活跃发言人追踪与 Mention 标签解析**: 集成 [astrbot_plugin_astrbot_enhance_mode](https://github.com/) (AGPL-3.0) by 阿汐 的 mention/quote 标签解析功能，简化为仅保留 @ 能力。
+  - 自动追踪群聊中最近发言的用户昵称和 QQ ID
+  - 在 LLM prompt 中注入活跃发言人列表（位于风格注入之后），让 AI 知道可以 @ 谁
+  - LLM 输出 `<mention id="用户ID"/>` 时自动转换为平台 At 消息组件
+  - 配置项 `mention_parser.enabled` 控制开关（默认开启），`mention_parser.max_speakers` 设置追踪人数上限
+
+## v1.26.0 (2026-06-28)
+
+### New Features
+
+- **图片转述缓存**: 集成 [astrbot_plugin_image_caption_cache](https://github.com/FloranceYeh/astrbot_plugin_image_caption_cache) (AGPL-3.0) by Florance，为图片转述结果增加 TTL 与图片数量双策略内存缓存。
+  - 支持主对话图片转述缓存和引用消息图片转述缓存
+  - 支持 `base64://`、`data:image`、本地文件、`file://` 和远程 URL 的图片指纹
+  - 远程图片可选使用内容指纹（处理平台临时 URL 变化）
+  - 插件卸载时自动恢复被补丁覆盖的 AstrBot 核心函数
+  - 新指令：`/image_caption_cache_stats` 查看缓存状态、`/image_caption_cache_clear` 清空缓存
+  - 配置项位于 `image_caption_cache` 配置块，共 9 项可调参数
+  - `烤箱状态` 显示缓存启用状态和策略参数
 
 ### Removed
 

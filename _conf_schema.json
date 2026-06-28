@@ -259,5 +259,91 @@
         "default": "yaml"
       }
     }
+  },
+  "image_caption_cache": {
+    "description": "图片转述缓存",
+    "hint": "为图片转述结果增加 TTL 与图片数量双策略内存缓存，减少重复图片的视觉模型调用。",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用图片转述缓存",
+        "hint": "关闭后不再给 AstrBot 图片转述流程打缓存补丁；修改后需要重载插件。",
+        "type": "bool",
+        "default": true
+      },
+      "enable_ttl_cache": {
+        "description": "启用 TTL 缓存策略",
+        "hint": "开启后，缓存条目会在指定秒数后过期。可与图片数量策略同时开启。",
+        "type": "bool",
+        "default": true
+      },
+      "image_caption_cache_ttl": {
+        "description": "缓存时长（秒）",
+        "hint": "仅在 TTL 缓存策略开启时生效；设为 0 等同于关闭 TTL 策略，但不影响图片数量策略。",
+        "type": "int",
+        "default": 600
+      },
+      "enable_image_count_cache": {
+        "description": "启用图片数量缓存策略",
+        "hint": "开启后，缓存最多保留指定数量的图片转述结果，超过上限会淘汰最久未使用的缓存。",
+        "type": "bool",
+        "default": true
+      },
+      "max_cached_images": {
+        "description": "最大缓存图片数量",
+        "hint": "图片数量缓存策略的容量上限。多图转述会按实际图片张数占用容量。",
+        "type": "int",
+        "default": 200
+      },
+      "patch_main_agent": {
+        "description": "缓存主对话图片转述",
+        "hint": "覆盖 AstrBot 主对话流程中的图片转述调用。",
+        "type": "bool",
+        "default": true
+      },
+      "patch_quoted_message": {
+        "description": "缓存引用消息图片转述",
+        "hint": "覆盖 AstrBot 引用消息解析中的图片转述调用。",
+        "type": "bool",
+        "default": true
+      },
+      "fingerprint_remote_images": {
+        "description": "远程图片使用内容指纹",
+        "hint": "开启后会异步下载远程图片并用内容哈希作为缓存键，可解决平台临时 URL 每次变化导致的缓存 miss；失败时自动退回 URL 缓存键。",
+        "type": "bool",
+        "default": true
+      },
+      "remote_fingerprint_timeout": {
+        "description": "远程图片指纹超时（秒）",
+        "hint": "远程图片内容指纹下载的最大等待时间。",
+        "type": "float",
+        "default": 8
+      },
+      "remote_fingerprint_max_bytes": {
+        "description": "远程图片指纹最大下载字节数",
+        "hint": "远程图片超过该大小时不下载内容，直接退回 URL 缓存键。",
+        "type": "int",
+        "default": 20971520
+      }
+    }
+  },
+  "mention_parser": {
+    "description": "@功能 - 活跃发言人追踪",
+    "hint": "追踪最近发言的用户昵称与 ID，注入到 LLM 上下文让 AI 可以主动 @ 他人。",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用 @功能",
+        "hint": "开启后自动追踪群聊发言人并注入到 LLM 上下文，LLM 可通过 <mention id=\"ID\"/> 标签 @ 用户。",
+        "type": "bool",
+        "default": true
+      },
+      "max_speakers": {
+        "description": "最大追踪人数",
+        "hint": "最多追踪多少个最近发言的用户。",
+        "type": "int",
+        "default": 50
+      }
+    }
   }
 }
