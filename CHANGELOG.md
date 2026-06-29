@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.37.0 (2026-06-29)
+
+### Improvements
+
+- **发布包瘦身**: 通过 `.gitattributes` 的 `export-ignore` 规则，`git archive` 生成的 zip 包不再包含 `.trae/`、`参考资料/`、`.gitattributes`、`.gitignore`、`CHANGELOG.md`。
+
 ## v1.36.0 (2026-06-29)
 
 ### Improvements
