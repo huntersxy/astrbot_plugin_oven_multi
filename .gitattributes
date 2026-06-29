@@ -19,6 +19,3 @@
 # Exclude from release zip (git archive)
 .trae/ export-ignore
 参考资料/ export-ignore
-.gitattributes export-ignore
-.gitignore export-ignore
-CHANGELOG.md export-ignore

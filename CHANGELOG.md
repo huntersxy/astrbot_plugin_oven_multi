@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.38.0 (2026-06-29)
+
+### Improvements
+
+- **发布包调整**: 恢复 `.gitattributes`、`.gitignore`、`CHANGELOG.md` 到发布包中，仅排除 `.trae/` 和 `参考资料/`。
+
 ## v1.37.0 (2026-06-29)
 
 ### Improvements
