@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.36.0 (2026-06-29)
+
+### Improvements
+
+- **新增 .gitattributes**: 统一仓库换行符为 LF，消除 CRLF 警告。
+
 ## v1.35.0 (2026-06-29)
 
 ### Improvements
