@@ -108,7 +108,10 @@ class OvenMultiPlugin(Star):
         max_speakers = self.config_mgr.get_config_value(
             FEATURE_MENTION_PARSER, "max_speakers", 50
         )
-        self.speakers_tracker = ActiveSpeakersTracker(max_speakers=max_speakers)
+        data_dir = StarTools.get_data_dir(PLUGIN_NAME)
+        self.speakers_tracker = ActiveSpeakersTracker(
+            max_speakers=max_speakers, data_dir=data_dir
+        )
 
         # 注册 Web API
         self._register_web_api()

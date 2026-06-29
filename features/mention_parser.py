@@ -17,10 +17,14 @@
 #   — mention 标签解析与活跃发言人追踪
 
 import datetime
+import json
 import re
+import time
 from collections import OrderedDict
+from pathlib import Path
 
 import astrbot.api.message_components as Comp
+from astrbot.api import logger
 
 MENTION_RE = re.compile(
     r"""<mention\s+id\s*=\s*['"]([^'"]+)['"]\s*/?>""",
@@ -34,9 +38,50 @@ MENTION_CLOSE_RE = re.compile(r"</mention\s*>", re.IGNORECASE)
 class ActiveSpeakersTracker:
     """追踪每个会话中最近发言的用户，供 LLM 选择 @ 谁。"""
 
-    def __init__(self, max_speakers: int = 50):
+    def __init__(self, max_speakers: int = 50, data_dir: Path | str | None = None):
         self.max_speakers = max_speakers
         self._speakers: dict[str, OrderedDict[str, dict]] = {}
+        self._data_file = Path(data_dir) / "speakers.json" if data_dir else None
+        self._dirty = False
+        self._last_save = 0.0
+        self._load()
+
+    def _load(self):
+        """从磁盘加载发言人数据。"""
+        if not self._data_file or not self._data_file.exists():
+            return
+        try:
+            raw = json.loads(self._data_file.read_text(encoding="utf-8"))
+            for origin, users in raw.items():
+                od = OrderedDict()
+                for uid, info in users.items():
+                    od[uid] = info
+                self._speakers[origin] = od
+            logger.debug(
+                f"[烤箱-@功能] 已加载发言人数据 | 来源数: {len(self._speakers)}"
+            )
+        except Exception as e:
+            logger.warning(f"[烤箱-@功能] 加载发言人数据失败: {e}")
+
+    def _save(self, force: bool = False):
+        """保存发言人数据到磁盘，5 秒内最多写一次。"""
+        if not self._dirty or not self._data_file:
+            return
+        now = time.time()
+        if not force and now - self._last_save < 5:
+            return
+        try:
+            self._data_file.parent.mkdir(parents=True, exist_ok=True)
+            data = {}
+            for origin, users in self._speakers.items():
+                data[origin] = dict(users)
+            self._data_file.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            self._dirty = False
+            self._last_save = now
+        except Exception as e:
+            logger.warning(f"[烤箱-@功能] 保存发言人数据失败: {e}")
 
     def _get_or_create(self, origin: str) -> OrderedDict:
         if origin not in self._speakers:
@@ -55,6 +100,8 @@ class ActiveSpeakersTracker:
             "nickname": nickname,
             "last_active": datetime.datetime.now().strftime("%H:%M:%S"),
         }
+        self._dirty = True
+        self._save()
 
     def build_speakers_prompt(self, origin: str) -> str:
         """构建活跃发言人列表文本，追加到 LLM prompt 中。"""
