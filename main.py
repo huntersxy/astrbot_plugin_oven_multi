@@ -495,10 +495,18 @@ class OvenMultiPlugin(Star):
         if event.get_message_type() != filter.EventMessageType.GROUP_MESSAGE:
             return
 
+        _debug = self.config_mgr.get_config_value("mention_parser", "debug_mode", False)
+
         speakers_text = self.speakers_tracker.build_speakers_prompt(
             event.unified_msg_origin
         )
         if not speakers_text:
+            if _debug:
+                tracked = self.speakers_tracker._speakers.get(event.unified_msg_origin)
+                logger.info(
+                    f"[烤箱-@功能] Debug 模式 - 无注入内容 | origin={event.unified_msg_origin}"
+                    f" | 追踪中发言人: {len(tracked) if tracked else 0} 人"
+                )
             return
 
         from astrbot.core.agent.message import TextPart
@@ -508,9 +516,11 @@ class OvenMultiPlugin(Star):
             part.mark_as_temp()
         req.extra_user_content_parts.append(part)
 
-        if self.config_mgr.get_config_value("mention_parser", "debug_mode", False):
+        if _debug:
+            tracked = self.speakers_tracker._speakers.get(event.unified_msg_origin)
             logger.info(
-                f"[烤箱-@功能] Debug 模式 - 注入内容 | origin={event.unified_msg_origin}\n"
+                f"[烤箱-@功能] Debug 模式 - 注入内容 | origin={event.unified_msg_origin}"
+                f" | 追踪中发言人: {len(tracked) if tracked else 0} 人\n"
                 f"完整注入文本:\n{speakers_text}"
             )
 
