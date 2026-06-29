@@ -1,5 +1,44 @@
 # Changelog
 
+## v1.30.0 (2026-06-29)
+
+### New Features
+
+- **嵌入向量 Provider 配置**: 新增 `style_learning.embedding_provider_id` 配置选项
+  - 支持选择专用的 Embedding Provider 用于风格特征嵌入向量计算
+  - 留空时自动使用第一个可用的 EmbeddingProvider
+  - 参考 `astrbot_plugin_astrbot_enhance_mode` 的实现方式
+
+### Improvements
+
+- **嵌入向量选择优化**: 改进嵌入向量获取逻辑
+  - 优先使用标准 `EmbeddingProvider.get_embedding()` 接口
+  - 兼容旧的 `get_embeddings/text_embedding` 方法
+  - 提供商解析失败时自动回退到熟练度排序
+
+## v1.29.0 (2026-06-29)
+
+### New Features
+
+- **风格学习调试模式**: 新增 `style_learning.debug_mode` 配置选项（默认关闭）
+  - 开启后会在日志中打印每次风格注入的完整内容，包括本地风格列表、全局风格列表和最终注入文本
+  - 方便排查风格注入相关问题
+
+- **@功能调试模式**: 新增 `mention_parser.debug_mode` 配置选项（默认关闭）
+  - 开启后会在日志中打印每次 @列表 注入的完整内容
+  - 方便排查 @功能 注入相关问题
+
+## v1.28.0 (2026-06-28)
+
+### New Features
+
+- **风格注入优化：跨群风格 + 嵌入向量选择**: 重构风格注入模块，新增跨群风格共享和嵌入向量辅助选择能力。
+  - `style_learning.enable_cross_group`（默认关闭）: 开启后可引用其他群的风格特征，通过嵌入向量选择最相关的全局风格
+  - `style_learning.enable_emb_style_selection`（默认开启）: 使用 LLM Provider 的嵌入 API 按语义相关度选择风格特征，而非仅按熟练度排序；Provider 不支持时自动回退
+  - `style_learning.max_global_styles`（默认 3）: 跨群风格最多注入条数
+  - 注入格式改为 `本群风格：xxx；全局风格：xxx`，区分本地和跨群风格来源
+  - 嵌入向量在注入时实时计算查询文本与风格特征的余弦相似度，选择最匹配的 top-N
+
 ## v1.27.0 (2026-06-28)
 
 ### New Features

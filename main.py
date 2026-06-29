@@ -127,7 +127,7 @@ class OvenMultiPlugin(Star):
             self.style_scheduler = StyleScheduler(
                 self.style_data_manager, self.style_learning_manager, self.config
             )
-            self.style_injector = StyleInjector(self.style_data_manager, self.config)
+            self.style_injector = StyleInjector(self.style_data_manager, self.config, self.context)
             logger.info("[烤箱-风格学习] 初始化完成")
         except Exception as e:
             logger.error(f"[烤箱-风格学习] 初始化失败: {e}")
@@ -219,6 +219,10 @@ class OvenMultiPlugin(Star):
             summary = self.style_injector.get_style_summary(session_id)
             if summary["has_styles"]:
                 response += f"   └─ 通用: {summary['universal_count']} 条\n"
+            cross_group = style.get("enable_cross_group", False)
+            response += f"   └─ 跨群风格: {'✅ 启用' if cross_group else '❌ 禁用'}\n"
+            if cross_group and summary.get("cross_group_trait_sources"):
+                response += f"   └─ 全局风格来源: {summary['cross_group_trait_sources']} 条\n"
 
         ar = self.config_mgr.get_feature_config(FEATURE_ACTIVE_REPLY)
         ar_enabled = isinstance(ar, dict) and ar.get("enable", False)
@@ -440,7 +444,17 @@ class OvenMultiPlugin(Star):
         # 风格注入
         style_text = None
         if self.style_injector and self.config_mgr.is_feature_enabled(FEATURE_STYLE):
-            style_text = self.style_injector.build_injection_text(session_id)
+            # 获取 Provider 用于嵌入选择
+            _provider = None
+            try:
+                _provider = self.context.get_using_provider()
+            except Exception:
+                pass
+            style_text = await self.style_injector.build_injection_text(
+                session_id,
+                user_message=req.prompt or "",
+                provider=_provider,
+            )
             if style_text:
                 _d["style_len"] = len(style_text)
                 from astrbot.core.agent.message import TextPart
@@ -493,6 +507,13 @@ class OvenMultiPlugin(Star):
         if hasattr(part, "mark_as_temp"):
             part.mark_as_temp()
         req.extra_user_content_parts.append(part)
+
+        if self.config_mgr.get_config_value("mention_parser", "debug_mode", False):
+            logger.info(
+                f"[烤箱-@功能] Debug 模式 - 注入内容 | origin={event.unified_msg_origin}\n"
+                f"完整注入文本:\n{speakers_text}"
+            )
+
         logger.debug(
             f"[烤箱-@功能] 注入活跃发言人列表 | origin={event.unified_msg_origin}"
         )

@@ -65,6 +65,27 @@ class DataManager:
     def get_universal_for_session(self, session_id: str) -> list[dict[str, Any]]:
         return self.universal.get(session_id, [])
 
+    def get_all_universal_except(self, session_id: str) -> dict[str, list[dict[str, Any]]]:
+        """获取除指定会话外所有会话的通用风格。
+        
+        用于跨群风格选择。
+        """
+        return {
+            sid: traits
+            for sid, traits in self.universal.items()
+            if sid != session_id and traits
+        }
+
+    def update_trait_embedding(self, session_id: str, content: str, embedding: list[float]) -> bool:
+        """更新指定风格特征的嵌入向量。"""
+        traits = self.universal.get(session_id, [])
+        for trait in traits:
+            if trait["content"] == content:
+                trait["embedding"] = embedding
+                self._dirty_universal = True
+                return True
+        return False
+
     def replace_universal(self, session_id: str, contents: list[str]):
         current_time = asyncio.get_running_loop().time()
         old_map = {}

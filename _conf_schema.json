@@ -179,6 +179,37 @@
         "description": "注入提示词的最大通用风格数量",
         "hint": "按熟练度降序，最多注入多少条通用风格到 system prompt。默认 5。设为 0 则不注入。",
         "default": 5
+      },
+      "enable_cross_group": {
+        "description": "启用跨群风格",
+        "hint": "开启后可以引用其他群的风格特征，通过嵌入向量选择最相关的全局风格注入到回复中。",
+        "type": "bool",
+        "default": false
+      },
+      "enable_emb_style_selection": {
+        "description": "启用嵌入风格选择",
+        "hint": "使用嵌入向量选择最相关的风格特征而非仅按熟练度排序，需要配置 Embedding Provider。",
+        "type": "bool",
+        "default": true
+      },
+      "embedding_provider_id": {
+        "type": "string",
+        "description": "嵌入向量 Provider ID",
+        "_special": "select_provider:embedding",
+        "default": "",
+        "hint": "用于风格特征嵌入向量计算的 Embedding Provider。留空则自动使用第一个可用的 Embedding Provider。"
+      },
+      "max_global_styles": {
+        "type": "int",
+        "description": "最大全局风格注入数",
+        "hint": "跨群风格最多注入多少条（仅 enable_cross_group 开启时生效）。",
+        "default": 3
+      },
+      "debug_mode": {
+        "description": "调试模式",
+        "hint": "开启后会在日志中打印每次风格注入的完整内容，方便排查注入问题。",
+        "type": "bool",
+        "default": false
       }
     }
   },
@@ -343,6 +374,12 @@
         "hint": "最多追踪多少个最近发言的用户。",
         "type": "int",
         "default": 50
+      },
+      "debug_mode": {
+        "description": "调试模式",
+        "hint": "开启后会在日志中打印每次 @列表 注入的完整内容，方便排查注入问题。",
+        "type": "bool",
+        "default": false
       }
     }
   }
