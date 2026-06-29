@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.33.0 (2026-06-29)
+
+### Improvements
+
+- **余额查询配置教程**: 重写 YAML 配置默认内容，新增详细的教程注释，列出所有内置类型、result_template 语法和自定义示例。
+
 ## v1.32.0 (2026-06-29)
 
 ### New Features
