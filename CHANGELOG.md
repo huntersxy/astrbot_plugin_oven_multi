@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.31.0 (2026-06-29)
+
+### Bug Fixes
+
+- **修复 @功能 handler 永远不执行的问题**: `on_llm_request_speakers` 中使用了 `filter.EventMessageType.GROUP_MESSAGE` 与 `event.get_message_type()` 的返回值比较，但两者属于不同的枚举类型，导致群消息永远被判定为"非群消息"而跳过。改为使用 `astrbot.api.platform.MessageType.GROUP_MESSAGE` 进行正确比较。
+
 ## v1.30.0 (2026-06-29)
 
 ### New Features

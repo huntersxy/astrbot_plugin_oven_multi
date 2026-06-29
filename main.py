@@ -490,12 +490,10 @@ class OvenMultiPlugin(Star):
     @filter.on_llm_request(priority=18)
     async def on_llm_request_speakers(self, event: AstrMessageEvent, req):
         """在风格注入之后追加活跃发言人列表，让 AI 知道可以 @ 谁。"""
-        logger.info("[烤箱-@功能] handler 被调用")
         if not self.config_mgr.is_feature_enabled(FEATURE_MENTION_PARSER):
-            logger.info("[烤箱-@功能] mention_parser 未启用，跳过")
             return
-        if event.get_message_type() != filter.EventMessageType.GROUP_MESSAGE:
-            logger.info(f"[烤箱-@功能] 非群消息，跳过: {event.get_message_type()}")
+        from astrbot.api.platform import MessageType
+        if event.get_message_type() != MessageType.GROUP_MESSAGE:
             return
 
         _debug = self.config_mgr.get_config_value("mention_parser", "debug_mode", False)
