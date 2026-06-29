@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.35.0 (2026-06-29)
+
+### Improvements
+
+- **余额查询默认配置**: 将 `_conf_schema.json` 中的默认配置从教程注释改为实际可用的 Deepseek + SiliconFlow 示例，用户只需替换 API Key 即可使用。
+
 ## v1.34.0 (2026-06-29)
 
 ### Improvements

@@ -15,7 +15,7 @@
 
 # 插件基本信息
 PLUGIN_NAME = "astrbot_plugin_oven_multi"
-PLUGIN_VERSION = "1.34.0"
+PLUGIN_VERSION = "1.35.0"
 PLUGIN_AUTHOR = "汐兮雨"
 PLUGIN_DESC = "插座的多功能烤箱"
 
