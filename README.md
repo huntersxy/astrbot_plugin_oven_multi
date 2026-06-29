@@ -94,10 +94,63 @@
 | `remote_fingerprint_max_bytes` | 远程图片指纹最大下载字节数 | `20971520` |
 
 ### 余额查询 (`balance`)
+
+通过 API 查询各服务商余额，在 Dashboard 页面查看。
+
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| `config_content` | YAML 格式的服务配置 | 示例配置 |
+| `config_content` | YAML 格式的服务配置 | 见下方示例 |
 | `config_mode` | 配置模式 (`simple`/`yaml`) | `"yaml"` |
+
+#### 内置类型（只需 `type` + `api_key`）
+
+支持的服务商：`deepseek` / `siliconflow` / `openrouter` / `oneapi` / `moonshot` / `openai` / `onething` / `minimax`
+
+```yaml
+services:
+  Deepseek:
+    type: deepseek
+    api_key: "sk-xxx"
+
+  SiliconFlow:
+    type: siliconflow
+    api_key: "sk-xxx"
+
+  # oneapi 需要额外填写 base_url
+  OneAPI:
+    type: oneapi
+    api_key: "sk-xxx"
+    base_url: "https://your-oneapi.com"
+```
+
+#### 自定义类型（需 `url` + `headers` + `result_template`）
+
+```yaml
+services:
+  Deepseek:
+    url: "https://api.deepseek.com/user/balance"
+    headers:
+      Accept: "application/json"
+      Authorization: "Bearer sk-xxx"
+    result_template: "Deepseek: {{balance_infos.0.total_balance}} 元"
+
+  SiliconFlow:
+    url: "https://api.siliconflow.cn/v1/user/info"
+    headers:
+      Authorization: "Bearer sk-xxx"
+      Content-Type: "application/json"
+    result_template: "SiliconFlow: {{data.totalBalance}} 元"
+```
+
+> `sk-xxx` 请替换为你自己的 API Key。
+
+#### result_template 语法
+
+| 语法 | 说明 | 示例 |
+|------|------|------|
+| `{{字段路径}}` | 取值 | `{{data.balance}}` |
+| `{{字段.0.xxx}}` | 数组索引 | `{{balance_infos.0.total_balance}}` |
+| `{{round({a}-{b})}}` | 表达式计算 | `{{round({data.used}/{data.total}*100, 1)}}%` |
 
 ## 命令
 

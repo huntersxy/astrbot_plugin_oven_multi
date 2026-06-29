@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.34.0 (2026-06-29)
+
+### Improvements
+
+- **README 余额查询文档**: 新增详细的余额配置教程，包含内置类型和自定义类型的 YAML 示例、result_template 语法说明。
+
 ## v1.33.0 (2026-06-29)
 
 ### Improvements
