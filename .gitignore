@@ -2,3 +2,7 @@
 __pycache__/
 /learning_style/__pycache__
 astrbot_plugin_oven_multi.zip
+CODE_REVIEW_GUIDE.md
+/.github/ISSUE_TEMPLATE
+/.github
+/tests

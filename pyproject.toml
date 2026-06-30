@@ -1,0 +1,54 @@
+[project]
+name = "astrbot_plugin_oven_multi"
+version = "1.38.0"
+description = "插座的多功能烤箱 — AstrBot 多功能插件"
+requires-python = ">=3.10"
+license = {text = "AGPL-3.0"}
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = ["参考资料/*", "__pycache__/*", "pages/*"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "S",    # flake8-bandit (security)
+    "SIM",  # flake8-simplify
+    "C4",   # flake8-comprehensions
+]
+ignore = [
+    "S307",   # eval() — 已知问题，将通过重构修复
+    "N802",   # function name should be lowercase — AstrBot API 兼容
+    "N803",   # argument name should be lowercase
+    "N806",   # variable in function should be lowercase
+    "SIM108", # use ternary operator — 降低可读性
+    "B008",   # function call in default argument — AstrBot 依赖注入
+]
+
+[tool.ruff.lint.per-file-ignores]
+"参考资料/**" = ["ALL"]
+"tests/**" = ["S101"]  # 允许 assert
+
+[tool.ruff.lint.isort]
+known-first-party = ["astrbot"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = false
+warn_unused_configs = false
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

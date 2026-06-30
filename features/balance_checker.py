@@ -23,6 +23,7 @@ import yaml
 from typing import Any
 
 from astrbot.api import logger
+from utils.safe_eval import safe_eval
 
 
 _BUILTIN_PARSERS = {
@@ -276,25 +277,18 @@ class BalanceChecker:
 
     def _eval_expr(self, expr: str) -> Any:
         try:
-            result = expr.replace('%', '/100')
-
-            safe_funcs = {
-                'abs': abs, 'round': round, 'min': min, 'max': max,
-                'pow': pow, 'sqrt': math.sqrt, 'floor': math.floor,
-                'ceil': math.ceil, 'log': math.log, 'log10': math.log10,
-                'exp': math.exp, 'sin': math.sin, 'cos': math.cos, 'tan': math.tan,
-                'pi': math.pi, 'e': math.e
-            }
-
-            eval_result = eval(result, {"__builtins__": {}}, safe_funcs)
+            eval_result = safe_eval(expr)
 
             if isinstance(eval_result, float):
                 if eval_result.is_integer():
                     return int(eval_result)
                 return round(eval_result, 2)
             return eval_result
-        except Exception as e:
+        except (ValueError, TypeError, ZeroDivisionError) as e:
             logger.warning(f"[烤箱-余额查询] 公式计算失败: {expr}, 错误: {e}")
+            return "错误"
+        except Exception as e:
+            logger.warning(f"[烤箱-余额查询] 公式计算异常: {expr}, 错误: {type(e).__name__}: {e}")
             return "错误"
 
     async def _handle_line(self, line: str) -> dict:

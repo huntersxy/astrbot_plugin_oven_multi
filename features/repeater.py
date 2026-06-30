@@ -52,7 +52,9 @@ class Repeater:
 
         if msg_id == self.last[session_id]:
             self.count[session_id] += 1
-            if self.count[session_id] >= threshold - 1:
+            if self.count[session_id] >= threshold:
+                # 重置计数器，但保留 last，使下一条相同消息从 1 开始计数
+                self.count[session_id] = 0
                 if random.random() < config.get("break_spell_probability", 0.3):
                     return ("break", config.get("break_spell_text", "打断施法！"))
                 else:
@@ -62,6 +64,6 @@ class Repeater:
                     ]
                     return ("repeat", chain)
         else:
-            self.count[session_id] = 0
+            self.count[session_id] = 1
         self.last[session_id] = msg_id
         return None

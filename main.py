@@ -56,11 +56,11 @@ from .features.thinking_manager import ThinkingManager
 from .features.active_reply import ActiveReply
 from .features.image_caption_cache import ImageCaptionCacheFeature
 from .features.mention_parser import ActiveSpeakersTracker, transform_mention_in_chain
-from .learning_style.data_manager import DataManager as StyleDataManager
-from .learning_style.learning_manager import LearningManager
-from .learning_style.scheduler import Scheduler as StyleScheduler
-from .learning_style.style_injector import StyleInjector
-from .balance_checker import BalanceChecker
+from .features.learning_style.data_manager import DataManager as StyleDataManager
+from .features.learning_style.learning_manager import LearningManager
+from .features.learning_style.scheduler import Scheduler as StyleScheduler
+from .features.learning_style.style_injector import StyleInjector
+from .features.balance_checker import BalanceChecker
 
 def collapse_blank_lines(text, max_newlines=1):
     limit = max(int(max_newlines), 0)
