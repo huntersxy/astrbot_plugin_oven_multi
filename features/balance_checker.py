@@ -23,7 +23,7 @@ import yaml
 from typing import Any
 
 from astrbot.api import logger
-from utils.safe_eval import safe_eval
+from ..utils.safe_eval import safe_eval
 
 
 _BUILTIN_PARSERS = {
