@@ -411,7 +411,7 @@ class OvenMultiPlugin(Star):
         session_id = event.unified_msg_origin
 
         # 前置清理：剥离平台 LTM 并去重
-        from .learning_style.system_prompt_rewriter import SystemPromptRewriter
+        from .features.learning_style.system_prompt_rewriter import SystemPromptRewriter
 
         original_prompt = req.system_prompt or ""
         rewrite_result = SystemPromptRewriter.rewrite(original_prompt, "")
