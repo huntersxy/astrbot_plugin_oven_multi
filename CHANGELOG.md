@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.39.0 (2026-06-29)
+
+### Bug Fixes
+
+- **修复 safe_eval 模块未注册**: 在 `utils/__init__.py` 中添加 `from .safe_eval import safe_eval`，解决 `No module named 'utils.safe_eval'` 错误。
+
 ## v1.38.0 (2026-06-29)
 
 ### Improvements

@@ -15,3 +15,4 @@
 
 from .constants import *
 from .decorators import *
+from .safe_eval import safe_eval
