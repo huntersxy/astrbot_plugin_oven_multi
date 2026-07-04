@@ -54,13 +54,16 @@ astrbot_plugin_oven_multi/
 │   ├── bracket_matcher.py     # 括号匹配
 │   ├── repeater.py            # 消息复读
 │   ├── thinking_manager.py    # 思考表情
-│   └── active_reply.py        # 主动回复
-├── learning_style/            # 风格学习子系统（已有）
-├── balance_checker.py         # 余额查询
+│   ├── active_reply.py        # 主动回复
+│   ├── balance_checker.py     # 余额查询
+│   └── image_caption_cache/   # 图片转述缓存
+├── learning_style/            # 风格学习子系统
 ├── utils/
 │   ├── constants.py           # 常量定义（插件名、版本号、功能名）
-│   └── decorators.py          # 通用装饰器
+│   ├── decorators.py          # 通用装饰器
+│   └── safe_eval.py           # 安全表达式求值器
 ├── _conf_schema.json          # AstrBot 配置模式定义
+├── .gitattributes             # Git 属性（LF 换行符 + export-ignore）
 ├── metadata.yaml              # 插件元数据
 └── CHANGELOG.md               # 变更日志
 ```
