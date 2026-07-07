@@ -6,3 +6,5 @@ CODE_REVIEW_GUIDE.md
 /.github/ISSUE_TEMPLATE
 /.github
 /tests
+/.trae
+/.workbuddy
