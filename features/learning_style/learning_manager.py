@@ -142,8 +142,14 @@ class LearningManager:
             results = json.loads(json_str)
             universal = results.get("universal", [])
             return universal if universal else None
-        except (json.JSONDecodeError, KeyError):
-            pass
+        except json.JSONDecodeError as e:
+            logger.warning(
+                f"[烤箱-风格学习] JSON 解析失败: {e}\n提取的 JSON 片段: {json_str[:300]}"
+            )
+        except KeyError as e:
+            logger.warning(
+                f"[烤箱-风格学习] JSON 缺少预期字段: {e}"
+            )
 
         # 第三步：回退 —— 手动提取数组中的字符串
         try:
@@ -221,7 +227,7 @@ class LearningManager:
                     # 检查这个引号是否为字符串结束（即其后紧跟 , 或 ] 或空白+逗号/]）
                     # 如果是内嵌引号（后面还有字符），则继续收集
                     tail = content[i + 1 :].lstrip()
-                    if tail and tail[0] in ',]':
+                    if not tail or tail[0] in ',]':
                         # 这是真正的字符串结束引号
                         strings.append("".join(buf))
                         i += 1

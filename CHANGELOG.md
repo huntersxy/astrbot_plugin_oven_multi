@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.39.1 (2026-07-07)
+
+### Bug Fixes
+
+- **修复 safe_eval 跨包导入失败**: `features/balance_checker.py` 中 `from ..utils.safe_eval` 在 AstrBot 插件加载器下无法解析，将 `safe_eval.py` 移至 `features/` 内改为同包导入。
+- **修复风格学习 JSON 解析失败**: `_manual_extract_strings` 中数组末尾元素的闭合引号被错误判定为内嵌引号，导致标准 JSON 解析失败时手动回退也无法提取字符串。改进判定逻辑并增加 JSON 解析异常日志输出。
+- **修复 main.py 遗留旧 import 路径**: `on_llm_request_style` 内仍引用 `from .learning_style...` 而非 `from .features.learning_style...`。
+
 ## v1.39.0 (2026-06-29)
 
 ### Bug Fixes
