@@ -307,7 +307,12 @@ class OvenMultiPlugin(Star):
 
         # 括号匹配
         if feature_enabled(self.config, FEATURE_BRACKET):
-            brackets = self.matcher.check(content)
+            brackets = self.matcher.check(
+                content,
+                only_first=bool(
+                    cfg_value(self.config, FEATURE_BRACKET, "only_first_missing", False)
+                ),
+            )
             if brackets:
                 await event.send(event.plain_result(brackets))
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.44.0 (2026-08-01)
+
+### Improvements
+
+- **括号匹配新增「只补全第一个缺失括号」选项**: 新增 `bracket_matching.only_first_missing` 配置，开启后仅补全最近一个未闭合的括号，而不是一次性补全所有缺失括号。
+
 ## v1.43.2 (2026-08-01)
 
 ### Bug Fixes

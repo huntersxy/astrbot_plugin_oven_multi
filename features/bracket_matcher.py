@@ -22,11 +22,12 @@ class BracketMatcher:
     检测消息中未闭合的括号并补全。
     """
 
-    def check(self, content: str) -> str | None:
+    def check(self, content: str, only_first: bool = False) -> str | None:
         """检查并补全未闭合的括号
 
         Args:
             content: 消息文本内容
+            only_first: 为 True 时只补全最近一个未闭合的括号
 
         Returns:
             需要补全的括号字符串，无需补全返回 None
@@ -38,4 +39,8 @@ class BracketMatcher:
                     stack.pop()
                 else:
                     stack.append(char)
-        return "".join([PAIR_LIST[c] for c in reversed(stack)]) if stack else None
+        if not stack:
+            return None
+        if only_first:
+            return PAIR_LIST[stack[-1]]
+        return "".join(PAIR_LIST[c] for c in reversed(stack))

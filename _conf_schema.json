@@ -21,6 +21,12 @@
         "hint": "开启后自动检测并补全消息中的括号",
         "type": "bool",
         "default": true
+      },
+      "only_first_missing": {
+        "description": "只补全第一个缺失括号",
+        "hint": "开启后仅补全最近一个未闭合的括号，而不是一次性补全所有缺失括号",
+        "type": "bool",
+        "default": false
       }
     }
   },
