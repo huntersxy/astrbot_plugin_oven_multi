@@ -72,7 +72,11 @@ button:hover { filter: brightness(1.1); }
   font-size: 12px;
 }
 
-.ghost.danger { color: var(--err); border-color: var(--err); }
+.ghost.danger {
+  background: transparent;   /* 覆盖 button.danger 的红色背景，保证文字可见 */
+  color: var(--err);
+  border-color: var(--err);
+}
 
 button.danger {
   background: var(--err);
