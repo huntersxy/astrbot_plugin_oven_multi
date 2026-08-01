@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.43.0 (2026-08-01)
+
+### Improvements
+
+- **Dashboard 风格管理**: 状态页面新增风格控制，支持删除单条风格特征、删除单个会话的全部风格、清空全部会话风格；后端新增 `POST /astrbot_plugin_oven_multi/style/manage` 管理接口。
+
+### Bug Fixes
+
+- **修复 Dashboard 数据解析**: AstrBot bridge 会把插件接口响应解包一层（直接返回 `response.data.data`），页面按信封结构解析导致功能状态/余额/风格全部渲染为空；现已兼容两种返回形态。
+
 ## v1.42.0 (2026-08-01)
 
 ### Removed

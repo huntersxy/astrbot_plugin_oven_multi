@@ -122,6 +122,31 @@ class DataManager:
         self._dirty_universal = True
         await self._schedule_save()
 
+    async def delete_trait(self, session_id: str, content: str) -> bool:
+        """删除单个风格特征（按内容精确匹配）。"""
+        traits = self.universal.get(session_id, [])
+        remaining = [t for t in traits if t.get("content") != content]
+        if len(remaining) == len(traits):
+            return False
+        if remaining:
+            self.universal[session_id] = remaining
+        else:
+            self.universal.pop(session_id, None)
+        self._version += 1
+        self._dirty_universal = True
+        await self._schedule_save()
+        return True
+
+    async def clear_all_universal(self) -> int:
+        """清空所有会话的风格特征，返回被清空的会话数。"""
+        count = len(self.universal)
+        if count:
+            self.universal.clear()
+            self._version += 1
+            self._dirty_universal = True
+            await self._schedule_save()
+        return count
+
     # ── 聊天记录 ─────────────────────────────────────────────────────────
 
     async def add_message_to_history(self, session_id: str, message: dict[str, Any]):

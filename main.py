@@ -133,6 +133,12 @@ class OvenMultiPlugin(Star):
             (f"/{PLUGIN_NAME}/style_status", self._api_style_status, "风格学习状态"),
         ):
             self.context.register_web_api(route, handler, ["GET"], desc)
+        self.context.register_web_api(
+            f"/{PLUGIN_NAME}/style/manage",
+            self._api_style_manage,
+            ["POST"],
+            "风格管理（删除单条/会话/全部）",
+        )
 
     # ── 生命周期 ─────────────────────────────────────────────────────────
 
@@ -225,6 +231,35 @@ class OvenMultiPlugin(Star):
 
     async def _api_style_status(self):
         return jsonify({"success": True, "data": self._style_status_data()})
+
+    async def _api_style_manage(self):
+        """风格删除管理：action=delete_trait / clear_session / clear_all。"""
+        if not self.style:
+            return jsonify({"success": False, "message": "风格学习功能未初始化。"})
+        try:
+            from astrbot.api.web import request
+
+            body = await request.json(default={}) or {}
+        except Exception:
+            body = {}
+        action = str(body.get("action") or "").strip()
+        session_id = str(body.get("session_id") or "").strip()
+        content = str(body.get("content") or "").strip()
+
+        if action == "delete_trait":
+            if not session_id or not content:
+                return jsonify({"success": False, "message": "缺少 session_id 或 content。"})
+            removed = await self.style.data.delete_trait(session_id, content)
+            return jsonify({"success": True, "data": {"removed": removed}})
+        if action == "clear_session":
+            if not session_id:
+                return jsonify({"success": False, "message": "缺少 session_id。"})
+            await self.style.data.clear_universal(session_id)
+            return jsonify({"success": True})
+        if action == "clear_all":
+            cleared = await self.style.data.clear_all_universal()
+            return jsonify({"success": True, "data": {"cleared": cleared}})
+        return jsonify({"success": False, "message": f"未知操作: {action}"})
 
     # ── 工具方法 ─────────────────────────────────────────────────────────
 
