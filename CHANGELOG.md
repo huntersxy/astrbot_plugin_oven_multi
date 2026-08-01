@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.43.1 (2026-08-01)
+
+### Bug Fixes
+
+- **修复 Dashboard 删除按钮无反应**: 插件页面运行在 sandbox iframe 中（无 `allow-modals`），原生 `confirm()` 被浏览器静默拦截，导致「删除会话」「全部删除」点击无效；改为页面内自绘确认弹窗，并新增失败操作的 Toast 提示。
+
 ## v1.43.0 (2026-08-01)
 
 ### Improvements

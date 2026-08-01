@@ -10,6 +10,35 @@ function escAttr(text) {
   return esc(text).replace(/"/g, "&quot;");
 }
 
+let pendingConfirm = null;
+
+function showToast(message) {
+  const toast = $("toast");
+  toast.textContent = message;
+  toast.hidden = false;
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => {
+    toast.hidden = true;
+  }, 3000);
+}
+
+// 插件页面运行在 sandbox iframe 中，原生 confirm() 会被浏览器静默拦截，
+// 因此使用页面内自绘确认弹窗。
+function askConfirm(text) {
+  return new Promise((resolve) => {
+    pendingConfirm = resolve;
+    $("confirmText").textContent = text;
+    $("confirmModal").hidden = false;
+  });
+}
+
+function closeConfirm(result) {
+  $("confirmModal").hidden = true;
+  const resolve = pendingConfirm;
+  pendingConfirm = null;
+  if (resolve) resolve(result);
+}
+
 // AstrBot bridge 会把接口响应解包一层：直接返回 response.data.data。
 // 这里兼容「信封 {success,data}」与「已解包数据」两种形态。
 function unwrap(payload) {
@@ -89,39 +118,51 @@ function renderStyle(sessions) {
     : '<p class="empty">暂无风格学习数据</p>';
 }
 
+async function manageStyle(body) {
+  const payload = unwrap(await window.AstrBotPluginPage.apiPost("style/manage", body));
+  if (payload && payload.success === false) {
+    showToast(payload.message || "操作失败");
+    return false;
+  }
+  return true;
+}
+
 async function deleteTrait(sessionId, content) {
   try {
-    await window.AstrBotPluginPage.apiPost("style/manage", {
+    const okFlag = await manageStyle({
       action: "delete_trait",
       session_id: sessionId,
       content,
     });
-    await load();
+    if (okFlag) await load();
   } catch (err) {
     console.error("删除风格失败:", err);
+    showToast("删除失败");
   }
 }
 
 async function clearSession(sessionId) {
-  if (!confirm("确认删除该会话的所有学习风格？")) return;
+  if (!(await askConfirm("确认删除该会话的所有学习风格？"))) return;
   try {
-    await window.AstrBotPluginPage.apiPost("style/manage", {
+    const okFlag = await manageStyle({
       action: "clear_session",
       session_id: sessionId,
     });
-    await load();
+    if (okFlag) await load();
   } catch (err) {
     console.error("删除会话风格失败:", err);
+    showToast("删除失败");
   }
 }
 
 async function clearAll() {
-  if (!confirm("确认删除所有会话的学习风格？此操作不可恢复。")) return;
+  if (!(await askConfirm("确认删除所有会话的学习风格？此操作不可恢复。"))) return;
   try {
-    await window.AstrBotPluginPage.apiPost("style/manage", { action: "clear_all" });
-    await load();
+    const okFlag = await manageStyle({ action: "clear_all" });
+    if (okFlag) await load();
   } catch (err) {
     console.error("删除全部风格失败:", err);
+    showToast("删除失败");
   }
 }
 
@@ -134,6 +175,11 @@ function list(title, items, fn) {
 window.AstrBotPluginPage.ready().then(() => {
   $("refresh").addEventListener("click", load);
   $("clearAll").addEventListener("click", clearAll);
+  $("confirmOk").addEventListener("click", () => closeConfirm(true));
+  $("confirmCancel").addEventListener("click", () => closeConfirm(false));
+  $("confirmModal").addEventListener("click", (e) => {
+    if (e.target === $("confirmModal")) closeConfirm(false);
+  });
   // 事件委托：单条删除 / 会话删除
   $("style").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-act]");

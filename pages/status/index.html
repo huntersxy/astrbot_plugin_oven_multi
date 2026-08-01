@@ -30,6 +30,16 @@
       <div id="style"></div>
     </section>
   </main>
+  <div id="confirmModal" class="modal" hidden>
+    <div class="modal-box">
+      <p id="confirmText"></p>
+      <div class="modal-actions">
+        <button id="confirmCancel" class="ghost">取消</button>
+        <button id="confirmOk" class="danger">确认</button>
+      </div>
+    </div>
+  </div>
+  <div id="toast" class="toast" hidden></div>
   <script src="/api/plugin/page/bridge-sdk.js"></script>
   <script src="./app.js"></script>
 </body>

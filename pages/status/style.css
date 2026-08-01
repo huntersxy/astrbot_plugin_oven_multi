@@ -74,6 +74,11 @@ button:hover { filter: brightness(1.1); }
 
 .ghost.danger { color: var(--err); border-color: var(--err); }
 
+button.danger {
+  background: var(--err);
+  color: #fff;
+}
+
 .session-actions {
   display: flex;
   justify-content: flex-end;
@@ -93,6 +98,53 @@ button:hover { filter: brightness(1.1); }
 }
 
 .del:hover { color: var(--err); background: rgba(248, 113, 113, 0.12); }
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal[hidden] { display: none; }
+
+.modal-box {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  max-width: 320px;
+  width: 90%;
+}
+
+.modal-box p { font-size: 14px; line-height: 1.6; }
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px 16px;
+  border-radius: 8px;
+  z-index: 200;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  font-size: 13px;
+}
+
+.toast[hidden] { display: none; }
 
 .card {
   background: var(--card);
