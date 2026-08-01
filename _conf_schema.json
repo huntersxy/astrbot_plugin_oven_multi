@@ -21,18 +21,6 @@
         "hint": "开启后自动检测并补全消息中的括号",
         "type": "bool",
         "default": true
-      },
-      "check_group_messages": {
-        "description": "检查群组消息",
-        "hint": "是否检查群组消息中的括号匹配",
-        "type": "bool",
-        "default": true
-      },
-      "check_private_messages": {
-        "description": "检查私聊消息",
-        "hint": "是否检查私聊消息中的括号匹配",
-        "type": "bool",
-        "default": false
       }
     }
   },
@@ -205,6 +193,29 @@
         "hint": "跨群风格最多注入多少条（仅 enable_cross_group 开启时生效）。",
         "default": 3
       },
+      "enable_situational_inject": {
+        "description": "启用场景化表达注入",
+        "hint": "开启后，仅当当前消息语境匹配时才会注入数字梗等场景化表达（如 666/233），避免 AI 每条回复都强行复读。",
+        "type": "bool",
+        "default": true
+      },
+      "max_situational_inject": {
+        "type": "int",
+        "description": "最大场景化表达注入数",
+        "hint": "每轮 LLM 请求最多注入多少条语境匹配的场景化表达。",
+        "default": 2
+      },
+      "situational_similarity_threshold": {
+        "type": "float",
+        "slider": {
+          "min": 0,
+          "max": 1,
+          "step": 0.05
+        },
+        "description": "场景化表达相似度阈值",
+        "hint": "使用嵌入向量判断当前消息与场景梗的关联度，高于该阈值才注入（0-1，建议 0.3-0.5）。",
+        "default": 0.4
+      },
       "debug_mode": {
         "description": "调试模式",
         "hint": "开启后会在日志中打印每次风格注入的完整内容，方便排查注入问题。",
@@ -288,73 +299,6 @@
         "type": "string",
         "options": ["simple", "yaml"],
         "default": "yaml"
-      }
-    }
-  },
-  "image_caption_cache": {
-    "description": "图片转述缓存",
-    "hint": "为图片转述结果增加 TTL 与图片数量双策略内存缓存，减少重复图片的视觉模型调用。",
-    "type": "object",
-    "items": {
-      "enabled": {
-        "description": "启用图片转述缓存",
-        "hint": "关闭后不再给 AstrBot 图片转述流程打缓存补丁；修改后需要重载插件。",
-        "type": "bool",
-        "default": true
-      },
-      "enable_ttl_cache": {
-        "description": "启用 TTL 缓存策略",
-        "hint": "开启后，缓存条目会在指定秒数后过期。可与图片数量策略同时开启。",
-        "type": "bool",
-        "default": true
-      },
-      "image_caption_cache_ttl": {
-        "description": "缓存时长（秒）",
-        "hint": "仅在 TTL 缓存策略开启时生效；设为 0 等同于关闭 TTL 策略，但不影响图片数量策略。",
-        "type": "int",
-        "default": 600
-      },
-      "enable_image_count_cache": {
-        "description": "启用图片数量缓存策略",
-        "hint": "开启后，缓存最多保留指定数量的图片转述结果，超过上限会淘汰最久未使用的缓存。",
-        "type": "bool",
-        "default": true
-      },
-      "max_cached_images": {
-        "description": "最大缓存图片数量",
-        "hint": "图片数量缓存策略的容量上限。多图转述会按实际图片张数占用容量。",
-        "type": "int",
-        "default": 200
-      },
-      "patch_main_agent": {
-        "description": "缓存主对话图片转述",
-        "hint": "覆盖 AstrBot 主对话流程中的图片转述调用。",
-        "type": "bool",
-        "default": true
-      },
-      "patch_quoted_message": {
-        "description": "缓存引用消息图片转述",
-        "hint": "覆盖 AstrBot 引用消息解析中的图片转述调用。",
-        "type": "bool",
-        "default": true
-      },
-      "fingerprint_remote_images": {
-        "description": "远程图片使用内容指纹",
-        "hint": "开启后会异步下载远程图片并用内容哈希作为缓存键，可解决平台临时 URL 每次变化导致的缓存 miss；失败时自动退回 URL 缓存键。",
-        "type": "bool",
-        "default": true
-      },
-      "remote_fingerprint_timeout": {
-        "description": "远程图片指纹超时（秒）",
-        "hint": "远程图片内容指纹下载的最大等待时间。",
-        "type": "float",
-        "default": 8
-      },
-      "remote_fingerprint_max_bytes": {
-        "description": "远程图片指纹最大下载字节数",
-        "hint": "远程图片超过该大小时不下载内容，直接退回 URL 缓存键。",
-        "type": "int",
-        "default": 20971520
       }
     }
   },

@@ -14,3 +14,16 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 # Modified from astrbot_plugin_iearning_style (AGPL-3.0) by qa296
+
+from .data_manager import CATEGORY_SITUATIONAL, CATEGORY_STABLE, DataManager
+from .style_learning import StyleInjector, StyleLearner, StyleManager, clean_system_prompt
+
+__all__ = [
+    "CATEGORY_SITUATIONAL",
+    "CATEGORY_STABLE",
+    "DataManager",
+    "StyleInjector",
+    "StyleLearner",
+    "StyleManager",
+    "clean_system_prompt",
+]

@@ -124,9 +124,6 @@ class ActiveSpeakersTracker:
             + "\n".join(lines)
         )
 
-    def cleanup(self, origin: str) -> None:
-        self._speakers.pop(origin, None)
-
 
 # ── Mention 标签解析 ──
 

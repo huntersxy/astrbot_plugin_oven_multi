@@ -1,5 +1,33 @@
 # Changelog
 
+## v1.42.0 (2026-08-01)
+
+### Removed
+
+- **移除图片转述缓存功能**: 删除 `features/image_caption_cache/`（缓存核心、包装层与 AstrBot 核心函数运行时补丁），不再对 AstrBot 图片转述流程打 monkey-patch。移除相关配置节、`image_caption_cache_stats` / `image_caption_cache_clear` 命令、`on_astrbot_loaded` 补丁应用逻辑与文档说明。
+
+## v1.41.0 (2026-08-01)
+
+### Improvements
+
+- **风格学习防“学步”**: 学习结果拆分为「稳定风格」与「场景化表达」两类。学习提示词显式禁止把 666/233 等数字梗、一次性梗写入稳定风格，并增加启发式护栏：含数字串或短重复串的特征自动降级为场景化表达。
+- **场景门控注入**: 场景化表达仅在当前消息语境匹配时注入（触发词命中或嵌入相似度达到 `situational_similarity_threshold`），并附「仅供理解与自然接梗，不要主动扩散」约束；稳定风格注入带「参考而非复读」约束，避免 AI 每条回复都强行带梗。
+- **缓存命中率保持**: 所有动态注入继续走 `extra_user_content_parts` + `mark_as_temp()`，system 提示词保持稳定以命中 LLM 前缀缓存；新增稳定风格文本按数据版本缓存与场景梗嵌入缓存，特征未变化时不重复计算。
+- **参考插件**: 设计参考 astrbot_plugin_self_learning（黑话与风格分离、注入即解释不扩散）与 astrbot_plugin_angel_memory（记忆筛选与衰减）。
+- 新增配置项：`enable_situational_inject`、`max_situational_inject`、`situational_similarity_threshold`；Dashboard 页面新增场景化表达展示。
+
+## v1.40.0 (2026-08-01)
+
+### Refactor
+
+- **精简主入口**: `main.py` 由约 700 行压缩至约 400 行。修复 `_is_enabled` 重复定义问题；移除 LLM 请求中的「差分捕捉」调试逻辑；括号/复读回复由 fire-and-forget 任务改为直接 `await` 发送；新增组合 Web API `/status` 供页面一次获取全部状态。
+- **删除无效脚手架**: 移除未被任何模块使用的 `core/`（ConfigManager、BaseFeature）与 `utils/`（decorators、constants），配置访问改为极简辅助函数。
+- **合并风格学习子模块**: `learning_manager` / `scheduler` / `style_injector` / `style_selector` / `system_prompt_rewriter` 五个文件合并为 `style_learning.py`；system prompt 清理只保留实际用到的 LTM 剥离与去重逻辑。
+- **精简图片转述缓存包装层**: `feature.py` 不再依赖 ConfigManager，直接接收功能配置节；移除冗余的类型强制转换辅助。
+- **修复余额查询会话泄漏**: `terminate()` 现在会关闭 `BalanceChecker` 持有的 aiohttp 会话。
+- **清理无效配置项**: 移除代码中从未读取的 `bracket_matching.check_group_messages` / `check_private_messages`。
+- **重构 Dashboard 页面**: 由 `pages/style_status`（约 12KB）重写为 `pages/status` 单页仪表盘，一次请求展示功能状态、余额与风格学习，支持深浅色主题。
+
 ## v1.39.1 (2026-07-07)
 
 ### Bug Fixes

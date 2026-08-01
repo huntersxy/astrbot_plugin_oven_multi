@@ -14,7 +14,6 @@
 | @功能 | 追踪活跃发言人并注入列表，LLM 可通过 `<mention id="ID"/>` 标签 @ 用户 |
 | 💬 主动回复 | 群聊中无需 @ 即可主动回复，支持概率触发和模型判定 |
 | 💰 余额查询 | 查询各服务商余额，可在 Dashboard 页面查看 |
-| 📷 图片转述缓存 | 缓存图片转述结果，减少重复的视觉模型调用，支持 TTL 和图片数量双策略 |
 
 ## 配置
 
@@ -24,8 +23,6 @@
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `enabled` | 启用 | `true` |
-| `check_group_messages` | 检查群组消息 | `true` |
-| `check_private_messages` | 检查私聊消息 | `false` |
 
 ### 消息复读 (`repetition`)
 | 配置项 | 说明 | 默认值 |
@@ -54,9 +51,13 @@
 
 ### 风格学习 (`style_learning`)
 
-> 风格内容通过 `req.extra_user_content_parts` 注入（不修改 system_prompt），并标记为临时内容（`mark_as_temp()`，不持久化到会话历史），充分兼容其他插件的 prompt 注入。
+> 学习结果分为两类：
+> - **稳定风格**：跨场景的语气、句式、措辞习惯，常驻注入，但带「参考而非复读」约束；
+> - **场景化表达**：有明确触发场景的梗/数字梗（如 666、233），仅在当前消息语境匹配时注入，避免 AI 每条回复都强行带上。
 >
-> 注入前会自动剥离平台 LTM（Long-Term Memory）注入并进行去重，减少 prompt 膨胀。
+> 学习提示词会显式要求 LLM 不要把数字梗/一次性梗写入稳定风格，代码层还有启发式护栏兜底（含数字串或短重复串的特征自动降级为场景化表达）。
+>
+> 风格内容通过 `req.extra_user_content_parts` 注入（不修改 system_prompt，保持 system 提示词稳定以命中 LLM 前缀缓存），并标记为临时内容（`mark_as_temp()`，不持久化到会话历史）。注入前会自动剥离平台 LTM 并进行去重。
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
@@ -69,6 +70,9 @@
 | `enable_cross_group` | 启用跨群风格，引用其他群的风格特征 | `false` |
 | `enable_emb_style_selection` | 启用嵌入向量辅助选择，按语义相关度选取风格 | `true` |
 | `max_global_styles` | 跨群风格最多注入条数（仅跨群开启时生效） | `3` |
+| `enable_situational_inject` | 启用场景化表达注入（语境匹配时才注入） | `true` |
+| `max_situational_inject` | 每轮最多注入的场景化表达条数 | `2` |
+| `situational_similarity_threshold` | 场景化表达嵌入相似度阈值（0-1） | `0.4` |
 
 ### 主动回复 (`active_reply`)
 | 配置项 | 说明 | 默认值 |
@@ -78,20 +82,6 @@
 | `possibility` | 回复概率（`probability` 模式） | `0.1` |
 | `model_stack_size` | 模型判定栈长度 | `8` |
 | `model_choice_provider_id` | 模型判定用的 Provider | `` |
-
-### 图片转述缓存 (`image_caption_cache`)
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `enabled` | 启用 | `true` |
-| `enable_ttl_cache` | 启用 TTL 缓存策略 | `true` |
-| `image_caption_cache_ttl` | 缓存时长（秒） | `600` |
-| `enable_image_count_cache` | 启用图片数量缓存策略 | `true` |
-| `max_cached_images` | 最大缓存图片数量 | `200` |
-| `patch_main_agent` | 缓存主对话图片转述 | `true` |
-| `patch_quoted_message` | 缓存引用消息图片转述 | `true` |
-| `fingerprint_remote_images` | 远程图片使用内容指纹 | `true` |
-| `remote_fingerprint_timeout` | 远程图片指纹超时（秒） | `8` |
-| `remote_fingerprint_max_bytes` | 远程图片指纹最大下载字节数 | `20971520` |
 
 ### 余额查询 (`balance`)
 
@@ -160,15 +150,14 @@ services:
 | `风格状态` | 查看当前会话的风格学习统计 |
 | `清空风格` | 清空当前会话的所有学习风格 |
 | `学习总结` | 手动触发一次风格学习分析 |
-| `image_caption_cache_stats` | 查看图片转述缓存状态 |
-| `image_caption_cache_clear` | 清空图片转述缓存 |
 
 ## Dashboard
 
-插件提供 Dashboard 页面，在 AstrBot 管理面板中访问：
+插件提供「状态总览」页面（`pages/status`），在 AstrBot 管理面板中访问，可一次查看：
 
-- **风格学习** — 查看每个群组的通用风格和聊天记录
-- **余额查询** — 查看各服务商余额
+- **功能状态** — 各功能的启用状态与关键参数
+- **余额查询** — 各服务商余额
+- **风格学习** — 每个群组的通用风格和聊天记录（可折叠查看）
 
 ## 安装
 
@@ -192,5 +181,4 @@ GNU Affero General Public License v3.0
 - astrbot_plugin_group_chat_plus (AGPL-3.0) by Him666233 — System prompt 兼容增强与差分捕捉机制
 - astrbot_plugin_iris_chat_memory (AGPL-3.0) by  — `extra_user_content_parts` 注入策略与 `mark_as_temp()` 实践
 - astrbot_plugin_remove_blank_lines (MIT) by Codex — 移除空行
-- astrbot_plugin_image_caption_cache (AGPL-3.0) by Florance — 图片转述缓存
 - astrbot_plugin_balance by BUGJI — 余额查询

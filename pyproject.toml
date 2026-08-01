@@ -1,6 +1,6 @@
 [project]
 name = "astrbot_plugin_oven_multi"
-version = "1.38.0"
+version = "1.42.0"
 description = "插座的多功能烤箱 — AstrBot 多功能插件"
 requires-python = ">=3.10"
 license = {text = "AGPL-3.0"}

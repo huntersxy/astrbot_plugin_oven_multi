@@ -70,7 +70,6 @@ _SAFE_CONSTANTS = {
 _ALLOWED_NODE_TYPES = (
     ast.Expression,   # 根节点
     ast.Constant,     # 数字字面量（Python 3.8+）
-    ast.Num,          # 数字字面量（Python 3.7 兼容，3.14 已废弃）
     ast.BinOp,        # 二元运算
     ast.UnaryOp,      # 一元运算
     ast.Call,         # 函数调用
@@ -129,8 +128,6 @@ def safe_eval(expr: str) -> Any:
             if isinstance(node.value, (int, float)):
                 return node.value
             raise ValueError(f"不支持的常量类型: {type(node.value).__name__}")
-        if isinstance(node, ast.Num):  # Python 3.7 兼容（3.14 已废弃）
-            return node.n
         if isinstance(node, ast.Name):
             if node.id in _SAFE_CONSTANTS:
                 return _SAFE_CONSTANTS[node.id]
