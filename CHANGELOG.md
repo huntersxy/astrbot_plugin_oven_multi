@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.43.2 (2026-08-01)
+
+### Bug Fixes
+
+- **修复 Dashboard 删除会话按钮文字不可见**: `.ghost.danger` 与 `button.danger` 的样式冲突导致红字红底，已显式保持透明背景。
+
 ## v1.43.1 (2026-08-01)
 
 ### Bug Fixes
