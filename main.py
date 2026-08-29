@@ -91,6 +91,18 @@ def collapse_blank_lines(text: str, max_newlines: int = 1) -> str:
     return re.sub(rf"\n{{{limit + 1},}}", "\n" * limit, normalized)
 
 
+# 主动回复触发时注入 LLM 的默认引导，用于让模型理解“这是机器人主动加入话题，不是用户来找机器人”
+DEFAULT_ACTIVE_REPLY_GUIDANCE = (
+    "这是一条由机器人主动发起的群聊回复，不是用户主动寻找机器人或向机器人提问。\n"
+    "用户没有在找机器人，机器人是在看到群聊话题后主动加入聊天。\n"
+    "请以群聊参与者的自然口吻回复：\n"
+    "1. 不要使用“有什么可以帮你”“我在”“已收到”等服务式或被召唤式的开头；\n"
+    "2. 不要解释或提及自己是主动回复、被动触发等机制；\n"
+    "3. 尽量简短自然地融入当前话题，像普通群友一样接话；\n"
+    "4. 如果当前话题不适合接话，可以克制或不强行发言。"
+)
+
+
 @register(PLUGIN_NAME, PLUGIN_AUTHOR, PLUGIN_DESC, PLUGIN_VERSION)
 class OvenMultiPlugin(Star):
     """插座的多功能烤箱 - 主插件类"""
@@ -333,6 +345,8 @@ class OvenMultiPlugin(Star):
 
         # 主动回复
         if await self.active_reply.should_active_reply(event, self.config, self.context):
+            # 标记本次 LLM 请求由主动回复触发，供 on_llm_request 注入“被动触发”引导
+            event.set_extra("oven_active_reply_triggered", True)
             cm = self.context.conversation_manager
             conv_id = await cm.get_curr_conversation_id(event.unified_msg_origin)
             if not conv_id:
@@ -438,7 +452,7 @@ class OvenMultiPlugin(Star):
             },
         )
 
-    # ── Handler：LLM 请求注入（风格 + 活跃发言人）───────────────────────
+    # ── Handler：LLM 请求注入（风格 + 主动回复引导 + 活跃发言人）─────────
 
     @filter.on_llm_request(priority=17)
     async def on_llm_request(self, event: AstrMessageEvent, req):
@@ -457,6 +471,17 @@ class OvenMultiPlugin(Star):
             )
             if style_text:
                 req.extra_user_content_parts.append(TextPart(text=style_text).mark_as_temp())
+
+        # 主动回复触发引导注入（临时内容，不持久化）
+        if event.get_extra("oven_active_reply_triggered", False):
+            ar_cfg = feature_cfg(self.config, FEATURE_ACTIVE_REPLY)
+            guidance = ar_cfg.get("active_reply_guidance")
+            if guidance is None:
+                # 旧配置没有该字段时使用内置默认引导；显式留空则禁用注入
+                guidance = DEFAULT_ACTIVE_REPLY_GUIDANCE
+            guidance = str(guidance or "").strip()
+            if guidance:
+                req.extra_user_content_parts.append(TextPart(text=guidance).mark_as_temp())
 
         # 活跃发言人列表注入（@ 功能）
         if feature_enabled(self.config, FEATURE_MENTION_PARSER):

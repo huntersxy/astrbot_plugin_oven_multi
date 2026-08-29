@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.45.0 (2026-08-29)
+
+### Improvements
+
+- **主动回复增加被动触发引导注入**: 主动回复命中后，通过 `extra_user_content_parts` + `mark_as_temp()` 向 LLM 注入引导，让模型意识到这不是用户主动寻找机器人或向机器人提问，而是机器人主动加入群聊话题；回复应更自然、避免服务式/被召唤式口吻。新增 `active_reply.active_reply_guidance` 配置，可自定义注入文本，留空禁用；旧配置无该字段时自动使用内置默认引导。
+
 ## v1.44.0 (2026-08-01)
 
 ### Improvements

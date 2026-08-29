@@ -82,7 +82,11 @@
 | `mode` | 触发模式：`probability`（概率）/ `model_choice`（模型判定） | `"probability"` |
 | `possibility` | 回复概率（`probability` 模式） | `0.1` |
 | `model_stack_size` | 模型判定栈长度 | `8` |
+| `model_history_messages` | 模型判定时附带的额外历史消息条数（0 表示不附带） | `0` |
 | `model_choice_provider_id` | 模型判定用的 Provider | `` |
+| `model_choice_prompt` | 模型判定提示词，支持 `{stack_size}`、`{messages}`、`{history_count}`、`{history_context}` 占位符 | 内置默认 |
+| `active_reply_guidance` | 主动回复命中后注入 LLM 的额外引导，让模型知道是机器人主动加入话题而非用户来找机器人；留空则不注入 | 内置默认 |
+| `whitelist` | 白名单：英文逗号分隔的 `unified_msg_origin` 或群 ID，留空表示所有群可触发 | `` |
 
 ### 余额查询 (`balance`)
 
