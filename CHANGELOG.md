@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.46.0 (2026-09-15)
+
+### New Features
+
+- **文件读取**: 集成 [astrbot_plugin_file_reader_pro](https://github.com/zz6zz666/astrbot_plugin_file_reader_pro) (MIT) by zz6zz666 的文件读取核心能力，在其基础上重新设计为可开关的模块化实现。
+  - 支持 pdf / docx / xlsx / xls / ods / pptx / csv / tsv 及常见文本与代码格式，自动检测编码；旧版 .doc/.ppt 与压缩包给出明确提示
+  - **预读取**（`file_reader.preread.enabled`，默认开启）：收到文件后自动解析、语义分块并向量化，后续提问自动检索相关内容注入回复上下文
+  - **预读取通知**（`file_reader.preread.notify`，默认开启）：可单独关闭处理结果通知
+  - **LLM Tool**（`file_reader.tool.enabled`，默认开启）：向 LLM 暴露 `file_list` / `file_read` / `file_search` 三个工具，支持关闭预读取、仅保留 Tool 的纯按需读取模式
+  - **RAG 检索**（`file_reader.rag`）：基于 AstrBot 内核的 RecursiveCharacterChunker 与 FaissVecDB；缺少 Embedding Provider 时自动降级，全文读取不受影响；检索结果默认以 `mark_as_temp()` 临时内容注入，不写入对话历史
+  - 文件生命周期：保留时间（默认 60 分钟）与使用轮数（默认 5 轮）双策略自动清理，新增 `/清除文件` 命令
+- 相对原版的修复与调整：修复 system 上下文轮数清理的变量未定义问题；会话 ID 中的非法路径字符（如冒号）自动替换，兼容 Windows；文件副本保留有效期内可反复读取（原版向量化后即删除）；`.doc` 转换等不可用逻辑改为明确报错
+
+### Credits
+
+- 文件读取核心实现改写自 [astrbot_plugin_file_reader_pro](https://github.com/zz6zz666/astrbot_plugin_file_reader_pro)（MIT License，Copyright (c) 2025 xiewoc），许可证文本随模块保存于 `features/file_reader/LICENSE`
+
 ## v1.45.0 (2026-08-29)
 
 ### Improvements

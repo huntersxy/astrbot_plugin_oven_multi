@@ -14,7 +14,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 PLUGIN_NAME = "astrbot_plugin_oven_multi"
-PLUGIN_VERSION = "1.45.0"
+PLUGIN_VERSION = "1.46.0"
 PLUGIN_AUTHOR = "汐兮雨"
 PLUGIN_DESC = "插座的多功能烤箱"
 
@@ -26,6 +26,7 @@ FEATURE_ACTIVE_REPLY = "active_reply"
 FEATURE_REMOVE_BLANK = "remove_blank_lines"
 FEATURE_THINKING = "iam_thinking"
 FEATURE_MENTION_PARSER = "mention_parser"
+FEATURE_FILE_READER = "file_reader"
 
 # 括号匹配配对表（开括号与其闭合括号互映射）
 PAIR_LIST = {

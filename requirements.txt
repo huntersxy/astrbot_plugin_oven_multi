@@ -1,0 +1,11 @@
+# 文件读取功能依赖（核心解析库）
+# 注：faiss-cpu / pandas / chardet / python-docx 由 AstrBot 内核提供，此处声明以保证插件独立可用
+pdfminer.six
+docx2txt
+python-pptx
+openpyxl
+pandas
+chardet
+# 可选：精确 MIME 文件类型检测（未安装时自动退回扩展名判断，不影响功能）
+# python-magic; platform_system != 'Windows'
+# python-magic-bin; platform_system == 'Windows'

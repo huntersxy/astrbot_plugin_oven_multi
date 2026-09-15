@@ -14,6 +14,7 @@
 | @功能 | 追踪活跃发言人并注入列表，LLM 可通过 `<mention id="ID"/>` 标签 @ 用户 |
 | 💬 主动回复 | 群聊中无需 @ 即可主动回复，支持概率触发和模型判定 |
 | 💰 余额查询 | 查询各服务商余额，可在 Dashboard 页面查看 |
+| 📎 文件读取 | 读取会话中的文件供 LLM 使用：预读取 + RAG 语义检索自动注入，或仅通过 LLM Tool（`file_list` / `file_read` / `file_search`）按需读取 |
 
 ## 配置
 
@@ -147,6 +148,40 @@ services:
 | `{{字段.0.xxx}}` | 数组索引 | `{{balance_infos.0.total_balance}}` |
 | `{{round({a}-{b})}}` | 表达式计算 | `{{round({data.used}/{data.total}*100, 1)}}%` |
 
+### 文件读取 (`file_reader`)
+
+> 核心实现改写自 [astrbot_plugin_file_reader_pro](https://github.com/zz6zz666/astrbot_plugin_file_reader_pro)（MIT）。
+>
+> 支持 pdf / docx / xlsx / xls / ods / pptx / csv / tsv 及常见文本与代码格式（自动检测编码）。旧版 `.doc` / `.ppt` 与压缩包不支持，会给出明确提示。可选安装 `python-magic` 获得精确的 MIME 类型检测，未安装时按扩展名判断。
+>
+> 两种使用方式可同时启用或单独启用：
+> - **预读取 + RAG**：收到文件后自动解析、语义分块并向量化，后续提问自动检索相关内容注入回复上下文（默认以临时内容注入，不写入对话历史）；需要 Embedding Provider，缺少时自动降级，日志中会有提示；
+> - **LLM Tool**：LLM 主动调用 `file_list`（列出文件）、`file_read`（读取全文）、`file_search`（语义检索）按需获取内容。
+>
+> 关闭预读取（`preread.enabled = false`）即可得到仅 Tool 的按需读取模式。文件在有效期内保留副本，可反复读取。
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `enabled` | 总开关 | `false` |
+| `preread.enabled` | 预读取：收到文件后自动解析并向量化，提问时自动检索注入 | `true` |
+| `preread.notify` | 预读取后发送处理结果通知 | `true` |
+| `tool.enabled` | 向 LLM 暴露 `file_list` / `file_read` / `file_search` 工具 | `true` |
+| `tool.max_chars` | `file_read` 单次返回的最大字符数（超出截断） | `12000` |
+| `rag.enabled` | RAG 语义检索（预读取向量化与 `file_search` 依赖此项） | `true` |
+| `rag.injection_type` | 检索结果注入方式：`temp_part`（临时内容，不写入历史）/ `prompt`（拼接在用户输入后） | `"temp_part"` |
+| `rag.embedding_provider_id` | 文件向量化用的 Embedding Provider，留空自动选择 | `` |
+| `rag.rerank_provider_id` | 检索结果重排序用的 Rerank Provider，留空自动选择或不启用 | `` |
+| `rag.chunk_size` | 分块大小（字符） | `512` |
+| `rag.chunk_overlap` | 分块重叠（字符） | `100` |
+| `rag.retrieve_top_k` | 每次检索返回的片段数 | `5` |
+| `rag.fetch_k` | 重排序前的候选片段数 | `20` |
+| `rag.enable_rerank` | 启用重排序 | `true` |
+| `max_file_size_mb` | 接受的最大文件大小（MB） | `100` |
+| `retention_minutes` | 文件保留时间（分钟），`0` 表示不按时间过期 | `60` |
+| `max_rounds` | 文件最大使用轮数（检索/读取计数），`0` 表示不限 | `5` |
+| `cleanup_interval_minutes` | 过期文件清理检查间隔（分钟） | `15` |
+| `supported_file_types` | 允许的扩展名列表，留空表示全部内置类型 | `[]` |
+
 ## 命令
 
 | 命令 | 说明 |
@@ -155,6 +190,7 @@ services:
 | `风格状态` | 查看当前会话的风格学习统计 |
 | `清空风格` | 清空当前会话的所有学习风格 |
 | `学习总结` | 手动触发一次风格学习分析 |
+| `清除文件` | 清理当前会话的所有已上传文件 |
 
 ## Dashboard
 
@@ -187,3 +223,4 @@ GNU Affero General Public License v3.0
 - astrbot_plugin_iris_chat_memory (AGPL-3.0) by  — `extra_user_content_parts` 注入策略与 `mark_as_temp()` 实践
 - astrbot_plugin_remove_blank_lines (MIT) by Codex — 移除空行
 - astrbot_plugin_balance by BUGJI — 余额查询
+- astrbot_plugin_file_reader_pro (MIT) by zz6zz666 — 文件读取与 RAG 索引

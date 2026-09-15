@@ -339,5 +339,149 @@
         "default": false
       }
     }
+  },
+    "file_reader": {
+    "description": "文件读取",
+    "hint": "读取会话中的文件供 LLM 使用，支持 RAG 语义检索与 LLM Tool 两种方式。核心实现改写自 astrbot_plugin_file_reader_pro（MIT）。",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用文件读取",
+        "hint": "总开关。关闭后不再接收文件，Tool 也不可用。",
+        "type": "bool",
+        "default": false
+      },
+      "preread": {
+        "description": "预读取",
+        "hint": "收到文件后自动解析并向量化，后续提问时自动检索相关内容注入回复上下文。",
+        "type": "object",
+        "items": {
+          "enabled": {
+            "description": "启用预读取",
+            "hint": "关闭后收到文件只登记不处理，LLM 需通过 Tool（file_list / file_read / file_search）按需读取。",
+            "type": "bool",
+            "default": true
+          },
+          "notify": {
+            "description": "预读取通知",
+            "hint": "收到文件后是否发送处理结果通知（如“已预处理完毕”）。",
+            "type": "bool",
+            "default": true
+          }
+        }
+      },
+      "tool": {
+        "description": "LLM Tool",
+        "hint": "向 LLM 暴露 file_list / file_read / file_search 三个工具，由模型按需调用读取文件。",
+        "type": "object",
+        "items": {
+          "enabled": {
+            "description": "启用 LLM Tool",
+            "hint": "关闭后 LLM 无法主动调用文件读取工具。",
+            "type": "bool",
+            "default": true
+          },
+          "max_chars": {
+            "description": "Tool 单次返回最大字符数",
+            "hint": "file_read 单次返回的正文上限，超出部分截断。",
+            "type": "int",
+            "default": 12000
+          }
+        }
+      },
+      "rag": {
+        "description": "RAG 检索",
+        "hint": "语义分块 + 向量检索。需要 Embedding Provider；缺少时自动降级，全文读取不受影响。",
+        "type": "object",
+        "items": {
+          "enabled": {
+            "description": "启用 RAG",
+            "hint": "关闭后不做向量化与自动检索注入，file_search 也不可用。",
+            "type": "bool",
+            "default": true
+          },
+          "injection_type": {
+            "description": "检索结果注入方式",
+            "hint": "temp_part：以临时内容注入（不写入对话历史）；prompt：直接拼接在用户输入后。",
+            "type": "string",
+            "options": ["temp_part", "prompt"],
+            "default": "temp_part"
+          },
+          "embedding_provider_id": {
+            "description": "Embedding Provider ID",
+            "hint": "用于文件向量化的 Embedding Provider。留空自动选择第一个可用的。",
+            "type": "string",
+            "_special": "select_provider:embedding",
+            "default": ""
+          },
+          "rerank_provider_id": {
+            "description": "Rerank Provider ID",
+            "hint": "用于检索结果重排序的 Rerank Provider。留空自动选择或不启用重排序。",
+            "type": "string",
+            "default": ""
+          },
+          "chunk_size": {
+            "description": "分块大小",
+            "hint": "文本分块的字符数。",
+            "type": "int",
+            "default": 512
+          },
+          "chunk_overlap": {
+            "description": "分块重叠",
+            "hint": "相邻分块之间的重叠字符数。",
+            "type": "int",
+            "default": 100
+          },
+          "retrieve_top_k": {
+            "description": "检索条数",
+            "hint": "每次检索返回的相关片段数量。",
+            "type": "int",
+            "default": 5
+          },
+          "fetch_k": {
+            "description": "候选条数",
+            "hint": "重排序前的候选片段数量。",
+            "type": "int",
+            "default": 20
+          },
+          "enable_rerank": {
+            "description": "启用重排序",
+            "hint": "有 Rerank Provider 时对检索结果重排序。",
+            "type": "bool",
+            "default": true
+          }
+        }
+      },
+      "max_file_size_mb": {
+        "description": "最大文件大小（MB）",
+        "hint": "超过该大小的文件将被拒绝。",
+        "type": "int",
+        "default": 100
+      },
+      "retention_minutes": {
+        "description": "文件保留时间（分钟）",
+        "hint": "文件接收后超过该时间自动清理。设为 0 表示不按时间过期。",
+        "type": "int",
+        "default": 60
+      },
+      "max_rounds": {
+        "description": "最大使用轮数",
+        "hint": "文件被检索/读取累计达到该轮数后自动清理。设为 0 表示不限轮数。",
+        "type": "int",
+        "default": 5
+      },
+      "cleanup_interval_minutes": {
+        "description": "清理检查间隔（分钟）",
+        "hint": "定期扫描并清理过期文件的间隔。",
+        "type": "int",
+        "default": 15
+      },
+      "supported_file_types": {
+        "description": "支持的文件类型",
+        "hint": "留空表示支持全部内置类型（pdf/docx/xlsx/xls/ods/pptx/csv/tsv 及常见文本与代码格式）。",
+        "type": "list",
+        "default": []
+      }
+    }
   }
 }

@@ -20,6 +20,8 @@
 #   - astrbot_plugin_iamthinking (AGPL-3.0) by sssn-tech — thinking emoji reaction
 #   - astrbot_plugin_iearning_style (AGPL-3.0) by qa296 — style learning integration
 #   - astrbot_plugin_remove_blank_lines (MIT) by Codex — remove blank lines from LLM output
+#   - astrbot_plugin_file_reader_pro (MIT) by zz6zz666 — file reading, RAG indexing
+#     (original license: see features/file_reader/LICENSE)
 # Date: 2026-06-23
 
 import asyncio
@@ -35,6 +37,7 @@ from astrbot.api.star import Context, Star, StarTools, register
 from .constants import (
     FEATURE_ACTIVE_REPLY,
     FEATURE_BRACKET,
+    FEATURE_FILE_READER,
     FEATURE_MENTION_PARSER,
     FEATURE_REMOVE_BLANK,
     FEATURE_REPETITION,
@@ -48,6 +51,7 @@ from .constants import (
 from .features.active_reply import ActiveReply
 from .features.balance_checker import BalanceChecker
 from .features.bracket_matcher import BracketMatcher
+from .features.file_reader import FileParseError, FileReaderManager
 from .features.mention_parser import ActiveSpeakersTracker, transform_mention_in_chain
 from .features.repeater import Repeater
 from .features.learning_style import (
@@ -138,6 +142,19 @@ class OvenMultiPlugin(Star):
             except Exception as e:
                 logger.error(f"[烤箱-风格学习] 初始化失败: {e}")
 
+        # 文件读取（预读取 / RAG 检索 / LLM Tool）
+        self.file_reader: FileReaderManager | None = None
+        if feature_enabled(self.config, FEATURE_FILE_READER, False):
+            try:
+                self.file_reader = FileReaderManager(
+                    self,
+                    feature_cfg(self.config, FEATURE_FILE_READER),
+                    self.data_dir,
+                )
+                logger.info("[烤箱-文件读取] 初始化完成")
+            except Exception as e:
+                logger.error(f"[烤箱-文件读取] 初始化失败: {e}")
+
         # Web API
         for route, handler, desc in (
             (f"/{PLUGIN_NAME}/status", self._api_status, "烤箱状态总览"),
@@ -157,12 +174,16 @@ class OvenMultiPlugin(Star):
     async def initialize(self):
         if self.style:
             self.style.start()
+        if self.file_reader:
+            await self.file_reader.start()
         logger.info("[插座烤箱] 启动")
 
     async def terminate(self):
         if self.style:
             await self.style.stop()
             await self.style.data.force_save()
+        if self.file_reader:
+            await self.file_reader.stop()
         await self.balance_checker.terminate()
 
     # ── Web API ──────────────────────────────────────────────────────────
@@ -207,6 +228,25 @@ class OvenMultiPlugin(Star):
         )
 
         add("@功能", feature_enabled(self.config, FEATURE_MENTION_PARSER))
+
+        if self.file_reader:
+            fr_cfg = feature_cfg(self.config, FEATURE_FILE_READER)
+            preread = fr_cfg.get("preread") or {}
+            tool_cfg = fr_cfg.get("tool") or {}
+            modes = []
+            modes.append(
+                "预读取"
+                if preread.get("enabled", True)
+                else "仅 Tool"
+            )
+            if fr_cfg.get("rag", {}).get("enabled", True):
+                modes.append("RAG 检索")
+            if tool_cfg.get("enabled", True):
+                modes.append("LLM Tool")
+            add("文件读取", True, "、".join(modes))
+        else:
+            add("文件读取", False)
+
         return items
 
     def _style_status_data(self) -> dict:
@@ -493,6 +533,118 @@ class OvenMultiPlugin(Star):
                     req.extra_user_content_parts.append(
                         TextPart(text=speakers_text).mark_as_temp()
                     )
+
+    # ── Handler：文件读取 ────────────────────────────────────────────────
+
+    @filter.event_message_type(filter.EventMessageType.ALL)
+    async def on_file_message(self, event: AstrMessageEvent):
+        """接收消息中的文件组件：登记副本，并按配置决定是否预读取向量化。"""
+        if not self.file_reader or self._blocked(event):
+            return
+        if event.get_sender_id() == event.get_self_id():
+            return
+        file_items = [
+            item for item in event.message_obj.message if isinstance(item, Comp.File)
+        ]
+        if not file_items:
+            return
+
+        fr_cfg = feature_cfg(self.config, FEATURE_FILE_READER)
+        notify = bool((fr_cfg.get("preread") or {}).get("notify", True))
+
+        for item in file_items:
+            notice = None
+            try:
+                file_path = str(await item.get_file())
+                file_name = str(getattr(item, "name", "") or "").strip() or file_path
+                notice = await self.file_reader.ingest(
+                    event.unified_msg_origin, file_path, file_name
+                )
+            except FileParseError as e:
+                notice = str(e)
+            except Exception as e:
+                logger.error(f"[烤箱-文件读取] 处理文件失败: {e}")
+            if notice and notify:
+                yield event.plain_result(notice)
+
+    @filter.on_llm_request(priority=16)
+    async def on_llm_request_files(self, event: AstrMessageEvent, req):
+        """检索当前会话已上传文件并注入请求上下文（RAG）。"""
+        if not self.file_reader or self._blocked(event):
+            return
+        rag_cfg = feature_cfg(self.config, FEATURE_FILE_READER).get("rag") or {}
+        if not rag_cfg.get("enabled", True):
+            return
+        if not (req.prompt or "").strip():
+            return
+        context_text = await self.file_reader.build_context(
+            event.unified_msg_origin, req.prompt
+        )
+        if not context_text:
+            return
+        if str(rag_cfg.get("injection_type", "temp_part")) == "prompt":
+            req.prompt = f"{req.prompt}\n\n{context_text}"
+        else:
+            from astrbot.core.agent.message import TextPart
+
+            req.extra_user_content_parts.append(
+                TextPart(text=context_text).mark_as_temp()
+            )
+        logger.debug("[烤箱-文件读取] 已注入文件检索结果")
+
+    @filter.llm_tool("file_list")
+    async def tool_file_list(self, event: AstrMessageEvent):
+        """列出当前会话中已上传、可供读取的文件。当用户询问“有什么文件/刚才发的文件”时调用。"""
+        if not self.file_reader:
+            return "文件读取功能未启用"
+        if not (feature_cfg(self.config, FEATURE_FILE_READER).get("tool") or {}).get(
+            "enabled", True
+        ):
+            return "文件读取的 Tool 功能已关闭"
+        return self.file_reader.list_files(event.unified_msg_origin)
+
+    @filter.llm_tool("file_read")
+    async def tool_file_read(self, event: AstrMessageEvent, file_name: str):
+        """读取指定文件的文本内容。调用前建议先用 file_list 获取准确的文件名。
+
+        Args:
+            file_name: 要读取的文件名，必须来自 file_list 的列表
+        """
+        if not self.file_reader:
+            return "文件读取功能未启用"
+        if not (feature_cfg(self.config, FEATURE_FILE_READER).get("tool") or {}).get(
+            "enabled", True
+        ):
+            return "文件读取的 Tool 功能已关闭"
+        return await self.file_reader.read_file_text(
+            event.unified_msg_origin, str(file_name or "").strip()
+        )
+
+    @filter.llm_tool("file_search")
+    async def tool_file_search(self, event: AstrMessageEvent, query: str):
+        """在当前会话已上传的文件中进行语义检索，返回与查询最相关的片段。适合大文件或只需部分内容时使用。
+
+        Args:
+            query: 检索关键词或问题
+        """
+        if not self.file_reader:
+            return "文件读取功能未启用"
+        if not (feature_cfg(self.config, FEATURE_FILE_READER).get("tool") or {}).get(
+            "enabled", True
+        ):
+            return "文件读取的 Tool 功能已关闭"
+        return await self.file_reader.search_text(
+            event.unified_msg_origin, str(query or "")
+        )
+
+    @filter.command("清除文件")
+    async def clear_files(self, event: AstrMessageEvent):
+        '''清理当前会话的所有已上传文件'''
+        if not self.file_reader:
+            yield event.plain_result("文件读取功能未启用")
+            return
+        count = await self.file_reader.clear_session(event.unified_msg_origin)
+        yield event.plain_result(f"已清理当前会话的 {count} 个文件")
 
     # ── Handler：风格命令 ────────────────────────────────────────────────
 
