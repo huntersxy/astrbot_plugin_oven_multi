@@ -608,7 +608,7 @@ class OvenMultiPlugin(Star):
         """读取指定文件的文本内容。调用前建议先用 file_list 获取准确的文件名。
 
         Args:
-            file_name: 要读取的文件名，必须来自 file_list 的列表
+            file_name(string): 要读取的文件名，必须来自 file_list 的列表
         """
         if not self.file_reader:
             return "文件读取功能未启用"
@@ -625,7 +625,7 @@ class OvenMultiPlugin(Star):
         """在当前会话已上传的文件中进行语义检索，返回与查询最相关的片段。适合大文件或只需部分内容时使用。
 
         Args:
-            query: 检索关键词或问题
+            query(string): 检索关键词或问题
         """
         if not self.file_reader:
             return "文件读取功能未启用"
