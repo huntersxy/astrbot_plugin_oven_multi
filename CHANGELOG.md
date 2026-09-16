@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.46.1 (2026-09-16)
+
+### Bug Fixes
+
+- **修复插件加载失败**: `file_read` 与 `file_search` 两个 LLM Tool 的 docstring `Args:` 块未写参数类型。AstrBot 依据 docstring 生成参数 schema（不读取 Python 类型注解），类型为空时在导入期抛出 `LLM 函数工具 ...main_file_read 的参数 file_name 缺少类型注释`，导致插件整体无法加载；现分别补为 `file_name(string)` 与 `query(string)`。
+
 ## v1.46.0 (2026-09-15)
 
 ### New Features
