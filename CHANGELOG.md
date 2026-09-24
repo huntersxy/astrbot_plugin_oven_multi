@@ -1,5 +1,44 @@
 # Changelog
 
+## v1.48.0 (2026-09-25)
+
+### New Features
+
+- **被@回复 Jev 判读**: 被 @机器人 / 唤醒前缀 / 引用唤醒（非主动回复）时，注入一次 Jev 多维判读，重点是**意图与情绪**（独立标题「被动回复 · Jev 判读」+ 置顶「重点 ·」行）；判读失败只降级为普通回复。裸@第一条仍走 AstrBot 原生空@流程（jev 裁决 0.99）。
+- **保留「@机器人」文本**: aiocqhttp 适配器构造正文时会丢弃第一个指向机器人的 @段，本插件在最高优先级 handler（`priority=maxsize`，先于 AstrBot 裸@拦截）把 `@昵称(qq)` 补回 `message_str`，模型与判读上下文都能看到被@；无正文（裸@）、非 aiocqhttp、正文已含该@时不动，消息链不受影响。
+- **兼容 AstrBot「群聊消息记录注入上下文」**: 对原生漏记的「纯@消息」（无 Plain/Json/Image 组件，如先发一句话、再单独@机器人）在 `group_icl_enable` 开启时自动补记一条原生记录（经 `star_map` 调用原生 `GroupChatContext.handle_message`，按 `_group_context_record_id` 去重，跨版本差异仅降级不报错）；原生记录读消息链、@自带 `⚠️[DIRECTED AT YOU]` 标记，与本插件改 `message_str` 互不冲突——原生注入历史原文块，Jev 注入判读，互为补充。适配最新 AstrBot 源码（v4.28.1）。
+- **判读上下文与触发解耦**: 群消息历史（含@消息）改由最高优先级 handler 独立记录，不再依赖主动回复闸门——主动回复关闭时被@判读同样有上下文。
+- **`jev.debug_mode` 调试开关**: 开启后以 INFO 级别输出每次 Jev 调用的完整输入（state 上下文原文 + 全部问题 JSON）与原始输出（HTTP 状态 + 响应体），用于核对上下文是否真的进来了；排查完请关闭。
+
+### Changed
+
+- **题型对齐 TypeSafe 官方 primitives（jev 裁决优先级第 1）**: 风险、期待回复由 `choice` 改为有序光谱 **`score`**（criteria 按低→高排序，返回等级位置与各级概率）；「是否主动回复」由 `choice` 改为 **`noul`**（返回「该主动回复」概率，直接与 `decision_min_confidence` 阈值比较，语义从"模型把握"修正为"该回复的概率"）；`intent` 意图列表补「其他」兜底项。注入展示格式不变（仍显示等级标签+置信度）。
+- **配置结构（jev 裁决：升顶层，置信 1.0）**: `active_reply.jev` 升级为顶层 `jev` 配置节（17 项），新增场景开关 `inject_on_active_reply`（主动场景注入，`model_choice` 触发判定不受影响）与 `inject_on_mention`（被@场景注入）；`active_reply` 只保留触发配置。白名单同时作用于主动触发与 Jev 判读注入。`/烤箱状态` 新增独立「Jev 判读」状态行（显示生效场景与 DEBUG 标记）。
+- **`min_message_chars` 语义扩展**: 概率命中与被@判读共用——去掉开头 @标记与空白后短于阈值则不判读，不影响是否回复。
+
+### Credits
+
+- @保留与纯@补记思路参考 astrbot_plugin_qq_group_enhance（MIT，by rytte），按最新 AstrBot 源码按本插件场景独立实现（未采用其 monkey-patch 方案）。
+
+## v1.47.0 (2026-09-24)
+
+### New Features
+
+- **主动回复 · Jev 多维判读**: 主动回复接入 TypeSafe SystemOne（Jev）多维判读，新增 `active_reply.jev` 配置节（14 项）。
+  - 判读维度：说话对象 / 意图 / 情绪 / 对bot态度 / 期待回复 / 风险，均带置信度；可按规则附带「行动建议」，以 `extra_user_content_parts` + `mark_as_temp()` 注入本轮 LLM 请求，不写入对话历史
+  - `probability` 模式：概率命中后调用 Jev 判读并注入；判读失败或未启用时不影响触发，仅跳过注入；过短消息（`min_message_chars`）不消耗判读调用
+  - `model_choice` 模式：改由 Jev 判定是否触发——附加「是否主动回复」判定问题，判为「回复」且置信度不低于 `decision_min_confidence`（默认 0.6）才触发；上下文自动覆盖整个触发栈
+  - 费用与隐私：判读上下文取自本插件维护的最近群聊消息（默认 6 条、上限 1200 字符），发送前本地脱敏（手机号/邮箱/身份证/银行卡/超长数字）；超时/限流按 `retries` 重试
+  - 判读块新增 header/footer 标记；`/烤箱状态` 显示 Jev 判读启用状态
+
+### Removed
+
+- **model_choice 模式的 LLM 文本判定**: 判定职责由 Jev 承担，移除对应配置 `model_history_messages`、`model_choice_provider_id`、`model_choice_prompt`
+
+### Credits
+
+- 判读维度体系与注入思路参考 astrbot_plugin_jev_intent_boost（MIT，作者：汐兮雨），本插件为独立精简实现
+
 ## v1.46.1 (2026-09-16)
 
 ### Bug Fixes

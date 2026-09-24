@@ -243,8 +243,9 @@
       },
       "mode": {
         "description": "触发模式",
-        "hint": "可选 probability（概率触发）或 model_choice（模型选择触发）。",
+        "hint": "probability：按概率触发，命中后调用 Jev 注入多维判读；model_choice：累计若干条消息后由 Jev 的 Noul 概率判定是否触发（需启用顶层「Jev 判读」）。",
         "type": "string",
+        "options": ["probability", "model_choice"],
         "default": "probability"
       },
       "possibility": {
@@ -255,28 +256,9 @@
       },
       "model_stack_size": {
         "description": "模型触发栈长度",
-        "hint": "当 mode=model_choice 时生效，累计到该条数后触发一次模型判定。",
+        "hint": "当 mode=model_choice 时生效，累计到该条数后交由 Jev 判定一次。",
         "type": "int",
         "default": 8
-      },
-      "model_history_messages": {
-        "description": "模型判定历史条数",
-        "hint": "当 mode=model_choice 时生效，判定时附带的额外历史消息条数（0 表示不附带）。",
-        "type": "int",
-        "default": 0
-      },
-      "model_choice_provider_id": {
-        "description": "模型判定提供商 ID",
-        "hint": "当 mode=model_choice 时生效。用于判定是否主动回复的 LLM Provider。留空使用当前会话默认。",
-        "type": "string",
-        "_special": "select_provider",
-        "default": ""
-      },
-      "model_choice_prompt": {
-        "description": "模型判定提示词",
-        "hint": "可使用 {stack_size}、{messages}、{history_count}、{history_context} 占位符，模型需只输出 REPLY 或 SKIP。",
-        "type": "string",
-        "default": "你正在群聊中扮演助手。以下是最近 {stack_size} 条群聊消息：\n{messages}\n\n额外历史上下文（最近 {history_count} 条）：\n{history_context}\n\n请判断你是否应该主动回复。如果需要回复，只输出 REPLY；如果不需要，只输出 SKIP。"
       },
       "active_reply_guidance": {
         "description": "主动回复触发引导",
@@ -287,9 +269,118 @@
       },
       "whitelist": {
         "description": "白名单",
-        "hint": "英文逗号分隔的 unified_msg_origin 或群 ID。留空表示所有群可触发。",
+        "hint": "英文逗号分隔的 unified_msg_origin 或群 ID。留空表示所有群可触发主动回复、也注入 Jev 判读。",
         "type": "string",
         "default": ""
+      }
+    }
+  },
+  "jev": {
+    "description": "Jev 多维判读",
+    "hint": "用 TypeSafe SystemOne（Jev）做多维判读并按场景注入提示词；model_choice 触发模式依赖它判定。连接参数与场景开关均在此节。",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用 Jev 判读",
+        "hint": "总开关。关闭后：probability 模式不判不注（触发不受影响）、model_choice 模式无法判定不触发、被@判读不注入。",
+        "type": "bool",
+        "default": false
+      },
+      "inject_on_active_reply": {
+        "description": "主动回复判读注入",
+        "hint": "probability 命中后调用 Jev 并注入六维判读块。关闭后命中直接回复不判不注；model_choice 的触发判定不受影响，仅不再注入判读块。",
+        "type": "bool",
+        "default": true
+      },
+      "inject_on_mention": {
+        "description": "被@回复判读注入",
+        "hint": "被 @机器人 / 唤醒前缀 / 引用唤醒（非主动回复）时注入一次多维判读（重点：意图与情绪）。关闭则该场景不调用 Jev。裸@第一条仍走 AstrBot 原生空@流程。",
+        "type": "bool",
+        "default": true
+      },
+      "debug_mode": {
+        "description": "调试完整日志",
+        "hint": "开启后以 INFO 级别输出每次 Jev 调用的完整输入（state 上下文原文 + 全部问题）与原始输出，用于核对上下文是否真的进来了；排查完请关闭。",
+        "type": "bool",
+        "default": false
+      },
+      "api_key": {
+        "description": "TypeSafe API Key",
+        "hint": "在 https://console.typesafe.ai 获取。启用判读时必填；消息文本（本地脱敏后）会发送至第三方服务参与判定，请自行评估数据敏感度。",
+        "type": "string",
+        "default": ""
+      },
+      "base_url": {
+        "description": "TypeSafe 接口地址",
+        "hint": "实际请求 POST {base_url}/v1/systemone。",
+        "type": "string",
+        "default": "https://api.typesafe.ai"
+      },
+      "model": {
+        "description": "Jev 模型名",
+        "hint": "默认 jev-latest；另有 jev-preview。",
+        "type": "string",
+        "default": "jev-latest"
+      },
+      "timeout_sec": {
+        "description": "请求超时（秒）",
+        "hint": "超时后概率模式仍回复但不注入判读，model_choice 本轮不触发，被@判读降级为普通回复。建议 5-10 秒。",
+        "type": "int",
+        "default": 8
+      },
+      "retries": {
+        "description": "失败重试次数",
+        "hint": "仅对 429/503/529（限流/过载）重试；重试会拉长触发延迟。",
+        "type": "int",
+        "default": 1
+      },
+      "history_rounds": {
+        "description": "判读带入的上下文条数",
+        "hint": "判读时附带的最近群聊消息条数（model_choice 模式自动不少于触发栈长度）。0 表示不带上下文。",
+        "type": "int",
+        "default": 6
+      },
+      "max_state_chars": {
+        "description": "发送上下文长度上限",
+        "hint": "发送给 Jev 的整段文本（场景说明 + 当前消息 + 上下文）裁剪上限，超出部分截断。",
+        "type": "int",
+        "default": 1200
+      },
+      "min_message_chars": {
+        "description": "判读最小字数",
+        "hint": "概率命中或被@判读时生效：当前消息去掉开头 @标记 与空白后短于此字数则不判读（省调用），不影响是否回复；0 表示不限制。",
+        "type": "int",
+        "default": 2
+      },
+      "desensitize": {
+        "description": "发送前本地脱敏",
+        "hint": "开启后将手机号/邮箱/身份证/银行卡/超长数字替换为占位符再发送。",
+        "type": "bool",
+        "default": true
+      },
+      "enable_advice": {
+        "description": "附带行动建议",
+        "hint": "开启后把判读结论按规则翻译成「怎么回」的建议一并注入。",
+        "type": "bool",
+        "default": true
+      },
+      "show_confidence": {
+        "description": "显示置信度",
+        "hint": "开启后注入块每个维度带（0.xx）置信度。",
+        "type": "bool",
+        "default": true
+      },
+      "max_injection_chars": {
+        "description": "注入块长度上限",
+        "hint": "注入到提示词区的判读块最大字符数，0 表示不限。",
+        "type": "int",
+        "default": 600
+      },
+      "decision_min_confidence": {
+        "description": "触发判定置信度阈值",
+        "hint": "仅 model_choice 模式生效：Jev「该主动回复」概率（Noul）低于该值时不触发（宁可少插话）。",
+        "type": "float",
+        "default": 0.6
       }
     }
   },

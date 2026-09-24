@@ -12,7 +12,8 @@
 | 💭 思考表情 | LLM 处理请求时自动贴表情提示"正在思考" |
 | 🎨 风格学习 | 统一学习群聊的总体说话风格，支持跨群风格共享和嵌入向量选择，通过 `extra_user_content_parts` 注入 LLM |
 | @功能 | 追踪活跃发言人并注入列表，LLM 可通过 `<mention id="ID"/>` 标签 @ 用户 |
-| 💬 主动回复 | 群聊中无需 @ 即可主动回复，支持概率触发和模型判定 |
+| 💬 主动回复 | 群聊中无需 @ 即可主动回复，支持概率触发与 Jev 判定，触发后注入 Jev 多维判读 |
+| 🏷️ @保留与被动判读 | 把被适配器丢弃的「@机器人」补回消息正文；被@/唤醒时注入 Jev 多维判读（重点：意向与情绪）；为原生群上下文补齐纯@漏记 |
 | 💰 余额查询 | 查询各服务商余额，可在 Dashboard 页面查看 |
 | 📎 文件读取 | 读取会话中的文件供 LLM 使用：预读取 + RAG 语义检索自动注入，或仅通过 LLM Tool（`file_list` / `file_read` / `file_search`）按需读取 |
 
@@ -77,17 +78,51 @@
 | `situational_similarity_threshold` | 场景化表达嵌入相似度阈值（0-1） | `0.4` |
 
 ### 主动回复 (`active_reply`)
+
+> 两种触发模式：
+> - **`probability`**：按概率随机触发；命中后调用 Jev 对触发消息做多维判读并注入本轮 LLM 请求（判读失败不影响触发，只是本轮没有注入）。
+> - **`model_choice`**：累计 `model_stack_size` 条消息后由 Jev 判定是否触发——六维判读之外附加「是否主动回复」的 Noul 是非判定，「该主动回复」概率不低于 `decision_min_confidence` 才触发；需启用顶层 `jev` 总开关。
+>
+> 判读维度：说话对象 / 意图 / 情绪 / 对bot态度 / 期待回复 / 风险（均带置信度），可附带按规则生成的行动建议。判读块以 `extra_user_content_parts` 临时内容注入（`mark_as_temp()`，不写入对话历史），上下文取自本插件维护的最近群聊消息，发送前经本地脱敏（手机号/邮箱/身份证等）。
+
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `enable` | 启用 | `false` |
-| `mode` | 触发模式：`probability`（概率）/ `model_choice`（模型判定） | `"probability"` |
+| `mode` | 触发模式：`probability`（概率）/ `model_choice`（Jev 判定） | `"probability"` |
 | `possibility` | 回复概率（`probability` 模式） | `0.1` |
-| `model_stack_size` | 模型判定栈长度 | `8` |
-| `model_history_messages` | 模型判定时附带的额外历史消息条数（0 表示不附带） | `0` |
-| `model_choice_provider_id` | 模型判定用的 Provider | `` |
-| `model_choice_prompt` | 模型判定提示词，支持 `{stack_size}`、`{messages}`、`{history_count}`、`{history_context}` 占位符 | 内置默认 |
+| `model_stack_size` | 触发栈长度（`model_choice` 模式） | `8` |
 | `active_reply_guidance` | 主动回复命中后注入 LLM 的额外引导，让模型知道是机器人主动加入话题而非用户来找机器人；留空则不注入 | 内置默认 |
-| `whitelist` | 白名单：英文逗号分隔的 `unified_msg_origin` 或群 ID，留空表示所有群可触发 | `` |
+| `whitelist` | 白名单：英文逗号分隔的 `unified_msg_origin` 或群 ID，留空表示所有群可触发、也注入 Jev 判读 | `` |
+
+### Jev 多维判读 (`jev`)
+
+> 用 TypeSafe SystemOne（Jev）做多维判读，按两个场景注入本轮 LLM 请求（`extra_user_content_parts` 临时内容，不写入对话历史）：
+> - **主动回复场景**（`inject_on_active_reply`）：`probability` 命中后注入六维判读（判读失败不影响触发）；`model_choice` 的触发判定始终依赖 Jev，该开关仅控制触发后是否注入判读块。
+> - **被@场景**（`inject_on_mention`）：被 @机器人 / 唤醒前缀 / 引用唤醒（非主动回复）时注入一次判读，重点是**意图与情绪**（置顶「重点 ·」行）+ 行动建议；裸@第一条仍走 AstrBot 原生空@流程，其后 60 秒内的消息正常判读；判读失败只降级为普通回复。
+>
+> 判读维度：说话对象 / 意图 / 情绪 / 对bot态度 / 期待回复 / 风险（均带置信度）。题型按 TypeSafe 官方 primitives 选择：无序集合（说话对象/意图/情绪/态度，意图含「其他」兜底）用 `choice`，有序光谱（风险、期待回复）用 `score`（返回等级位置与各级概率），是否主动回复用 `noul`（概率直接对阈值）。上下文取自本插件独立维护的群聊消息记录（含@消息，与主动回复开关解耦），发送前经本地脱敏（手机号/邮箱/身份证等）。
+>
+> **与 AstrBot「群聊消息记录注入上下文」的兼容**：原生记录从消息链读取（@机器人 自带 `⚠️[DIRECTED AT YOU]` 标记），本插件的 @保留只改 `message_str`，二者互不冲突、互为补充——原生注入历史原文块，Jev 注入对当前消息的判读。对原生漏记的「纯@消息」（如先发一句话、再单独 @机器人），本插件在最高优先级自动补记一条原生记录（仅在该功能开启时，无需改 AstrBot 源码）。
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `enabled` | 总开关：关闭后概率模式不判不注（触发不受影响）、`model_choice` 不触发、被@不判读 | `false` |
+| `inject_on_active_reply` | 主动回复场景注入判读 | `true` |
+| `inject_on_mention` | 被@/唤醒场景注入判读（重点：意向与情绪） | `true` |
+| `debug_mode` | 调试完整日志：以 INFO 级别输出每次 Jev 调用的完整输入（state 上下文原文 + 全部问题）与原始输出，用于核对上下文是否真的进来了；排查完请关闭 | `false` |
+| `api_key` | TypeSafe API Key，在 https://console.typesafe.ai 获取 | `` |
+| `base_url` | TypeSafe 接口地址 | `"https://api.typesafe.ai"` |
+| `model` | Jev 模型名 | `"jev-latest"` |
+| `timeout_sec` | 请求超时（秒） | `8` |
+| `retries` | 限流/过载（429/503/529）重试次数 | `1` |
+| `history_rounds` | 判读带入的上下文条数（`model_choice` 自动不少于触发栈长度） | `6` |
+| `max_state_chars` | 发送给 Jev 的上下文长度上限 | `1200` |
+| `min_message_chars` | 判读最小字数（概率命中/被@时生效：去掉开头 @标记与空白后短于此不判读，不影响是否回复） | `2` |
+| `desensitize` | 发送前本地脱敏 | `true` |
+| `enable_advice` | 注入块附带行动建议 | `true` |
+| `show_confidence` | 注入块显示各维度置信度 | `true` |
+| `max_injection_chars` | 注入块长度上限 | `600` |
+| `decision_min_confidence` | `model_choice`「该主动回复」概率（Noul）阈值 | `0.6` |
 
 ### 余额查询 (`balance`)
 
@@ -224,3 +259,5 @@ GNU Affero General Public License v3.0
 - astrbot_plugin_remove_blank_lines (MIT) by Codex — 移除空行
 - astrbot_plugin_balance by BUGJI — 余额查询
 - astrbot_plugin_file_reader_pro (MIT) by zz6zz666 — 文件读取与 RAG 索引
+
+另参考：astrbot_plugin_jev_intent_boost (MIT) by 汐兮雨 — Jev 多维判读的维度体系与注入思路；astrbot_plugin_qq_group_enhance (MIT) by rytte — @保留与纯@补记思路（本插件按最新 AstrBot 源码独立实现）。

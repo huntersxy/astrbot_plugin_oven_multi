@@ -26,6 +26,7 @@
 
 import asyncio
 import re
+from sys import maxsize
 
 from quart import jsonify
 
@@ -38,6 +39,7 @@ from .constants import (
     FEATURE_ACTIVE_REPLY,
     FEATURE_BRACKET,
     FEATURE_FILE_READER,
+    FEATURE_JEV,
     FEATURE_MENTION_PARSER,
     FEATURE_REMOVE_BLANK,
     FEATURE_REPETITION,
@@ -53,6 +55,7 @@ from .features.balance_checker import BalanceChecker
 from .features.bracket_matcher import BracketMatcher
 from .features.file_reader import FileParseError, FileReaderManager
 from .features.mention_parser import ActiveSpeakersTracker, transform_mention_in_chain
+from .features.mention_preserve import restore_bot_mention, should_backfill_native
 from .features.repeater import Repeater
 from .features.learning_style import (
     CATEGORY_SITUATIONAL,
@@ -184,6 +187,7 @@ class OvenMultiPlugin(Star):
             await self.style.data.force_save()
         if self.file_reader:
             await self.file_reader.stop()
+        await self.active_reply.close()
         await self.balance_checker.terminate()
 
     # ── Web API ──────────────────────────────────────────────────────────
@@ -221,11 +225,24 @@ class OvenMultiPlugin(Star):
 
         ar_cfg = feature_cfg(self.config, FEATURE_ACTIVE_REPLY)
         ar_enabled = bool(ar_cfg.get("enable", False))
-        add(
-            "主动回复",
-            ar_enabled,
-            f"模式 {ar_cfg.get('mode', 'probability')}" if ar_enabled else "",
-        )
+        ar_detail = ""
+        if ar_enabled:
+            ar_detail = f"模式 {ar_cfg.get('mode', 'probability')}"
+        add("主动回复", ar_enabled, ar_detail)
+
+        jev_cfg = feature_cfg(self.config, FEATURE_JEV)
+        jev_enabled = bool(jev_cfg.get("enabled", False))
+        jev_detail = ""
+        if jev_enabled:
+            scenes = []
+            if jev_cfg.get("inject_on_active_reply", True):
+                scenes.append("主动")
+            if jev_cfg.get("inject_on_mention", True):
+                scenes.append("被@")
+            jev_detail = "、".join(scenes) or "仅 model_choice 判定"
+            if jev_cfg.get("debug_mode"):
+                jev_detail += " · DEBUG"
+        add("Jev 判读", jev_enabled, jev_detail)
 
         add("@功能", feature_enabled(self.config, FEATURE_MENTION_PARSER))
 
@@ -341,6 +358,64 @@ class OvenMultiPlugin(Star):
 
         yield event.plain_result("\n".join(lines))
 
+    # ── Handler：群消息预处理（最高优先级）────────────────────────────────
+
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE, priority=maxsize)
+    async def on_early_group_message(self, event: AstrMessageEvent):
+        """抢在 AstrBot 裸@拦截（handle_empty_mention，优先级 maxsize-1）之前：
+
+        1. 把 aiocqhttp 适配器丢弃的首个「@机器人」补回 message_str；
+        2. 为「纯@消息」补齐原生「群聊消息记录注入上下文」记录；
+        3. 记录 Jev 判读上下文（含@消息，与主动回复触发闸门解耦）。
+        """
+        if self._blocked(event):
+            return
+
+        # 1. 保留 @机器人（改 message_str，不动消息链，不影响原生记录）
+        restored = restore_bot_mention(event)
+        if restored:
+            logger.debug(
+                f"[烤箱-@保留] 已补回 @机器人 | origin={event.unified_msg_origin} "
+                f"text={event.get_message_str()!r}"
+            )
+
+        # 2. 补齐原生群聊上下文的纯@漏记（仅「群聊消息记录注入上下文」开启时）
+        if should_backfill_native(event):
+            try:
+                await self._backfill_native_record(event)
+            except Exception as e:  # noqa: BLE001
+                # 跨版本原生实现差异只降级，不影响消息流程
+                logger.debug(f"[烤箱-群上下文] 补记纯@消息失败：{e}")
+
+        # 3. Jev 判读历史记录（含@消息）
+        self.active_reply.record_history(event, self.config)
+
+    async def _backfill_native_record(self, event: AstrMessageEvent) -> None:
+        """为纯@消息调用原生 GroupChatContext.handle_message 补记一条上下文。"""
+        if event.get_extra("_group_context_record_id") is not None:
+            return  # 原生已记录，勿重复
+        if event.get_extra("handlers_parsed_params", {}):
+            return  # 指令消息不算群聊上下文
+        if event.get_extra("oven_native_record_backfilled", False):
+            return
+        ltm = (
+            self.context.get_config(umo=event.unified_msg_origin).get(
+                "provider_ltm_settings", {}
+            )
+            or {}
+        )
+        if not ltm.get("group_icl_enable"):
+            return  # 未开启「群聊消息记录注入上下文」
+        from astrbot.core.star.star import star_map
+
+        main_star = getattr(star_map.get("astrbot.builtin_stars.astrbot.main"), "star_cls", None)
+        group_chat_context = getattr(main_star, "group_chat_context", None)
+        if group_chat_context is None:
+            return
+        await group_chat_context.handle_message(event)
+        event.set_extra("oven_native_record_backfilled", True)
+        logger.debug(f"[烤箱-群上下文] 已为纯@消息补记原生记录 | origin={event.unified_msg_origin}")
+
     # ── Handler：群消息处理 ──────────────────────────────────────────────
 
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
@@ -384,7 +459,7 @@ class OvenMultiPlugin(Star):
                 )
 
         # 主动回复
-        if await self.active_reply.should_active_reply(event, self.config, self.context):
+        if await self.active_reply.should_active_reply(event, self.config):
             # 标记本次 LLM 请求由主动回复触发，供 on_llm_request 注入“被动触发”引导
             event.set_extra("oven_active_reply_triggered", True)
             cm = self.context.conversation_manager
@@ -522,6 +597,23 @@ class OvenMultiPlugin(Star):
             guidance = str(guidance or "").strip()
             if guidance:
                 req.extra_user_content_parts.append(TextPart(text=guidance).mark_as_temp())
+
+            # Jev 多维判读注入（ActiveReply 触发时挂到 extra，同样不进历史）
+            reading = event.get_extra("oven_jev_reading")
+            if reading:
+                req.extra_user_content_parts.append(
+                    TextPart(text=str(reading)).mark_as_temp()
+                )
+        elif (
+            feature_enabled(self.config, FEATURE_JEV, False)
+            and not self._blocked(event)
+        ):
+            # 被@/唤醒触发（非主动回复）的一次 Jev 判读注入：重点是意向与情绪
+            block = await self.active_reply.mention_reading(event, self.config)
+            if block:
+                req.extra_user_content_parts.append(
+                    TextPart(text=str(block)).mark_as_temp()
+                )
 
         # 活跃发言人列表注入（@ 功能）
         if feature_enabled(self.config, FEATURE_MENTION_PARSER):
