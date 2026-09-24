@@ -7,13 +7,17 @@
 - **被@回复 Jev 判读**: 被 @机器人 / 唤醒前缀 / 引用唤醒（非主动回复）时，注入一次 Jev 多维判读，重点是**意图与情绪**（独立标题「被动回复 · Jev 判读」+ 置顶「重点 ·」行）；判读失败只降级为普通回复。裸@第一条仍走 AstrBot 原生空@流程（jev 裁决 0.99）。
 - **保留「@机器人」文本**: aiocqhttp 适配器构造正文时会丢弃第一个指向机器人的 @段，本插件在最高优先级 handler（`priority=maxsize`，先于 AstrBot 裸@拦截）把 `@昵称(qq)` 补回 `message_str`，模型与判读上下文都能看到被@；无正文（裸@）、非 aiocqhttp、正文已含该@时不动，消息链不受影响。
 - **兼容 AstrBot「群聊消息记录注入上下文」**: 对原生漏记的「纯@消息」（无 Plain/Json/Image 组件，如先发一句话、再单独@机器人）在 `group_icl_enable` 开启时自动补记一条原生记录（经 `star_map` 调用原生 `GroupChatContext.handle_message`，按 `_group_context_record_id` 去重，跨版本差异仅降级不报错）；原生记录读消息链、@自带 `⚠️[DIRECTED AT YOU]` 标记，与本插件改 `message_str` 互不冲突——原生注入历史原文块，Jev 注入判读，互为补充。适配最新 AstrBot 源码（v4.28.1）。
+- **高危风险闸门**: 新增 `jev.suppress_high_risk`（默认开启）——主动回复（概率命中或 `model_choice` 判定）判读为高危时**强制不回复**并写告警日志，避免机器人对诈骗/引战等内容接话；被@回复不受影响（必须回），关闭后仅保留判读建议中的 ⚠️ 提示。
+- **注入块全文日志**: `debug_mode` 开启时输出**最终注入块全文**（含行动建议），补齐「输入 → 原始输出 → 解析 → 注入内容」的最后一环。
 - **判读上下文与触发解耦**: 群消息历史（含@消息）改由最高优先级 handler 独立记录，不再依赖主动回复闸门——主动回复关闭时被@判读同样有上下文。
+- **上下文优先读原生消息历史**: 判读 state 优先读取 AstrBot 原生持久化消息历史（`provider_ltm_settings.group_message_history_enable` 开启时；落库、重启不丢、含机器人自己的回复），按当前事件记录 id 过滤后取最近 `history_rounds` 条 + 当前消息；原生关闭或读取异常时回退插件内存缓冲。debug 日志会标注 `上下文来源=原生历史/插件缓冲`。
+- **判读输入英文化 + QQ 号不再发往第三方**: 发给 Jev 的问题全部为英文（state 场景/区块标题、instructions、choice 选项 key 与描述、score 等级、Noul 判定描述——Jev 主训练语言，CJK 精度较低）；choice 返回的英文 key 在解析边界映射回中文（如 `asking_help → 提问求助`），注入块与行动建议保持中文。state 区块标记改为 `[Scene]/[Current]/[Context]`；插件缓冲行格式去掉发送者 id（`[昵称 时间]: 内容`），原生行格式化同样不输出 At 的 QQ 号——发送者/机器人 QQ 号不再进入第三方请求。
 - **`jev.debug_mode` 调试开关**: 开启后以 INFO 级别输出每次 Jev 调用的完整输入（state 上下文原文 + 全部问题 JSON）与原始输出（HTTP 状态 + 响应体），用于核对上下文是否真的进来了；排查完请关闭。
 
 ### Changed
 
 - **题型对齐 TypeSafe 官方 primitives（jev 裁决优先级第 1）**: 风险、期待回复由 `choice` 改为有序光谱 **`score`**（criteria 按低→高排序，返回等级位置与各级概率）；「是否主动回复」由 `choice` 改为 **`noul`**（返回「该主动回复」概率，直接与 `decision_min_confidence` 阈值比较，语义从"模型把握"修正为"该回复的概率"）；`intent` 意图列表补「其他」兜底项。注入展示格式不变（仍显示等级标签+置信度）。
-- **配置结构（jev 裁决：升顶层，置信 1.0）**: `active_reply.jev` 升级为顶层 `jev` 配置节（17 项），新增场景开关 `inject_on_active_reply`（主动场景注入，`model_choice` 触发判定不受影响）与 `inject_on_mention`（被@场景注入）；`active_reply` 只保留触发配置。白名单同时作用于主动触发与 Jev 判读注入。`/烤箱状态` 新增独立「Jev 判读」状态行（显示生效场景与 DEBUG 标记）。
+- **配置结构（jev 裁决：升顶层，置信 1.0）**: `active_reply.jev` 升级为顶层 `jev` 配置节（18 项），新增场景开关 `inject_on_active_reply`（主动场景注入，`model_choice` 触发判定不受影响）与 `inject_on_mention`（被@场景注入）；`active_reply` 只保留触发配置。**白名单仅作用于主动回复触发**——判读注入与历史记录不检查白名单（被@回复是被动响应，与白名单无关）。`/烤箱状态` 新增独立「Jev 判读」状态行（显示生效场景与 DEBUG 标记）。
 - **`min_message_chars` 语义扩展**: 概率命中与被@判读共用——去掉开头 @标记与空白后短于阈值则不判读，不影响是否回复。
 
 ### Credits

@@ -123,7 +123,7 @@ class OvenMultiPlugin(Star):
         self.matcher = BracketMatcher()
         self.repeater = Repeater()
         self.thinking = ThinkingManager()
-        self.active_reply = ActiveReply()
+        self.active_reply = ActiveReply(context=self.context)
 
         # 余额查询
         self.balance_checker = BalanceChecker(self.config)

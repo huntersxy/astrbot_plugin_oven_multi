@@ -42,89 +42,140 @@ INJECT_FOOTER = "【判读结束】"
 # 被@（唤醒）场景的重点维度：置顶一行速览，正文不再重复这两维
 MENTION_FOCUS: tuple[str, ...] = ("intent", "emotion")
 
-_TAIL = "只从候选项中选一项，并结合对话上下文判断。"
-_TAIL_SCORE = "结合对话上下文判断，按 criteria 从低到高的有序等级给分。"
+# 面向 Jev 的固定文案一律用英文（Jev 主训练语言，CJK 精度较低）；
+# 实际群聊内容保持原语言。choice 的选项 key 与 score 的展示标签保持中文——
+# 它们会原样进入判读注入块与行动建议规则。
+_TAIL = "Pick exactly one option and judge with the conversation context."
+_TAIL_SCORE = (
+    "Judge with the conversation context; levels in criteria are ordered from low to high."
+)
 
-# 六个判读维度：(key, 展示名, 题型, 指令, 候选项/criteria)
+# 六个判读维度：(key, 展示名, 题型, 指令(英文), criteria, 展示映射)
 # 题型按 TypeSafe 官方 primitives 选择：无序集合用 choice、有序光谱用 score；
 # 顺序即注入顺序。
-DIMENSIONS: list[tuple[str, str, str, str, object]] = [
+# 发给 Jev 的全部内容（指令/选项 key/选项描述/等级）一律英文；解析边界再映射回
+# 中文供注入块与行动建议使用——choice 的展示映射 = {英文key: 中文标签}，
+# score 的展示映射 = 中文标签列表（按等级序号对位）。
+DIMENSIONS: list[tuple[str, str, str, str, object, object]] = [
     (
         "addressed",
         "说话对象",
         "choice",
-        f"判断【当前消息】的说话对象：是在对机器人/助手说，还是对其他人说，"
-        f"或者只是自言自语。{_TAIL}",
+        "Judge who the current message is addressed to: the bot/assistant, another "
+        f"group member, or no one in particular (self-talk). {_TAIL}",
         {
-            "对机器人说": "这条消息是在直接对机器人/助手说话（提问、下指令、@或引用机器人、评价机器人）。",
-            "对他人说": "这条消息是在对群内其他人类成员说话，机器人只是旁观者。",
-            "自言自语": "没有明确对话对象，只是自我表达、感慨或随手记录。",
-            "难以判断": "信息不足，无法判断说话对象。",
+            "to_bot": "Directly addresses the bot/assistant (question, command, @ or quote of the bot, comment about the bot).",
+            "to_others": "Addresses other human members; the bot is only a bystander.",
+            "self_talk": "No clear addressee; self-expression, mood, or a passing note.",
+            "unknown": "Not enough information to judge the addressee.",
         },
+        {"to_bot": "对机器人说", "to_others": "对他人说", "self_talk": "自言自语", "unknown": "难以判断"},
     ),
     (
         "intent",
         "意图",
         "choice",
-        f"判断【当前消息】发送者的真实意图。{_TAIL}",
+        f"Judge the sender's real intent in the current message. {_TAIL}",
         {
-            "闲聊分享": "单纯分享日常、闲聊、陈述见闻，没有明确诉求。",
-            "提问求助": "向对方提问、寻求答案、请求帮助或求推荐。",
-            "指令要求": "要求对方执行某个动作、给出指令或布置任务。",
-            "表达情感": "表达喜欢、想念、关心、感谢、道歉等情感。",
-            "调侃玩梗": "开玩笑、玩梗、戏谑互动，无真正恶意。",
-            "抱怨吐槽": "表达不满、抱怨、发泄情绪，不要求对方解决。",
-            "测试试探": "试探对方能力、身份或边界，例如测试对方是不是 AI。",
-            "推销推广": "推销产品服务、发广告或推广链接。",
-            "引战攻击": "刻意挑衅、辱骂、挑起对立或群体冲突。",
-            "诈骗诱导": "以欺诈为目的，试图骗取财物、信息或权限。",
-            "拉人引流": "拉人入群、引流、发展下线或拉票。",
-            "告别结束": "道别、结束话题或表示要离开。",
-            "其他": "以上均不属于的其它意图。",
+            "small_talk": "Small talk or sharing daily life with no specific request.",
+            "asking_help": "Asking a question, seeking an answer, help, or a recommendation.",
+            "command": "Telling someone to perform an action or giving an order.",
+            "affection": "Expressing affection, care, thanks, apology, or other feelings.",
+            "banter": "Joking or meme banter without real hostility.",
+            "venting": "Venting dissatisfaction; no solution is requested.",
+            "testing": "Probing the bot's ability, identity, or limits (e.g. testing if it is an AI).",
+            "promotion": "Advertising products/services or pushing links.",
+            "provocation": "Deliberate provocation, insult, or stirring up conflict.",
+            "scam": "Fraudulent intent: trying to obtain money, information, or permissions.",
+            "recruitment": "Recruiting members, funneling traffic, or canvassing votes.",
+            "goodbye": "Saying goodbye or ending the topic.",
+            "other": "Any other intent not listed above.",
+        },
+        {
+            "small_talk": "闲聊分享",
+            "asking_help": "提问求助",
+            "command": "指令要求",
+            "affection": "表达情感",
+            "banter": "调侃玩梗",
+            "venting": "抱怨吐槽",
+            "testing": "测试试探",
+            "promotion": "推销推广",
+            "provocation": "引战攻击",
+            "scam": "诈骗诱导",
+            "recruitment": "拉人引流",
+            "goodbye": "告别结束",
+            "other": "其他",
         },
     ),
     (
         "emotion",
         "情绪",
         "choice",
-        f"判断【当前消息】发送者当前的主导情绪。{_TAIL}",
+        f"Judge the dominant emotion of the sender in the current message. {_TAIL}",
         {
-            "正面": "愉悦、满意、开心、赞同等积极情绪。",
-            "中性": "情绪平淡，看不出明显倾向。",
-            "负面": "不满、失望、委屈、抱怨等消极情绪。",
-            "愤怒": "明显的愤怒、敌意或强烈对抗情绪。",
-            "焦虑": "着急、担忧、不安或催促。",
-            "兴奋": "明显激动、亢奋、期待或热情高涨。",
+            "positive": "Positive: happy, satisfied, pleased, approving.",
+            "neutral": "Neutral: flat, no clear leaning.",
+            "negative": "Negative: upset, disappointed, or feeling wronged.",
+            "angry": "Angry: clear anger, hostility, or confrontation.",
+            "anxious": "Anxious: worried, uneasy, or urgent.",
+            "excited": "Excited: thrilled, hyped, or full of enthusiasm.",
+        },
+        {
+            "positive": "正面",
+            "neutral": "中性",
+            "negative": "负面",
+            "angry": "愤怒",
+            "anxious": "焦虑",
+            "excited": "兴奋",
         },
     ),
     (
         "attitude",
         "对bot态度",
         "choice",
-        "如果【当前消息】与机器人相关，判断发送者对机器人的态度；"
-        f"若与机器人无关则选「不适用」。{_TAIL}",
+        "If the current message concerns the bot, judge the sender's attitude toward "
+        f"the bot; if it does not concern the bot, pick the N/A option. {_TAIL}",
         {
-            "友善": "对机器人友好、亲近、感谢或夸奖。",
-            "中性": "对机器人态度平淡，公事公办。",
-            "调侃": "以玩笑、戏谑、吐槽的方式与机器人互动，无真正敌意。",
-            "不满": "对机器人表达失望、质疑或轻度不满。",
-            "敌意": "带有攻击性、辱骂或恶意针对机器人。",
-            "不适用": "本条消息并非针对机器人。",
+            "friendly": "Friendly, warm, thankful, or complimentary toward the bot.",
+            "neutral": "Neutral and businesslike toward the bot.",
+            "teasing": "Teasing or joking with the bot without real hostility.",
+            "dissatisfied": "Disappointed, doubting, or mildly dissatisfied with the bot.",
+            "hostile": "Hostile: insulting or malicious toward the bot.",
+            "not_applicable": "The message does not concern the bot.",
+        },
+        {
+            "friendly": "友善",
+            "neutral": "中性",
+            "teasing": "调侃",
+            "dissatisfied": "不满",
+            "hostile": "敌意",
+            "not_applicable": "不适用",
         },
     ),
     (
         "expectancy",
         "期待回复",
         "score",
-        "判断【当前消息】发送者对回复的期待程度（有序光谱，0=最低）。" + _TAIL_SCORE,
+        "Judge how strongly the sender of the current message expects a reply "
+        f"(ordered spectrum, 0 = lowest). {_TAIL_SCORE}",
+        [
+            "Casual remark; no reply is expected",
+            "Wants a reply eventually; not urgent",
+            "Wants a reply right away",
+        ],
         ["随口一说", "期待稍后回复", "期待即时回复"],
     ),
     (
         "risk",
         "风险",
         "score",
-        "评估【当前消息】的风险等级：诈骗/引战/骚扰/违规推广/诱导泄露隐私（有序光谱，0=最低）。"
-        + _TAIL_SCORE,
+        "Rate the risk level of the current message: scam, flame war, harassment, "
+        f"spam promotion, or privacy leakage (ordered spectrum, 0 = lowest). {_TAIL_SCORE}",
+        [
+            "Safe; no real risk",
+            "Suspicious; worth watching",
+            "High risk: scam, attack, harassment, or privacy trap",
+        ],
         ["安全", "关注", "高危"],
     ),
 ]
@@ -134,20 +185,29 @@ RISK_LEVEL: dict[str, int] = {"安全": 0, "关注": 1, "高危": 2}
 # model_choice 模式附加的「是否主动回复」判定（Noul：概率即“该回复”的把握）
 _DECISION_QUESTION: dict[str, Any] = {
     "type": "noul",
-    "instructions": "结合上下文，判断群里的机器人现在应该主动回复【当前消息】吗？",
+    "instructions": (
+        "Given the conversation context, should the bot in this group proactively "
+        "reply to the current message right now?"
+    ),
     "criteria": {
-        "true": "话题与机器人有关、对方在求助/提问/明确期待回应，或机器人自然接话有利且不打扰。",
-        "false": "消息与机器人无关、是他人之间的闲聊、没有接话必要，或此刻插话并不合适。",
+        "true": (
+            "The topic involves the bot, someone is asking for help or a question, "
+            "or a natural, non-intrusive reply would help."
+        ),
+        "false": (
+            "The message is unrelated to the bot, is chatter between others, needs "
+            "no reply, or jumping in would be awkward."
+        ),
     },
 }
 
 # 注入块整体置信度低于该值时，在建议中提示「别过度揣测」
 _LOW_CONFIDENCE = 0.75
 
-# state 场景说明（让 Jev 知道这是一个有 AI 参与的群聊）
+# state 场景说明（英文骨架；群聊正文保持原语言；不带方括号标记以免与区块标题混淆）
 _SCENE = (
-    "[场景] 一个有 AI 机器人参与的群聊；以下为群成员发言，"
-    "【当前消息】是需要判定的最后一条。"
+    "[Scene] Group chat with an AI bot; messages oldest first. "
+    "Current = message to judge; Context = earlier messages."
 )
 
 # ---------------------------------------------------------------------------
@@ -212,9 +272,9 @@ def build_state(
     else:
         history = []
 
-    parts = [_SCENE, f"[当前消息]\n{current}"]
+    parts = [_SCENE, f"[Current]\n{current}"]
     if history:
-        parts.append("[上下文]\n" + "\n".join(history))
+        parts.append("[Context]\n" + "\n".join(history))
     state = "\n".join(parts)
     if redact:
         state = desensitize(state)
@@ -229,7 +289,7 @@ def build_state(
 def build_questions(with_decision: bool = False) -> dict[str, Any]:
     """构造六维判读问题（题型按维度自动选择）；``with_decision`` 时附带 Noul 判定。"""
     questions: dict[str, Any] = {}
-    for key, _label, qtype, instructions, criteria in DIMENSIONS:
+    for key, _label, qtype, instructions, criteria, _display in DIMENSIONS:
         question: dict[str, Any] = {"type": qtype, "instructions": instructions}
         if criteria:
             question["criteria"] = criteria
@@ -292,17 +352,24 @@ def parse_answers(answers: dict[str, Any] | None, with_decision: bool = False) -
     out: dict[str, Any] = {}
     ok = False
     risk_level = -1
-    for key, _label, qtype, *_rest in DIMENSIONS:
-        levels = _rest[1] if qtype == "score" else None
+    for key, _label, qtype, _instructions, criteria, display in DIMENSIONS:
         if qtype == "score":
-            choice, confidence, index = _pick_score(answers.get(key), levels or [])
+            # score 线上就是英文等级、按序号返回；展示用中文标签列表
+            levels = list(display or criteria or [])
+            choice, confidence, index = _pick_score(answers.get(key), levels)
             if key == "risk" and index >= 0:
                 risk_level = index
             out[f"{key}_level"] = index
         else:
-            choice, confidence = _pick(answers.get(key))
+            # choice 线上返回英文 key，在此映射回中文供注入块与建议规则使用
+            raw, confidence = _pick(answers.get(key))
+            mapping = display if isinstance(display, dict) else None
+            choice = mapping.get(raw, raw) if (mapping and raw) else raw
+            ok = ok or bool(raw)
         out[key] = choice
         out[f"{key}_confidence"] = confidence
+        if qtype != "score":
+            continue
         ok = ok or bool(choice)
 
     out["risk_level"] = (

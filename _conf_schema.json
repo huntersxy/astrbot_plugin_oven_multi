@@ -269,7 +269,7 @@
       },
       "whitelist": {
         "description": "白名单",
-        "hint": "英文逗号分隔的 unified_msg_origin 或群 ID。留空表示所有群可触发主动回复、也注入 Jev 判读。",
+        "hint": "仅作用于主动回复触发：英文逗号分隔的 unified_msg_origin 或群 ID，留空表示所有群可触发；判读注入与历史记录不看白名单。",
         "type": "string",
         "default": ""
       }
@@ -295,6 +295,12 @@
       "inject_on_mention": {
         "description": "被@回复判读注入",
         "hint": "被 @机器人 / 唤醒前缀 / 引用唤醒（非主动回复）时注入一次多维判读（重点：意图与情绪）。关闭则该场景不调用 Jev。裸@第一条仍走 AstrBot 原生空@流程。",
+        "type": "bool",
+        "default": true
+      },
+      "suppress_high_risk": {
+        "description": "高危风险拦截",
+        "hint": "主动回复（概率命中或 model_choice 判定）判读为高危时强制不回复（写告警日志），避免对诈骗/引战等内容接话；依赖判读运行（jev.enabled 与主动场景注入开启）。被@回复不受影响（必须回）。关闭则仅保留建议中的⚠️提示。",
         "type": "bool",
         "default": true
       },

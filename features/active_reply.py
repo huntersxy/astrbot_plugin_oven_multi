@@ -73,10 +73,12 @@ class ActiveReply:
     不写入对话历史。
     """
 
-    def __init__(self):
+    def __init__(self, context=None):
         self.stacks: dict[str, list[str]] = defaultdict(list)
         self.histories: dict[str, list[str]] = defaultdict(list)
         self.jev = JevJudge()
+        # AstrBot star Context：提供原生持久化消息历史读取（可选，离线测试为 None）
+        self.context = context
 
     async def close(self) -> None:
         """释放 Jev 客户端的 HTTP 会话。"""
@@ -100,7 +102,7 @@ class ActiveReply:
 
     @staticmethod
     def _whitelist_pass(ar: dict, event: AstrMessageEvent) -> bool:
-        """主动回复白名单，同时作为 Jev 判读注入的群范围闸门。"""
+        """主动回复白名单：仅决定哪些群允许主动回复触发；判读与历史记录不看它。"""
         whitelist = str(ar.get("whitelist", "") or "").strip()
         if not whitelist:
             return True
@@ -117,19 +119,13 @@ class ActiveReply:
         """记录一条群消息供 Jev 判读上下文；返回是否记录。
 
         由主插件最高优先级 handler 调用，因此 @消息、非唤醒消息也会入史；
-        是否记录只看 jev 开关与白名单，与主动回复是否启用无关。
+        是否记录只看 jev 开关，与主动回复及其白名单无关。
         """
         jev = self._jev_cfg(config)
         if not jev.get("enabled", False):
             _dbg(jev, f"历史未记录：jev.enabled=false | origin={event.unified_msg_origin}")
             return False
         ar = self._ar_cfg(config)
-        if not self._whitelist_pass(ar, event):
-            _dbg(
-                jev,
-                f"历史未记录：白名单未放行 | origin={event.unified_msg_origin}",
-            )
-            return False
 
         msg = event.message_obj
         if not msg:
@@ -152,7 +148,106 @@ class ActiveReply:
         msg = event.message_obj
         nickname = str(getattr(getattr(msg, "sender", None), "nickname", "") or "?")
         now = datetime.datetime.now().strftime("%H:%M:%S")
-        return f"[{nickname}/{event.get_sender_id()} {now}]: {text}"
+        # 不带发送者 QQ 号：判读不需要，且会原样发往第三方
+        return f"[{nickname} {now}]: {text}"
+
+    async def _native_lines(
+        self, event: AstrMessageEvent, config: dict, rounds: int
+    ) -> list[str] | None:
+        """读取 AstrBot 原生持久化消息历史；不可用返回 None（回退插件缓冲）。
+
+        需原生「平台消息历史」开关（provider_ltm_settings.group_message_history_enable）
+        开启。返回按时间升序、**不含当前消息**（按当前事件的记录 id 过滤）的行；
+        行格式 ``[昵称 时间]: 内容``，天然不含发送者 QQ 号，且机器人自己的回复
+        （role=bot）也在内。
+        """
+        if self.context is None or rounds <= 0:
+            return None
+        jev = self._jev_cfg(config)
+        try:
+            ltm = (
+                self.context.get_config(umo=event.unified_msg_origin).get(
+                    "provider_ltm_settings", {}
+                )
+                or {}
+            )
+            if not ltm.get("group_message_history_enable"):
+                return None
+            current_id = event.get_extra("_current_platform_message_history_id")
+            if current_id is None:
+                return None  # 当前事件没有原生记录（本条未入史），回退缓冲
+            history = await self.context.message_history_manager.get(
+                platform_id=event.get_platform_id(),
+                user_id=event.unified_msg_origin,
+                page_size=max(rounds * 3, 30),
+            )
+        except Exception as e:  # noqa: BLE001
+            _dbg(jev, f"原生历史读取失败，回退插件缓冲：{type(e).__name__}: {e}")
+            return None
+
+        lines: list[str] = []
+        for rec in history or []:
+            try:
+                rid = getattr(rec, "id", None)
+                if rid is not None and int(rid) >= int(current_id):
+                    continue  # 当前消息及之后的行不含（当前条由缓冲补上）
+                line = self._format_native(rec)
+            except Exception:  # noqa: BLE001
+                continue
+            if line:
+                lines.append(line)
+        return lines[-rounds:]
+
+    @staticmethod
+    def _format_native(rec) -> str | None:
+        """把原生持久化记录格式化为判读行；纯图片等无文本记录返回 None。"""
+        content = rec.content if isinstance(getattr(rec, "content", None), dict) else {}
+        parts = content.get("message") or []
+        texts: list[str] = []
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            ptype = part.get("type")
+            if ptype == "plain":
+                texts.append(str(part.get("text") or ""))
+            elif ptype == "at":
+                name = str(part.get("name") or "").strip()
+                texts.append(f"@{name}" if name else "@")  # 不输出 user_id（QQ 号）
+            elif ptype == "reply":
+                who = str(part.get("sender_name") or "").strip()
+                texts.append(f"(回复{who})" if who else "(回复)")
+        text = " ".join(t.strip() for t in texts if t and str(t).strip()).strip()
+        if not text:
+            return None
+        name = str(getattr(rec, "sender_name", "") or "").strip()
+        if not name:
+            name = "bot" if content.get("type") == "bot" else "某成员"
+        ts = ""
+        created = getattr(rec, "created_at", None)
+        if created is not None:
+            try:
+                ts = " " + created.strftime("%H:%M:%S")
+            except Exception:  # noqa: BLE001
+                ts = ""
+        return f"[{name}{ts}]: {text}"
+
+    async def _state_lines(
+        self, event: AstrMessageEvent, config: dict, origin: str, rounds: int
+    ) -> tuple[list[str], str]:
+        """判读上下文行：优先原生持久化历史，回退插件内存缓冲。
+
+        返回 ``(lines, source)``；``lines`` 末尾恒为当前消息行（build_state 约定）。
+        """
+        native = await self._native_lines(event, config, rounds)
+        if native is not None:
+            lines = list(native)
+            current = self.histories[origin][-1:]
+            if not current:
+                text = (event.get_message_str() or "").strip()
+                current = [self._line(event, text)] if text else []
+            lines.extend(current)
+            return lines, "原生历史"
+        return list(self.histories[origin]), "插件缓冲"
 
     # ── 入口：主动回复触发 ────────────────────────────────────────────────
 
@@ -211,8 +306,10 @@ class ActiveReply:
             )
             return True  # 纯概率触发：不判不注
 
-        result = await self._run_jev(config, origin, text, with_decision=False)
+        result = await self._run_jev(config, event, origin, text, with_decision=False)
         if result is not None:
+            if self._risk_blocked(jev, result, origin, "概率命中"):
+                return False  # 高危拦截：本轮不主动回复
             self._attach(config, event, result, scene="active")
             logger.info(
                 f"[烤箱-主动回复] 概率命中，已挂载 Jev 判读 | origin={origin} "
@@ -244,7 +341,7 @@ class ActiveReply:
             )
             return False
 
-        result = await self._run_jev(config, origin, None, with_decision=True)
+        result = await self._run_jev(config, event, origin, None, with_decision=True)
         if result is None:
             return False
         min_confidence = _float(jev.get("decision_min_confidence", 0.6), 0.6)
@@ -255,9 +352,32 @@ class ActiveReply:
             f"({float(result.get('should_reply_confidence') or 0.0):.2f}) "
             f"说话对象={result.get('addressed')} 意图={result.get('intent')}"
         )
+        if reply and self._risk_blocked(jev, result, origin, "model_choice"):
+            return False  # 高危拦截优先于触发判定
         if reply and jev.get("inject_on_active_reply", True):
             self._attach(config, event, result, scene="active")
         return reply
+
+    # ── 高危风险闸门（仅主动回复；被@必须回，不在此列） ───────────────────
+
+    def _risk_blocked(self, jev: dict, result: dict, origin: str, how: str) -> bool:
+        """判读为高危时拦截主动回复；返回是否拦截。"""
+        risk_level = int(result.get("risk_level") or 0)
+        if risk_level < 2:
+            return False
+        if not jev.get("suppress_high_risk", True):
+            _dbg(
+                jev,
+                f"检测到高危风险但 suppress_high_risk=false，不拦截 | "
+                f"origin={origin} 触发={how}",
+            )
+            return False
+        logger.warning(
+            f"[烤箱-主动回复] 高危风险拦截，本轮不主动回复 | origin={origin} "
+            f"触发={how} 风险={result.get('risk')} 意图={result.get('intent')} "
+            f"说话对象={result.get('addressed')}"
+        )
+        return True
 
     # ── 被@/唤醒触发：一次多维判读（重点：意向与情绪） ─────────────────────
 
@@ -284,9 +404,6 @@ class ActiveReply:
         if event.get_extra("oven_active_reply_triggered", False):
             _dbg(jev, "被@判读跳过：本条已由主动回复路径挂载判读")
             return None  # 主动回复路径自行挂载
-        if not self._whitelist_pass(self._ar_cfg(config), event):
-            _dbg(jev, f"被@判读跳过：白名单未放行 | origin={event.unified_msg_origin}")
-            return None
 
         text = (event.get_message_str() or "").strip()
         if not text or text.startswith("/"):
@@ -303,14 +420,15 @@ class ActiveReply:
             return None
 
         origin = event.unified_msg_origin
-        lines = self.histories[origin]
+        rounds = _int(jev.get("history_rounds", 6), 6)
+        lines, source = await self._state_lines(event, config, origin, rounds)
         if not lines:
-            # 兜底：历史为空（功能刚启用的首条消息）时以当前消息为 state
+            # 兜底：两端皆空（原生与缓冲都不可用）时以当前消息为 state
             lines = [self._line(event, text)]
 
         state = build_state(
             lines,
-            history_rounds=_int(jev.get("history_rounds", 6), 6),
+            history_rounds=rounds,
             max_chars=_int(jev.get("max_state_chars", 1200), 1200),
             redact=bool(jev.get("desensitize", True)),
         )
@@ -320,8 +438,8 @@ class ActiveReply:
 
         _dbg(
             jev,
-            f"被@判读调用 Jev | origin={origin} 上下文{len(lines)}条 "
-            f"state({len(state)}字)",
+            f"被@判读调用 Jev | origin={origin} 上下文来源={source} "
+            f"共{len(lines)}条 state({len(state)}字)",
         )
         result = await self.jev.judge(jev, state, with_decision=False)
         if not result.get("ok"):
@@ -341,6 +459,7 @@ class ActiveReply:
                 f"意图={result.get('intent')} 情绪={result.get('emotion')} "
                 f"说话对象={result.get('addressed')}"
             )
+            _dbg(jev, f"注入块全文({len(block)}字) | scene=mention:\n{block}")
         return block or None
 
     # ── Jev 判读公共流程 ─────────────────────────────────────────────────
@@ -348,6 +467,7 @@ class ActiveReply:
     async def _run_jev(
         self,
         config: dict,
+        event: AstrMessageEvent,
         origin: str,
         text: str | None,
         *,
@@ -372,8 +492,9 @@ class ActiveReply:
         if with_decision:
             # 判定要不要接话时至少看全整个触发栈
             history_rounds = max(history_rounds, self._stack_size(self._ar_cfg(config)))
+        lines, source = await self._state_lines(event, config, origin, history_rounds)
         state = build_state(
-            self.histories[origin],
+            lines,
             history_rounds=history_rounds,
             max_chars=_int(jev.get("max_state_chars", 1200), 1200),
             redact=bool(jev.get("desensitize", True)),
@@ -388,7 +509,7 @@ class ActiveReply:
         _dbg(
             jev,
             f"调用 Jev | origin={origin} decision={with_decision} "
-            f"state({len(state)}字)",
+            f"上下文来源={source} 共{len(lines)}条 state({len(state)}字)",
         )
         result = await self.jev.judge(jev, state, with_decision=with_decision)
         if not result.get("ok"):
@@ -410,3 +531,4 @@ class ActiveReply:
         )
         if block:
             event.set_extra("oven_jev_reading", block)
+            _dbg(jev, f"注入块全文({len(block)}字) | scene={scene}:\n{block}")
