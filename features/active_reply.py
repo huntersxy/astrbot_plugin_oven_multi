@@ -50,6 +50,12 @@ def strip_mentions(text: str) -> str:
     return re.sub(r"^((@\S+)[ \t]*)+", "", text).strip()
 
 
+def _dbg(jev: dict, message: str) -> None:
+    """debug_mode 开启时输出一行判读决策轨迹（INFO，WebUI 日志可见）。"""
+    if jev.get("debug_mode"):
+        logger.info(f"[Jev-DEBUG] {message}")
+
+
 class ActiveReply:
     """主动回复与 Jev 判读注入。
 
@@ -115,9 +121,14 @@ class ActiveReply:
         """
         jev = self._jev_cfg(config)
         if not jev.get("enabled", False):
+            _dbg(jev, f"历史未记录：jev.enabled=false | origin={event.unified_msg_origin}")
             return False
         ar = self._ar_cfg(config)
         if not self._whitelist_pass(ar, event):
+            _dbg(
+                jev,
+                f"历史未记录：白名单未放行 | origin={event.unified_msg_origin}",
+            )
             return False
 
         msg = event.message_obj
@@ -192,6 +203,12 @@ class ActiveReply:
 
         jev = self._jev_cfg(config)
         if not (jev.get("enabled", False) and jev.get("inject_on_active_reply", True)):
+            _dbg(
+                jev,
+                f"命中但不判读 | enabled={jev.get('enabled', False)} "
+                f"inject_on_active_reply={jev.get('inject_on_active_reply', True)} "
+                f"| origin={origin}",
+            )
             return True  # 纯概率触发：不判不注
 
         result = await self._run_jev(config, origin, text, with_decision=False)
@@ -254,21 +271,35 @@ class ActiveReply:
         """
         jev = self._jev_cfg(config)
         if not jev.get("enabled", False) or not jev.get("inject_on_mention", True):
+            _dbg(
+                jev,
+                "被@判读跳过 | "
+                f"enabled={jev.get('enabled', False)} "
+                f"inject_on_mention={jev.get('inject_on_mention', True)}",
+            )
             return None
         if not getattr(event, "is_at_or_wake_command", False):
+            _dbg(jev, "被@判读跳过：非唤醒消息（未@/未用唤醒前缀/非引用）")
             return None
         if event.get_extra("oven_active_reply_triggered", False):
+            _dbg(jev, "被@判读跳过：本条已由主动回复路径挂载判读")
             return None  # 主动回复路径自行挂载
         if not self._whitelist_pass(self._ar_cfg(config), event):
+            _dbg(jev, f"被@判读跳过：白名单未放行 | origin={event.unified_msg_origin}")
             return None
 
         text = (event.get_message_str() or "").strip()
         if not text or text.startswith("/"):
+            _dbg(jev, f"被@判读跳过：无正文或指令消息 | text={text[:30]!r}")
             return None
         # 正文长度闸门：先去掉开头的 @xxx 标记，纯 "@机器人" 不值得判一次
         content = strip_mentions(text)
         min_chars = _int(jev.get("min_message_chars", 2), 2)
         if min_chars > 0 and len(re.sub(r"\s+", "", content)) < min_chars:
+            _dbg(
+                jev,
+                f"被@判读跳过：去掉@标记后正文过短（{len(content)}<{min_chars}）",
+            )
             return None
 
         origin = event.unified_msg_origin
@@ -284,8 +315,14 @@ class ActiveReply:
             redact=bool(jev.get("desensitize", True)),
         )
         if not state:
+            _dbg(jev, "被@判读跳过：state 为空（历史与当前消息皆无内容）")
             return None
 
+        _dbg(
+            jev,
+            f"被@判读调用 Jev | origin={origin} 上下文{len(lines)}条 "
+            f"state({len(state)}字)",
+        )
         result = await self.jev.judge(jev, state, with_decision=False)
         if not result.get("ok"):
             logger.warning(f"[烤箱-被@回复] Jev 判读失败：{result.get('error')}")
@@ -325,8 +362,9 @@ class ActiveReply:
         if not with_decision and text is not None:
             min_chars = _int(jev.get("min_message_chars", 2), 2)
             if min_chars > 0 and len(re.sub(r"\s+", "", text)) < min_chars:
-                logger.debug(
-                    f"[烤箱-主动回复] 消息过短（<{min_chars} 字），跳过 Jev 判读"
+                _dbg(
+                    jev,
+                    f"跳过判读：消息过短（<{min_chars} 字）| origin={origin}",
                 )
                 return None
 
@@ -341,8 +379,17 @@ class ActiveReply:
             redact=bool(jev.get("desensitize", True)),
         )
         if not state:
+            _dbg(
+                jev,
+                f"跳过判读：state 为空（历史未记录？jev.enabled 需保持开启）| origin={origin}",
+            )
             return None
 
+        _dbg(
+            jev,
+            f"调用 Jev | origin={origin} decision={with_decision} "
+            f"state({len(state)}字)",
+        )
         result = await self.jev.judge(jev, state, with_decision=with_decision)
         if not result.get("ok"):
             logger.warning(f"[烤箱-主动回复] Jev 判定失败：{result.get('error')}")

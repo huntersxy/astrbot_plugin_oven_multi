@@ -368,7 +368,26 @@ class OvenMultiPlugin(Star):
         2. 为「纯@消息」补齐原生「群聊消息记录注入上下文」记录；
         3. 记录 Jev 判读上下文（含@消息，与主动回复触发闸门解耦）。
         """
-        if self._blocked(event):
+        blocked = self._blocked(event)
+
+        # debug_mode 开启时，每条群消息打一行待命状态：开关一开、下一条消息即可
+        # 看到当前 enabled/api_key/场景开关/唤醒状态，静默不再是黑盒
+        jev_cfg = feature_cfg(self.config, FEATURE_JEV)
+        if jev_cfg.get("debug_mode"):
+            api_key_ok = bool(str(jev_cfg.get("api_key") or "").strip())
+            ar_cfg = feature_cfg(self.config, FEATURE_ACTIVE_REPLY)
+            logger.info(
+                f"[Jev-DEBUG] 待命 | origin={event.unified_msg_origin} "
+                f"blocked={blocked} enabled={jev_cfg.get('enabled', False)} "
+                f"api_key={'已配置' if api_key_ok else '未配置'} "
+                f"主动注入={jev_cfg.get('inject_on_active_reply', True)} "
+                f"被@注入={jev_cfg.get('inject_on_mention', True)} | "
+                f"active_reply.enable={ar_cfg.get('enable', False)} "
+                f"mode={ar_cfg.get('mode', 'probability')} "
+                f"wake={event.is_at_or_wake_command}"
+            )
+
+        if blocked:
             return
 
         # 1. 保留 @机器人（改 message_str，不动消息链，不影响原生记录）

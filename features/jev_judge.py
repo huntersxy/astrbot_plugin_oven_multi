@@ -508,7 +508,16 @@ class JevJudge:
         self, cfg: dict, state: str, with_decision: bool = False
     ) -> dict[str, Any]:
         """执行一次判定请求。"""
+        debug = bool(cfg.get("debug_mode"))
         api_key = str(cfg.get("api_key") or "").strip()
+        if debug:
+            # 入口状态：api_key 缺失也照样打印，避免“静默失败”
+            logger.info(
+                f"[Jev-DEBUG] ▶ 进入判定 | model={cfg.get('model') or 'jev-latest'} "
+                f"api_key={'已配置' if api_key else '未配置'} "
+                f"base_url={cfg.get('base_url') or _DEFAULT_BASE_URL} "
+                f"decision={with_decision}"
+            )
         if not api_key:
             return {"ok": False, "error": "未配置 api_key（jev.api_key）"}
         base_url = str(cfg.get("base_url") or _DEFAULT_BASE_URL).rstrip("/")
@@ -534,7 +543,6 @@ class JevJudge:
             "Content-Type": "application/json",
         }
 
-        debug = bool(cfg.get("debug_mode"))
         if debug:
             # 完整输入（state 原文 + 全部问题），便于核对上下文是否真的进来了
             logger.info(
