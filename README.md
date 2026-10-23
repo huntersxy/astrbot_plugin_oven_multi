@@ -1,6 +1,6 @@
 # 插座的多功能烤箱 · Oven Multi
 
-面向 AstrBot 的群聊工具箱：整理消息、判读语境、按需读取文件，在原生 Panel 查看功能状态与服务余额。
+面向 AstrBot 的群聊工具箱：整理消息、智能分段、判读语境、按需读取文件，在原生 Panel 查看功能状态与服务余额。
 
 [使用配置](#配置) · [状态总览](#panel-状态总览) · [更新记录](CHANGELOG.md) · [烤箱之心](https://github.com/huntersxy/astrbot_plugin_ovenheart)
 
@@ -8,14 +8,16 @@
 >
 > 旧 `style_learning` 配置不再生效；数据目录中的 `universal.json`、`chat_history.json` 保留，不再读取或更新，也不会自动导入烤箱之心。需要清理时请先自行备份。
 
+> **主动回复已移除**：从 **1.50.0** 起，Oven Multi 不再提供无需 @ 的主动回复。群聊参与（自主接话、名称提及响应等）请使用 **[烤箱之心（OvenHeart）](https://github.com/huntersxy/astrbot_plugin_ovenheart)** 的「群聊参与」能力；配置页原位置保留跳转指引，旧配置项不再生效。
+
 ## 能做什么
 
 | 能力 | 使用场景 |
 | --- | --- |
 | 消息处理 | 补齐缺失括号、群聊复读、清理回复空行、显示思考表情 |
+| 分段回复 | 把长回复按标点与字数规则切成多条消息，带延迟发送，模拟真人打字节奏 |
 | 结构化提及 | 追踪活跃发言人，将模型输出的 `<mention id="ID"/>` 转为平台 @ 组件 |
-| Jev 多维判读 | 结合上下文判断说话对象、意图、情绪、态度、回复期待与风险，以临时内容辅助回复 |
-| 主动回复 | 按概率或 Jev 判定参与群聊，独立配置触发范围 |
+| Jev 多维判读 | 被 @ 时结合上下文判断说话对象、意图、情绪、态度、回复期待与风险，以临时内容辅助回复 |
 | 文件读取 | 支持预读取、RAG 检索和 `file_list` / `file_read` / `file_search` 工具 |
 | 服务余额 | 按需查询已配置服务，成功结果缓存 30 秒，按服务原始币种分别展示 |
 | 原生 Panel | 运行概览与服务余额分开，刷新状态无需请求外部余额接口 |
@@ -25,10 +27,10 @@
 需要 **AstrBot >= 4.29.1 且 < 5**，支持 **aiocqhttp**（NapCat、Lagrange 等）。思考表情、群消息与 @ 相关能力依赖对应平台接口；Jev 判读需要单独配置 TypeSafe API Key。
 
 1. 在 AstrBot 插件市场安装，或通过仓库地址安装本插件。
-2. 打开插件配置，按需开启 Jev、主动回复、文件读取及余额查询。
+2. 打开插件配置，按需开启 Jev、分段回复、文件读取及余额查询。
 3. 从插件卡片打开 **状态总览**，检查配置状态；外部服务是否可用仍需实际调用确认。
 
-同时安装烤箱之心时，建议只开启其中一个插件的自动参与功能，避免两套决策分别触发回复。Oven Multi 的消息处理、文件工具与余额查询可按需保留。
+需要机器人在群聊中自主接话时，请安装 [烤箱之心](https://github.com/huntersxy/astrbot_plugin_ovenheart) 并开启其「群聊参与」；本插件的消息处理、分段回复、文件工具与余额查询可与之共存。
 
 ## 配置
 
@@ -65,55 +67,64 @@
 | `remove_thinking_on_done` | 完成后移除思考表情 | `true` |
 | `add_done_emoji` | 完成后添加完成表情 | `true` |
 
-### 主动回复 (`active_reply`)
+### 分段回复 (`segment_reply`)
 
-> 两种触发模式：
-> - **`probability`**：按概率随机触发；命中后调用 Jev 对触发消息做多维判读并注入本轮 LLM 请求（判读失败不影响触发，只是本轮没有注入）。
-> - **`model_choice`**：累计 `model_stack_size` 条消息后由 Jev 判定是否触发——六维判读之外附加「是否主动回复」的 Noul 是非判定，「该主动回复」概率不低于 `decision_min_confidence` 才触发；需启用顶层 `jev` 总开关。
+> 核心实现改写自 [astrbot_plugin_custome_segment_reply](https://github.com/LinJohn8/astrbot_plugin_custome_segment_reply)（MIT）by LinJohn8，去掉了主动消息分支、对话历史改写与「正在输入」状态调用：完整回复在进入装饰阶段前已由 AstrBot 按原文写入对话历史，分段只是发送层的事，上下文天然连贯。
 >
-> 判读维度：说话对象 / 意图 / 情绪 / 对bot态度 / 期待回复 / 风险（均带置信度），可附带按规则生成的行动建议。判读块以 `extra_user_content_parts` 临时内容注入（`mark_as_temp()`，不写入对话历史），上下文优先读原生消息历史、回退插件缓冲（见下方 `jev` 节），发送前经本地脱敏（手机号/邮箱/身份证等）。
+> 分段流程：先按**强制分隔符**预切，再对每段按**字数范围 + 断句符号优先级**细分（允许超出时继续向后找标点，直到硬性上限），最后把过短的尾巴并入上一段。首段随原生装饰（@回复/引用/前缀）发送，其余各段在消息发出后按配置间隔逐条直发。
+>
+> - **只对 LLM 回复生效**（默认）：`process_non_llm` 关闭时，插件指令、命令返回等非 LLM 输出原样发送。
+> - 开启 `process_non_llm` 后所有出站纯文本都会分段（含指令输出），可用「无需分段的关键词」排除菜单/帮助类内容。
+> - 与 WebUI 内置「分段回复」二选一，建议关闭内置功能，避免重复处理。
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| `enable` | 启用 | `false` |
-| `mode` | 触发模式：`probability`（概率）/ `model_choice`（Jev 判定） | `"probability"` |
-| `possibility` | 回复概率（`probability` 模式） | `0.1` |
-| `model_stack_size` | 触发栈长度（`model_choice` 模式） | `8` |
-| `active_reply_guidance` | 主动回复命中后注入 LLM 的额外引导，让模型知道是机器人主动加入话题而非用户来找机器人；留空则不注入 | 内置默认 |
-| `whitelist` | 白名单（仅作用于主动回复触发）：英文逗号分隔的 `unified_msg_origin` 或群 ID，留空表示所有群可触发；判读注入与历史记录不看白名单 | `` |
+| `enabled` | 启用分段回复 | `false` |
+| `process_non_llm` | 是否处理非 LLM 输出（插件指令、命令返回等） | `false` |
+| `min_length` | 单段最小字数（内尽量不断句） | `20` |
+| `max_length` | 单段常规最大字数，优先在 `[min_length, max_length]` 内找标点 | `50` |
+| `allow_exceed_max` | 范围内没找到标点时允许向后超长寻找断点 | `true` |
+| `hard_max_limit` | 允许超出时的硬性截断字数 | `100` |
+| `merge_short_tail` | 最后一段过短时并入上一段 | `true` |
+| `short_tail_threshold` | 短尾合并阈值（字数） | `8` |
+| `force_split_symbols` | 强制分隔符（先按它预切） | `["\\n\\n", "\\n"]` |
+| `split_symbols` | 断句符号（按停顿强度优先级排列） | `["\\n\\n", "\\n", "。", "！", "？", "；", "……", …]` |
+| `keep_symbol` | 断句后保留标点 | `true` |
+| `extend_to_trailing_symbols` | 命中分段符后顺延吞掉紧随的连续符号 | `true` |
+| `protect_paired_symbols` | 成对符号（括号/引号等）内部不分段 | `false` |
+| `exclude_keywords` | 回复包含关键词时整段跳过 | 见配置默认 |
+| `skip_longer_than` | 总字数超过阈值时原样发送（`0` 禁用） | `0` |
+| `delay_type` | 发送间隔：`fixed` / `random`（区间正态随机）/ `smart`（按字数打字间隔 + 标点修正） | `"random"` |
+| `fixed_delay_seconds` | 固定间隔秒数（`fixed`） | `1.0` |
+| `random_delay_range` | 随机间隔范围秒（`random`） | `[1, 3]` |
 
 ### Jev 多维判读 (`jev`)
 
-> 用 TypeSafe SystemOne（Jev）做多维判读，按两个场景注入本轮 LLM 请求（`extra_user_content_parts` 临时内容，不写入对话历史）：
-> - **主动回复场景**（`inject_on_active_reply`）：`probability` 命中后注入六维判读（判读失败不影响触发）；`model_choice` 的触发判定始终依赖 Jev，该开关仅控制触发后是否注入判读块。
-> - **被@场景**（`inject_on_mention`）：被 @机器人 / 唤醒前缀 / 引用唤醒（非主动回复）时注入一次判读，重点是**意图与情绪**（置顶「重点 ·」行）+ 行动建议；裸@第一条仍走 AstrBot 原生空@流程，其后 60 秒内的消息正常判读；判读失败只降级为普通回复。
+> 用 TypeSafe SystemOne（Jev）为**被 @ / 唤醒回复**注入一次多维判读（`extra_user_content_parts` 临时内容，不写入对话历史）：被 @机器人 / 唤醒前缀 / 引用唤醒时判读，重点是**意图与情绪**（置顶「重点 ·」行）+ 行动建议；裸@第一条仍走 AstrBot 原生空@流程，其后 60 秒内的消息正常判读；判读失败只降级为普通回复。
 >
-> 判读维度：说话对象 / 意图 / 情绪 / 对bot态度 / 期待回复 / 风险（均带置信度）。题型按 TypeSafe 官方 primitives 选择：无序集合（说话对象/意图/情绪/态度，意图含「其他」兜底）用 `choice`，有序光谱（风险、期待回复）用 `score`（返回等级位置与各级概率），是否主动回复用 `noul`（概率直接对阈值）。**发给 Jev 的问题全部为英文**（场景说明、指令、选项 key、选项描述、score 等级、Noul 判定描述——Jev 主训练语言，CJK 精度较低）；选项返回后在解析边界映射回中文，注入块与行动建议保持中文。
-> **上下文来源**：优先读取 AstrBot 原生持久化消息历史（平台设置 → 消息历史 `group_message_history_enable` 开启时；落库、重启不丢、含机器人自己的回复、行格式不含 QQ 号），关闭时回退本插件内存缓冲（会话内，含@消息，与主动回复开关解耦）；发送前经本地脱敏（手机号/邮箱/身份证等）。
-> **高危拦截与日志**：`suppress_high_risk` 对主动回复做高危强制不回复（被@不拦）；`debug_mode` 除 Jev 输入/原始输出外，还会输出**最终注入块全文**（含行动建议）与每道闸门的跳过原因、每条群消息的待命状态行。
+> 判读维度：说话对象 / 意图 / 情绪 / 对bot态度 / 期待回复 / 风险（均带置信度）。题型按 TypeSafe 官方 primitives 选择：无序集合（说话对象/意图/情绪/态度，意图含「其他」兜底）用 `choice`，有序光谱（风险、期待回复）用 `score`。**发给 Jev 的问题全部为英文**（场景说明、指令、选项 key、选项描述、score 等级——Jev 主训练语言，CJK 精度较低）；选项返回后在解析边界映射回中文，注入块与行动建议保持中文。
+> **上下文来源**：优先读取 AstrBot 原生持久化消息历史（平台设置 → 消息历史 `group_message_history_enable` 开启时；落库、重启不丢、含机器人自己的回复、行格式不含 QQ 号），关闭时回退本插件内存缓冲（会话内，含@消息，随群消息自动记录）；发送前经本地脱敏（手机号/邮箱/身份证等）。
+> **日志**：`debug_mode` 除 Jev 输入/原始输出外，还会输出**最终注入块全文**（含行动建议）与每道闸门的跳过原因、每条群消息的待命状态行。
 >
 > **与 AstrBot「群聊消息记录注入上下文」的兼容**：原生记录从消息链读取（@机器人 自带 `⚠️[DIRECTED AT YOU]` 标记），本插件的 @保留只改 `message_str`，二者互不冲突、互为补充——原生注入历史原文块，Jev 注入对当前消息的判读。对原生漏记的「纯@消息」（如先发一句话、再单独 @机器人），本插件在最高优先级自动补记一条原生记录（仅在该功能开启时，无需改 AstrBot 源码）。
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| `enabled` | 总开关：关闭后概率模式不判不注（触发不受影响）、`model_choice` 不触发、被@不判读 | `false` |
-| `inject_on_active_reply` | 主动回复场景注入判读 | `true` |
+| `enabled` | 总开关：关闭后被@/唤醒不判读不注入，判读上下文也不记录 | `false` |
 | `inject_on_mention` | 被@/唤醒场景注入判读（重点：意向与情绪） | `true` |
-| `suppress_high_risk` | 高危风险拦截：主动回复（概率命中或 `model_choice` 判定）判读为高危时强制不回复并写告警日志，避免对诈骗/引战接话；依赖判读运行。被@回复不受影响（必须回） | `true` |
 | `debug_mode` | 调试完整日志：以 INFO 级别输出每次 Jev 调用的完整输入（state 上下文原文 + 全部问题）与原始输出，用于核对上下文是否真的进来了；排查完请关闭 | `false` |
 | `api_key` | TypeSafe API Key，在 https://console.typesafe.ai 获取 | `` |
 | `base_url` | TypeSafe 接口地址 | `"https://api.typesafe.ai"` |
 | `model` | Jev 模型名 | `"jev-latest"` |
-| `timeout_sec` | 请求超时（秒） | `8` |
+| `timeout_sec` | 请求超时（秒），超时后判读降级为普通回复 | `8` |
 | `retries` | 限流/过载（429/503/529）重试次数 | `1` |
-| `history_rounds` | 判读带入的上下文条数（`model_choice` 自动不少于触发栈长度） | `6` |
+| `history_rounds` | 判读带入的上下文条数 | `6` |
 | `max_state_chars` | 发送给 Jev 的上下文长度上限 | `1200` |
-| `min_message_chars` | 判读最小字数（概率命中/被@时生效：去掉开头 @标记与空白后短于此不判读，不影响是否回复） | `2` |
+| `min_message_chars` | 判读最小字数（被@时生效：去掉开头 @标记与空白后短于此不判读，不影响是否回复） | `2` |
 | `desensitize` | 发送前本地脱敏 | `true` |
 | `enable_advice` | 注入块附带行动建议 | `true` |
 | `show_confidence` | 注入块显示各维度置信度 | `true` |
 | `max_injection_chars` | 注入块长度上限 | `600` |
-| `decision_min_confidence` | `model_choice`「该主动回复」概率（Noul）阈值 | `0.6` |
 
 ### 余额查询 (`balance`)
 
@@ -221,6 +232,7 @@ services:
 
 - **运行概览**：按“消息与回复”“判读与文件”分组显示开关、关键参数及缺失配置提醒。状态来自当前配置和初始化结果，不等同于外部服务健康检查。
 - **服务余额**：点击“查询余额”才调用服务。并发查询合并，包含成功结果的响应缓存 30 秒；全部失败时允许直接重试。显示实际查询时间，各服务币种不混算。
+- **设置**：直接在面板修改常用开关与参数（各功能开关、复读/空行阈值、分段回复全部参数、Jev 场景开关等），保存后立即生效并写入插件配置，无需重载插件。可编辑字段是白名单子集（元数据与边界直接取自配置 schema）；密钥、符号/关键词列表等高级字段仍请使用 AstrBot 插件配置页。带 revision 与配置快照双重防陈旧：其他页面保存过或配置页改过相关字段时，旧表单会被拒绝并提示刷新。
 - **失败与重试**：刷新失败保留上次结果并提示重试；未配置余额时提供配置指引。支持浅色、深色和移动端布局。
 
 页面入口名称仍为“状态总览”。目录由旧 `pages/status` 调整为原生 `views/status`；旧风格管理区域与 `风格状态`、`清空风格`、`学习总结` 命令一并移除，后续学习管理请使用 [烤箱之心](https://github.com/huntersxy/astrbot_plugin_ovenheart)。
@@ -234,10 +246,11 @@ GNU Affero General Public License v3.0
 本插件修改自以下开源项目：
 
 - astrbot_plugin_pairit (AGPL-3.0) by GamerNoTitle — 括号匹配
-- astrbot_plugin_astrbot_enhance_mode by 阿汐 — 主动回复
 - astrbot_plugin_repetition by FengYing1314 — 消息复读
 - astrbot_plugin_iamthinking (AGPL-3.0) by sssn-tech — 思考表情
 - astrbot_plugin_iearning_style (AGPL-3.0) by qa296 — 历史风格学习实现（1.49.0 已废弃）
+- astrbot_plugin_astrbot_enhance_mode by 阿汐 — 历史主动回复实现（1.50.0 已移除）
+- astrbot_plugin_custome_segment_reply (MIT) by LinJohn8 — 分段回复引擎
 - astrbot_plugin_group_chat_plus (AGPL-3.0) by Him666233 — 历史 System prompt 兼容实现（1.49.0 已移除）
 - astrbot_plugin_iris_chat_memory (AGPL-3.0) by  — `extra_user_content_parts` 注入策略与 `mark_as_temp()` 实践
 - astrbot_plugin_remove_blank_lines (MIT) by Codex — 移除空行

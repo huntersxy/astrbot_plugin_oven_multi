@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.51.0 (2026-10-24)
+
+### New Features
+
+- **Panel 快捷设置**：状态总览新增「设置」页签，可直接在面板修改常用开关与参数并保存——各功能开关（括号匹配/复读/空行/思考表情/成员提及/分段回复/Jev/文件读取）、复读与空行阈值、分段回复完整参数（含非 LLM 开关、发送间隔）、Jev 场景开关。保存后立即生效并写入 AstrBot 插件配置（原生 `save_config` 原子持久化，写盘失败回滚内存），无需重载插件。
+  - 可编辑字段为白名单子集，标签、默认值、边界与选项直接取自 `_conf_schema.json`（单一事实来源）；密钥、符号/关键词列表等高级字段仍由插件配置页维护。
+  - 双重防陈旧：表单 revision + 可编辑值快照，其他面板保存过或用户在插件配置页改过相关字段时，旧表单保存被拒绝并提示刷新，附带一键「重新读取设置」。
+  - 交互细节：懒加载、未保存离开页面提醒、保存后自动刷新运行概览、移动端与浅深色布局适配、键盘页签导航扩展为三个页签循环。
+
+### Credits
+
+- 设置写回与防陈旧模式参考 [astrbot_plugin_ovenheart](https://github.com/huntersxy/astrbot_plugin_ovenheart)（AGPL-3.0）by 汐兮雨 的人格工坊面板实现。
+
+## 1.50.0 (2026-10-24)
+
+### Removed
+
+- **主动回复已移除**：不再提供无需 @ 的主动回复（概率触发与 `model_choice` 判定两种模式一并移除），相关配置（`enable` / `mode` / `possibility` / `model_stack_size` / `active_reply_guidance` / `whitelist`）与 `jev.inject_on_active_reply`、`jev.suppress_high_risk`、`jev.decision_min_confidence` 不再生效。群聊参与请使用 [烤箱之心（OvenHeart）](https://github.com/huntersxy/astrbot_plugin_ovenheart) 的「群聊参与」能力；配置页原位置保留指向烤箱之心的跳转指引，状态页在检测到旧配置仍开启主动回复时也会给出迁移提示。
+
+### New Features
+
+- **分段回复（`segment_reply`）**：融合 [astrbot_plugin_custome_segment_reply](https://github.com/LinJohn8/astrbot_plugin_custome_segment_reply)（MIT）by LinJohn8 并精简改写——把长回复按**强制分隔符 → 字数范围 + 断句符号优先级 → 短尾合并**切成多条消息，首段随原生装饰（@回复/引用/前缀）发送，其余各段在消息发出后按配置间隔逐条直发，模拟真人打字节奏。
+  - 新增 **`process_non_llm` 开关（默认关闭）**：关闭时只对 LLM 回复分段，插件指令、命令返回等非 LLM 输出原样发送；开启后所有出站纯文本均分段，可配合「无需分段的关键词」排除菜单/帮助类内容。
+  - 间隔模式提供 `fixed` / `random`（区间正态随机）/ `smart`（按字数打字间隔，叠加疑问停顿、逗号衔接、省略号犹豫等标点修正）。
+  - 相比原插件的精简与修正：去掉主动消息分支、对话历史改写（完整回复在装饰前已由 AstrBot 按原文持久化，重写会重复入库）与「正在输入」状态调用；纯文本链才分段（带图片/@/转发组件的消息不动）；分段失败或只有一段时保持原消息；流式输出与不支持多发的渠道（QQ 官方 webhook、微信公众号、钉钉）自动跳过；与原生「群聊消息记录注入上下文」互不影响。
+  - 默认关闭；建议同时关闭 WebUI 内置「分段回复」，二选一。
+
+### Changed
+
+- Jev 判读场景收敛为**被@/唤醒回复**：判读上下文记录与被@判读不变（`inject_on_mention`），上下文历史随群消息自动记录，不再与主动回复闸门关联。
+- 原 `features/active_reply.py` 重构为 `features/jev_scenes.py`（Jev 场景接入层）；`jev_judge` 判读库不变。
+- 状态页功能分组调整：分段回复归入「消息与回复」组；主动回复行移除。
+
+### Credits
+
+- [astrbot_plugin_custome_segment_reply](https://github.com/LinJohn8/astrbot_plugin_custome_segment_reply) (MIT) by LinJohn8 — 分段引擎与延迟模型
+
 ## 1.49.0 (2026-10-23)
 
 ### Deprecated

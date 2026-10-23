@@ -35,7 +35,7 @@ _DEFAULT_BASE_URL = "https://api.typesafe.ai"
 _SYSTEMONE_PATH = "/v1/systemone"
 
 # 注入块标记（header/footer 成对，便于阅读与定位）
-INJECT_HEADER = "【主动回复 · Jev 判读】"
+INJECT_HEADER = "【Jev 判读】"
 MENTION_INJECT_HEADER = "【被动回复 · Jev 判读】"
 INJECT_FOOTER = "【判读结束】"
 
@@ -401,7 +401,7 @@ def parse_answers(answers: dict[str, Any] | None, with_decision: bool = False) -
 
 
 def decide_reply(result: dict[str, Any], min_confidence: float = 0.6) -> bool:
-    """model_choice 判定：Noul「该主动回复」概率达到阈值才触发主动回复。"""
+    """触发判定：Noul「该回复」概率达到阈值即视为应答（供主动参与类场景使用）。"""
     return float(result.get("should_reply_probability") or 0.0) >= min_confidence
 
 

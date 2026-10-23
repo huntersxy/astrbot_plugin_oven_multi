@@ -78,17 +78,59 @@ async def test_status_never_queries_balances_and_does_not_expose_keys(plugin):
     plugin.config["balance"] = {"config_content": "synthetic-secret"}
     plugin.balance_checker.query_all = AsyncMock(side_effect=AssertionError("Unexpected provider"))
     payload = await plugin._api_status()
-    assert len(payload["data"]["features"]) == 8
+    ids = [row["id"] for row in payload["data"]["features"]]
+    assert len(ids) == 8
+    assert "segment_reply" in ids and "active_reply" not in ids
     assert payload["data"]["balance_configured"] is True
     assert "synthetic-secret" not in json.dumps(payload)
     plugin.balance_checker.query_all.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_only_native_read_routes_and_scoped_cleanup(plugin):
+async def test_legacy_active_reply_config_gets_successor_notice(plugin):
+    """旧配置仍开启主动回复时，状态页给出指向烤箱之心的迁移提示。"""
+    plugin.config["active_reply"] = {"enable": True}
+    payload = await plugin._api_status()
+    notices = "\n".join(payload["data"]["notices"])
+    assert "主动回复已移除" in notices
+    assert "astrbot_plugin_ovenheart" in notices
+
+
+@pytest.mark.asyncio
+async def test_segment_reply_defaults_off_and_non_llm_gate(plugin):
+    """分段回复默认关闭；schema 中存在且默认 process_non_llm=false。"""
+    schema = json.loads((ROOT / "_conf_schema.json").read_text("utf-8"))
+    seg = schema["segment_reply"]
+    assert seg["items"]["enabled"]["default"] is False
+    assert seg["items"]["process_non_llm"]["default"] is False
+    moved = schema["active_reply"]
+    assert "astrbot_plugin_ovenheart" in moved["hint"] + moved["items"]["moved"]["hint"]
+    # 关闭时装饰钩子直接返回，不改动结果链
+    import astrbot.api.message_components as components
+
+    result = SimpleNamespace(chain=[components.Plain("很长的一段话" * 20)])
+    event = SimpleNamespace(
+        get_result=lambda: result,
+        get_platform_name=lambda: "aiocqhttp",
+        set_extra=lambda *a: None,
+        get_extra=lambda *a, **k: None,
+    )
+    result.is_llm_result = lambda: True
+    result.result_content_type = object()
+    await plugin.segment_reply_decorate(event)
+    assert len(result.chain) == 1
+
+
+@pytest.mark.asyncio
+async def test_only_native_routes_and_scoped_cleanup(plugin):
     routes = plugin.context.registered_web_apis
-    assert [row[0].rsplit("/", 1)[-1] for row in routes] == ["status", "balance"]
-    assert all(row[2] == ["GET"] for row in routes)
+    assert [row[0].replace(f"/{ROOT.name}/", "") for row in routes] == [
+        "status",
+        "balance",
+        "settings",
+        "settings/save",
+    ]
+    assert [row[2] for row in routes] == [["GET"], ["GET"], ["GET"], ["POST"]]
     unrelated = ("/other", lambda: {}, ["GET"], "other plugin")
     routes.append(unrelated)
     await plugin.terminate()
@@ -151,7 +193,7 @@ async def test_malformed_service_and_exception_never_leak_credentials():
 
 def test_versions_native_view_and_provider_templates_remain_consistent():
     metadata = yaml.safe_load((ROOT / "metadata.yaml").read_text("utf-8"))
-    assert metadata["version"] == plugin_module.PLUGIN_VERSION == "1.49.0"
+    assert metadata["version"] == plugin_module.PLUGIN_VERSION == "1.51.0"
     assert metadata["views"] == [{"name": "status", "title": "状态总览"}]
     template = balance_module._BUILTIN_PARSERS["minimax"]["result_template"]
     checker = balance_module.BalanceChecker({})

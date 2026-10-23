@@ -15,16 +15,18 @@
 #
 # Modified from:
 #   - astrbot_plugin_pairit (AGPL-3.0) by GamerNoTitle — bracket matching
-#   - astrbot_plugin_astrbot_enhance_mode by 阿汐 — active reply, model_choice
 #   - astrbot_plugin_repetition by FengYing1314 — message repetition
 #   - astrbot_plugin_iamthinking (AGPL-3.0) by sssn-tech — thinking emoji reaction
 #   - astrbot_plugin_iearning_style (AGPL-3.0) by qa296
 #     historical style learning (retired in 1.49.0)
 #   - astrbot_plugin_remove_blank_lines (MIT) by Codex — remove blank lines from LLM output
+#   - astrbot_plugin_custome_segment_reply (MIT) by LinJohn8 — segment reply engine
 #   - astrbot_plugin_file_reader_pro (MIT) by zz6zz666 — file reading, RAG indexing
 #     (original license: see features/file_reader/LICENSE)
 # Date: 2026-06-23
 
+import asyncio
+import json
 import re
 from sys import maxsize
 
@@ -32,28 +34,33 @@ import astrbot.api.message_components as components
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools, register
+from astrbot.api.web import request
+from astrbot.core.message.message_event_result import ResultContentType
 
 from .constants import (
-    FEATURE_ACTIVE_REPLY,
+    ACTIVE_REPLY_SUCCESSOR_URL,
     FEATURE_BRACKET,
     FEATURE_FILE_READER,
     FEATURE_JEV,
     FEATURE_MENTION_PARSER,
     FEATURE_REMOVE_BLANK,
     FEATURE_REPETITION,
+    FEATURE_SEGMENT,
     FEATURE_THINKING,
     PLUGIN_AUTHOR,
     PLUGIN_DESC,
     PLUGIN_NAME,
     PLUGIN_VERSION,
 )
-from .features.active_reply import ActiveReply
 from .features.balance_checker import BalanceChecker
 from .features.bracket_matcher import BracketMatcher
 from .features.file_reader import FileParseError, FileReaderManager
+from .features.jev_scenes import JevScenes
 from .features.mention_parser import ActiveSpeakersTracker, transform_mention_in_chain
 from .features.mention_preserve import restore_bot_mention, should_backfill_native
+from .features.panel_settings import PanelSettingsManager, StaleSettingsError
 from .features.repeater import Repeater
+from .features.segment_reply import SegmentReply
 from .features.thinking_manager import ThinkingManager
 
 # ── 配置访问辅助 ─────────────────────────────────────────────────────────
@@ -87,16 +94,8 @@ def collapse_blank_lines(text: str, max_newlines: int = 1) -> str:
     return re.sub(rf"\n{{{limit + 1},}}", "\n" * limit, normalized)
 
 
-# 主动回复触发时注入 LLM 的默认引导，用于让模型理解“这是机器人主动加入话题，不是用户来找机器人”
-DEFAULT_ACTIVE_REPLY_GUIDANCE = (
-    "这是一条由机器人主动发起的群聊回复，不是用户主动寻找机器人或向机器人提问。\n"
-    "用户没有在找机器人，机器人是在看到群聊话题后主动加入聊天。\n"
-    "请以群聊参与者的自然口吻回复：\n"
-    "1. 不要使用“有什么可以帮你”“我在”“已收到”等服务式或被召唤式的开头；\n"
-    "2. 不要解释或提及自己是主动回复、被动触发等机制；\n"
-    "3. 尽量简短自然地融入当前话题，像普通群友一样接话；\n"
-    "4. 如果当前话题不适合接话，可以克制或不强行发言。"
-)
+# 分段回复不支持的发送渠道（与 AstrBot 原生分段回复的排除清单一致）
+SEGMENT_SKIP_PLATFORMS = {"qq_official_webhook", "weixin_official_account", "dingtalk"}
 
 
 @register(PLUGIN_NAME, PLUGIN_AUTHOR, PLUGIN_DESC, PLUGIN_VERSION)
@@ -112,7 +111,13 @@ class OvenMultiPlugin(Star):
         self.matcher = BracketMatcher()
         self.repeater = Repeater()
         self.thinking = ThinkingManager()
-        self.active_reply = ActiveReply(context=self.context)
+        self.segment = SegmentReply()
+
+        # Jev 判读场景接入（上下文记录 + 被@判读）
+        self.jev_scenes = JevScenes(context=self.context)
+
+        # 面板快捷设置（revision 防陈旧 + 校验写回）
+        self.panel_settings = PanelSettingsManager()
 
         # 余额查询
         self.balance_checker = BalanceChecker(self.config)
@@ -143,12 +148,19 @@ class OvenMultiPlugin(Star):
         retired_routes = {f"/{PLUGIN_NAME}/style_status", f"/{PLUGIN_NAME}/style/manage"}
         registrations[:] = [item for item in registrations if item[0] not in retired_routes]
 
-        # Register only read-only native Panel APIs.
-        for route, handler, description in (
-            (f"/{PLUGIN_NAME}/status", self._api_status, "Oven Multi feature status"),
-            (f"/{PLUGIN_NAME}/balance", self._api_balance, "Oven Multi provider balances"),
+        # Register only native Panel APIs.
+        for route, handler, method, description in (
+            (f"/{PLUGIN_NAME}/status", self._api_status, "GET", "Oven Multi feature status"),
+            (f"/{PLUGIN_NAME}/balance", self._api_balance, "GET", "Oven Multi provider balances"),
+            (f"/{PLUGIN_NAME}/settings", self._api_settings, "GET", "Oven Multi panel settings"),
+            (
+                f"/{PLUGIN_NAME}/settings/save",
+                self._api_settings_save,
+                "POST",
+                "Oven Multi save panel settings",
+            ),
         ):
-            self.context.register_web_api(route, handler, ["GET"], description)
+            self.context.register_web_api(route, handler, [method], description)
 
     # ── 生命周期 ─────────────────────────────────────────────────────────
 
@@ -160,7 +172,7 @@ class OvenMultiPlugin(Star):
     async def terminate(self):
         if self.file_reader:
             await self.file_reader.stop()
-        await self.active_reply.close()
+        await self.jev_scenes.close()
         await self.balance_checker.terminate()
         registrations = getattr(self.context, "registered_web_apis", [])
         registrations[:] = [
@@ -175,11 +187,15 @@ class OvenMultiPlugin(Star):
         Returns:
             Feature identifiers, configuration switches and human-readable details.
         """
-        active = feature_cfg(self.config, FEATURE_ACTIVE_REPLY)
         jev = feature_cfg(self.config, FEATURE_JEV)
         files = feature_cfg(self.config, FEATURE_FILE_READER)
         blank_limit = cfg_value(self.config, FEATURE_REMOVE_BLANK, "max_consecutive_newlines", 1)
-        mode = "Jev 判定" if active.get("mode") == "model_choice" else "概率触发"
+        seg = feature_cfg(self.config, FEATURE_SEGMENT)
+        seg_detail = "在插件配置中开启"
+        if feature_enabled(self.config, FEATURE_SEGMENT, False):
+            min_length, max_length = self.segment.length_range(seg)
+            delay_mode = seg.get("delay_type", "random")
+            seg_detail = f"单段 {min_length}-{max_length} 字，间隔「{delay_mode}」"
         rows = [
             (
                 FEATURE_BRACKET,
@@ -211,7 +227,12 @@ class OvenMultiPlugin(Star):
                 feature_enabled(self.config, FEATURE_MENTION_PARSER),
                 "追踪活跃成员，将模型提及标签转换为真实 @",
             ),
-            (FEATURE_ACTIVE_REPLY, "主动回复", active.get("enable", False), mode),
+            (
+                FEATURE_SEGMENT,
+                "分段回复",
+                feature_enabled(self.config, FEATURE_SEGMENT, False),
+                seg_detail,
+            ),
             (
                 FEATURE_JEV,
                 "Jev 多维判读",
@@ -242,13 +263,15 @@ class OvenMultiPlugin(Star):
         Returns:
             Native Panel response containing configuration state and actionable notices.
         """
-        active = feature_cfg(self.config, FEATURE_ACTIVE_REPLY)
         jev = feature_cfg(self.config, FEATURE_JEV)
         notices = []
+        if feature_cfg(self.config, "active_reply").get("enable", False):
+            notices.append(
+                "主动回复已移除，请改用烤箱之心的群聊参与："
+                f"{ACTIVE_REPLY_SUCCESSOR_URL}"
+            )
         if jev.get("enabled") and not str(jev.get("api_key") or "").strip():
             notices.append("Jev 已开启但未配置 API Key，请在插件配置中填写后使用判读。")
-        if active.get("enable") and active.get("mode") == "model_choice" and not jev.get("enabled"):
-            notices.append("主动回复选择了 Jev 判定模式，但 Jev 总开关未开启，当前不会触发。")
         if feature_enabled(self.config, FEATURE_FILE_READER, False) and not self.file_reader:
             notices.append("文件读取已配置开启，但尚未初始化成功，请检查 AstrBot 日志。")
         return {
@@ -279,6 +302,53 @@ class OvenMultiPlugin(Star):
             },
         }
 
+    async def _api_settings(self):
+        """Return editable panel settings and the current form revision.
+
+        Returns:
+            Native Panel response with grouped fields and stale-guard revision.
+        """
+        return {"success": True, "data": self.panel_settings.describe(self.config)}
+
+    async def _api_settings_save(self):
+        """Validate and persist panel settings submitted from the Panel.
+
+        Returns:
+            Native Panel response with the new revision, or an actionable error.
+            ``stale`` marks a rejected outdated form (the client offers a reload).
+        """
+        try:
+            raw = await request.body()
+            if len(raw) > 65536:
+                raise ValueError("请求内容超过 64 KB，请减少修改项。")
+            try:
+                body = json.loads(raw)
+            except (ValueError, UnicodeDecodeError) as exc:
+                raise ValueError("请求不是有效的 JSON。") from exc
+            if not isinstance(body, dict) or not isinstance(body.get("values"), dict):
+                raise ValueError("请提交要保存的设置。")
+            revision = await self.panel_settings.save(
+                self.config, body["values"], body.get("revision")
+            )
+            logger.info(f"[烤箱-面板] 已保存 {len(body['values'])} 项设置")
+            return {
+                "success": True,
+                "data": {
+                    "revision": revision,
+                    "message": "设置已保存并立即生效。",
+                },
+            }
+        except StaleSettingsError as exc:
+            return {"success": False, "stale": True, "message": str(exc)}
+        except ValueError as exc:
+            return {"success": False, "message": str(exc)}
+        except Exception as exc:
+            logger.error(f"[烤箱-面板] 设置保存失败: {type(exc).__name__}")
+            return {
+                "success": False,
+                "message": "保存失败，请确认插件数据目录可写后重试。",
+            }
+
     # ── 工具方法 ─────────────────────────────────────────────────────────
 
     def _blocked(self, event: AstrMessageEvent) -> bool:
@@ -307,7 +377,7 @@ class OvenMultiPlugin(Star):
 
         1. 把 aiocqhttp 适配器丢弃的首个「@机器人」补回 message_str；
         2. 为「纯@消息」补齐原生「群聊消息记录注入上下文」记录；
-        3. 记录 Jev 判读上下文（含@消息，与主动回复触发闸门解耦）。
+        3. 记录 Jev 判读上下文（含@消息）。
         """
         blocked = self._blocked(event)
 
@@ -316,15 +386,11 @@ class OvenMultiPlugin(Star):
         jev_cfg = feature_cfg(self.config, FEATURE_JEV)
         if jev_cfg.get("debug_mode"):
             api_key_ok = bool(str(jev_cfg.get("api_key") or "").strip())
-            ar_cfg = feature_cfg(self.config, FEATURE_ACTIVE_REPLY)
             logger.info(
                 f"[Jev-DEBUG] 待命 | origin={event.unified_msg_origin} "
                 f"blocked={blocked} enabled={jev_cfg.get('enabled', False)} "
                 f"api_key={'已配置' if api_key_ok else '未配置'} "
-                f"主动注入={jev_cfg.get('inject_on_active_reply', True)} "
                 f"被@注入={jev_cfg.get('inject_on_mention', True)} | "
-                f"active_reply.enable={ar_cfg.get('enable', False)} "
-                f"mode={ar_cfg.get('mode', 'probability')} "
                 f"wake={event.is_at_or_wake_command}"
             )
 
@@ -348,7 +414,7 @@ class OvenMultiPlugin(Star):
                 logger.debug(f"[烤箱-群上下文] 补记纯@消息失败：{e}")
 
         # 3. Jev 判读历史记录（含@消息）
-        self.active_reply.record_history(event, self.config)
+        self.jev_scenes.record_history(event, self.config)
 
     async def _backfill_native_record(self, event: AstrMessageEvent) -> None:
         """为纯@消息调用原生 GroupChatContext.handle_message 补记一条上下文。"""
@@ -414,22 +480,70 @@ class OvenMultiPlugin(Star):
                     event.plain_result(payload) if kind == "break" else event.chain_result(payload)
                 )
 
-        # 主动回复
-        if await self.active_reply.should_active_reply(event, self.config):
-            # 标记本次 LLM 请求由主动回复触发，供 on_llm_request 注入“被动触发”引导
-            event.set_extra("oven_active_reply_triggered", True)
-            cm = self.context.conversation_manager
-            conv_id = await cm.get_curr_conversation_id(event.unified_msg_origin)
-            if not conv_id:
-                conv_id = await cm.new_conversation(event.unified_msg_origin)
-            conv = await cm.get_conversation(event.unified_msg_origin, conv_id)
-            if not conv:
+    # ── Handler：分段回复 ────────────────────────────────────────────────
+
+    @filter.on_decorating_result(priority=-200)
+    async def segment_reply_decorate(self, event: AstrMessageEvent):
+        """在所有装饰钩子之后把长回复切成多段。
+
+        首段替换进原链，随原生装饰（@回复/引用/前缀）由 RespondStage 发送；
+        其余各段挂到 extra，由 ``send_pending_segments`` 在消息发出后带延迟
+        逐条补发，模拟真人打字节奏。分段失败或只有一段时保持原消息不变。
+        """
+        if not feature_enabled(self.config, FEATURE_SEGMENT, False):
+            return
+        result = event.get_result()
+        if not result or not result.chain:
+            return
+        if event.get_platform_name() in SEGMENT_SKIP_PLATFORMS:
+            return
+        if result.result_content_type in (
+            ResultContentType.STREAMING_RESULT,
+            ResultContentType.STREAMING_FINISH,
+        ):
+            return
+        # 非 LLM 输出（插件指令、命令返回等）默认不分段
+        if not bool(
+            cfg_value(self.config, FEATURE_SEGMENT, "process_non_llm", False)
+        ) and not result.is_llm_result():
+            return
+        # 仅处理纯文本链：带图片 / At / 转发等组件的消息不做拆分
+        if not all(isinstance(comp, components.Plain) for comp in result.chain):
+            return
+        text = "".join(comp.text for comp in result.chain).strip()
+        if not text:
+            return
+        seg_cfg = feature_cfg(self.config, FEATURE_SEGMENT)
+        if self.segment.should_skip(text, seg_cfg):
+            return
+        try:
+            segments = self.segment.segment(text, seg_cfg)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"[烤箱-分段] 分段失败，按原文发送：{e}")
+            return
+        if len(segments) <= 1:
+            return
+        event.set_extra("oven_segment_pending", segments)
+        result.chain[:] = [components.Plain(segments[0])]
+        logger.info(f"[烤箱-分段] 已拆分为 {len(segments)} 段，首段随原生装饰发送")
+
+    @filter.after_message_sent()
+    async def send_pending_segments(self, event: AstrMessageEvent):
+        """逐段补发剩余分段。首段已由 RespondStage 发出，这里只发后续各段。"""
+        segments = event.get_extra("oven_segment_pending")
+        if not segments:
+            return
+        event.set_extra("oven_segment_pending", None)
+        seg_cfg = feature_cfg(self.config, FEATURE_SEGMENT)
+        prev = segments[0]
+        for seg in segments[1:]:
+            try:
+                await asyncio.sleep(self.segment.delay(prev, seg, seg_cfg))
+                await event.send(event.plain_result(seg))
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"[烤箱-分段] 补发失败，停止后续分段：{e}")
                 return
-            yield event.request_llm(
-                prompt=event.get_message_str() or "",
-                session_id=event.session_id,
-                conversation=conv,
-            )
+            prev = seg
 
     # ── Handler：移除空行 ────────────────────────────────────────────────
 
@@ -504,24 +618,9 @@ class OvenMultiPlugin(Star):
     async def on_llm_request(self, event: AstrMessageEvent, req):
         from astrbot.core.agent.message import TextPart
 
-        # 主动回复触发引导注入（临时内容，不持久化）
-        if event.get_extra("oven_active_reply_triggered", False):
-            ar_cfg = feature_cfg(self.config, FEATURE_ACTIVE_REPLY)
-            guidance = ar_cfg.get("active_reply_guidance")
-            if guidance is None:
-                # 旧配置没有该字段时使用内置默认引导；显式留空则禁用注入
-                guidance = DEFAULT_ACTIVE_REPLY_GUIDANCE
-            guidance = str(guidance or "").strip()
-            if guidance:
-                req.extra_user_content_parts.append(TextPart(text=guidance).mark_as_temp())
-
-            # Jev 多维判读注入（ActiveReply 触发时挂到 extra，同样不进历史）
-            reading = event.get_extra("oven_jev_reading")
-            if reading:
-                req.extra_user_content_parts.append(TextPart(text=str(reading)).mark_as_temp())
-        elif feature_enabled(self.config, FEATURE_JEV, False) and not self._blocked(event):
-            # 被@/唤醒触发（非主动回复）的一次 Jev 判读注入：重点是意向与情绪
-            block = await self.active_reply.mention_reading(event, self.config)
+        # 被@/唤醒触发的一次 Jev 判读注入：重点是意向与情绪（临时内容，不持久化）
+        if feature_enabled(self.config, FEATURE_JEV, False) and not self._blocked(event):
+            block = await self.jev_scenes.mention_reading(event, self.config)
             if block:
                 req.extra_user_content_parts.append(TextPart(text=str(block)).mark_as_temp())
 

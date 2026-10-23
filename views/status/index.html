@@ -21,6 +21,7 @@
       <div class="tabs" role="tablist" aria-label="总览页面">
         <button id="tab-overview" type="button" role="tab" aria-selected="true" aria-controls="panel-overview" data-tab="overview">运行概览</button>
         <button id="tab-balances" type="button" role="tab" aria-selected="false" aria-controls="panel-balances" tabindex="-1" data-tab="balances">服务余额</button>
+        <button id="tab-settings" type="button" role="tab" aria-selected="false" aria-controls="panel-settings" tabindex="-1" data-tab="settings">设置</button>
       </div>
       <span class="version" id="version">正在连接</span>
     </div>
@@ -34,7 +35,7 @@
       <div id="notices" class="notices" aria-live="polite"></div>
       <div id="feature-groups" class="feature-groups"></div>
       <p id="feature-empty" class="empty" hidden>暂时没有功能状态。请确认插件已启用，再点击「刷新状态」。</p>
-      <footer class="sheet-footer"><span id="status-time">尚未更新</span><span>修改开关请使用 AstrBot 插件配置。</span></footer>
+      <footer class="sheet-footer"><span id="status-time">尚未更新</span><span>常用开关可在「设置」页直接调整。</span></footer>
     </section>
 
     <section class="sheet" id="panel-balances" role="tabpanel" aria-labelledby="tab-balances" hidden>
@@ -43,6 +44,15 @@
       <div id="balance-empty" class="empty balance-empty"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="5" y="7" width="22" height="18" rx="3"/><path d="M5 12h22M21 18h2"/></svg><h3>需要时，再查一次</h3><p id="balance-empty-copy">先读取插件状态，再查询已配置服务的余额。</p></div>
       <div id="balance-results" class="balance-results" aria-live="polite"></div>
       <footer class="sheet-footer"><span id="balance-time">尚未查询</span><span>结果按服务原始币种显示，不合并计算。</span></footer>
+    </section>
+
+    <section class="sheet" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+      <div class="sheet-heading"><div><h2>快捷设置</h2><p>常用开关与参数，保存后立即生效并写入插件配置。完整配置（含密钥、符号与关键词列表）请使用 AstrBot 插件配置页。</p></div><button id="save-settings" class="button primary" type="button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg><span>保存修改</span></button></div>
+      <div id="settings-error" class="message error" role="alert" hidden></div>
+      <div id="settings-loading" class="loading" role="status">正在读取设置…<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>
+      <div id="settings-groups" class="settings-groups"></div>
+      <p id="settings-empty" class="empty" hidden>暂时没有可编辑的设置。请确认插件已启用，再点击「刷新状态」。</p>
+      <footer class="sheet-footer"><span id="settings-state">尚未修改</span><span>保存后立即生效，无需重载插件。</span></footer>
     </section>
 
     <aside class="migration" aria-labelledby="migration-title">

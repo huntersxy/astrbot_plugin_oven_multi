@@ -137,48 +137,13 @@
     }
   },
   "active_reply": {
-    "description": "主动回复",
-    "hint": "在群聊中主动回复（无需被 @）。无对话时自动创建。",
+    "description": "主动回复（已移除）",
+    "hint": "主动回复已从本插件移除，由「烤箱之心」的群聊参与能力接棒，请前往 https://github.com/huntersxy/astrbot_plugin_ovenheart 安装使用。",
     "type": "object",
     "items": {
-      "enable": {
-        "description": "启用",
-        "hint": "启用主动回复。建议关闭 AstrBot 内置主动回复与内置引用回复。",
-        "type": "bool",
-        "default": false
-      },
-      "mode": {
-        "description": "触发模式",
-        "hint": "probability：按概率触发，命中后调用 Jev 注入多维判读；model_choice：累计若干条消息后由 Jev 的 Noul 概率判定是否触发（需启用顶层「Jev 判读」）。",
-        "type": "string",
-        "options": [
-          "probability",
-          "model_choice"
-        ],
-        "default": "probability"
-      },
-      "possibility": {
-        "description": "回复概率",
-        "hint": "当 mode=probability 时生效，范围建议 0.0 - 1.0。",
-        "type": "float",
-        "default": 0.1
-      },
-      "model_stack_size": {
-        "description": "模型触发栈长度",
-        "hint": "当 mode=model_choice 时生效，累计到该条数后交由 Jev 判定一次。",
-        "type": "int",
-        "default": 8
-      },
-      "active_reply_guidance": {
-        "description": "主动回复触发引导",
-        "hint": "主动回复命中后注入到 LLM 请求的额外说明，用于让模型知道这是机器人主动加入话题，而不是用户来找机器人。留空则不注入。",
-        "type": "text",
-        "editor_mode": true,
-        "default": "这是一条由机器人主动发起的群聊回复，不是用户主动寻找机器人或向机器人提问。\n用户没有在找机器人，机器人是在看到群聊话题后主动加入聊天。\n请以群聊参与者的自然口吻回复：\n1. 不要使用“有什么可以帮你”“我在”“已收到”等服务式或被召唤式的开头；\n2. 不要解释或提及自己是主动回复、被动触发等机制；\n3. 尽量简短自然地融入当前话题，像普通群友一样接话；\n4. 如果当前话题不适合接话，可以克制或不强行发言。"
-      },
-      "whitelist": {
-        "description": "白名单",
-        "hint": "仅作用于主动回复触发：英文逗号分隔的 unified_msg_origin 或群 ID，留空表示所有群可触发；判读注入与历史记录不看白名单。",
+      "moved": {
+        "description": "功能去向指引",
+        "hint": "主动回复请改用烤箱之心（astrbot_plugin_ovenheart）的「群聊参与」：https://github.com/huntersxy/astrbot_plugin_ovenheart 。旧配置项已不再生效，可清理。",
         "type": "string",
         "default": ""
       }
@@ -186,30 +151,18 @@
   },
   "jev": {
     "description": "Jev 多维判读",
-    "hint": "用 TypeSafe SystemOne（Jev）做多维判读并按场景注入提示词；model_choice 触发模式依赖它判定。连接参数与场景开关均在此节。",
+    "hint": "用 TypeSafe SystemOne（Jev）做多维判读并按场景注入提示词。连接参数与场景开关均在此节，当前仅覆盖被@/唤醒回复场景。",
     "type": "object",
     "items": {
       "enabled": {
         "description": "启用 Jev 判读",
-        "hint": "总开关。关闭后：probability 模式不判不注（触发不受影响）、model_choice 模式无法判定不触发、被@判读不注入。",
+        "hint": "总开关。关闭后：被@/唤醒回复不判读不注入，判读上下文也不记录。",
         "type": "bool",
         "default": false
       },
-      "inject_on_active_reply": {
-        "description": "主动回复判读注入",
-        "hint": "probability 命中后调用 Jev 并注入六维判读块。关闭后命中直接回复不判不注；model_choice 的触发判定不受影响，仅不再注入判读块。",
-        "type": "bool",
-        "default": true
-      },
       "inject_on_mention": {
         "description": "被@回复判读注入",
-        "hint": "被 @机器人 / 唤醒前缀 / 引用唤醒（非主动回复）时注入一次多维判读（重点：意图与情绪）。关闭则该场景不调用 Jev。裸@第一条仍走 AstrBot 原生空@流程。",
-        "type": "bool",
-        "default": true
-      },
-      "suppress_high_risk": {
-        "description": "高危风险拦截",
-        "hint": "主动回复（概率命中或 model_choice 判定）判读为高危时强制不回复（写告警日志），避免对诈骗/引战等内容接话；依赖判读运行（jev.enabled 与主动场景注入开启）。被@回复不受影响（必须回）。关闭则仅保留建议中的⚠️提示。",
+        "hint": "被 @机器人 / 唤醒前缀 / 引用唤醒时注入一次多维判读（重点：意图与情绪）。关闭则该场景不调用 Jev。裸@第一条仍走 AstrBot 原生空@流程。",
         "type": "bool",
         "default": true
       },
@@ -239,19 +192,19 @@
       },
       "timeout_sec": {
         "description": "请求超时（秒）",
-        "hint": "超时后概率模式仍回复但不注入判读，model_choice 本轮不触发，被@判读降级为普通回复。建议 5-10 秒。",
+        "hint": "超时后被@判读降级为普通回复。建议 5-10 秒。",
         "type": "int",
         "default": 8
       },
       "retries": {
         "description": "失败重试次数",
-        "hint": "仅对 429/503/529（限流/过载）重试；重试会拉长触发延迟。",
+        "hint": "仅对 429/503/529（限流/过载）重试；重试会拉长回复延迟。",
         "type": "int",
         "default": 1
       },
       "history_rounds": {
         "description": "判读带入的上下文条数",
-        "hint": "判读时附带的最近群聊消息条数（model_choice 模式自动不少于触发栈长度）。0 表示不带上下文。",
+        "hint": "判读时附带的最近群聊消息条数。0 表示不带上下文。",
         "type": "int",
         "default": 6
       },
@@ -263,7 +216,7 @@
       },
       "min_message_chars": {
         "description": "判读最小字数",
-        "hint": "概率命中或被@判读时生效：当前消息去掉开头 @标记 与空白后短于此字数则不判读（省调用），不影响是否回复；0 表示不限制。",
+        "hint": "被@判读时生效：当前消息去掉开头 @标记 与空白后短于此字数则不判读（省调用），不影响是否回复；0 表示不限制。",
         "type": "int",
         "default": 2
       },
@@ -290,12 +243,156 @@
         "hint": "注入到提示词区的判读块最大字符数，0 表示不限。",
         "type": "int",
         "default": 600
+      }
+    }
+  },
+  "segment_reply": {
+    "description": "分段回复",
+    "hint": "把长回复按标点与字数规则切成多条消息依次发送，模拟真人打字节奏。核心实现改写自 astrbot_plugin_custome_segment_reply（MIT）by LinJohn8。建议关闭 WebUI 内置「分段回复」，二选一。",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用分段回复",
+        "hint": "开启后对出站文本做智能分段，逐条带延迟发送；失败或只有一段时保持原消息。",
+        "type": "bool",
+        "default": false
       },
-      "decision_min_confidence": {
-        "description": "触发判定置信度阈值",
-        "hint": "仅 model_choice 模式生效：Jev「该主动回复」概率（Noul）低于该值时不触发（宁可少插话）。",
+      "process_non_llm": {
+        "description": "处理非 LLM 输出",
+        "hint": "开启后插件指令、命令返回等非 LLM 输出也会被分段；默认关闭，只对 LLM 回复分段。配合下方「无需分段的关键词」可排除菜单/帮助类输出。",
+        "type": "bool",
+        "default": false
+      },
+      "min_length": {
+        "description": "单段最小字数",
+        "hint": "触发断句的最小字数。例如设为 20，则 20 字内尽量不断句。",
+        "type": "int",
+        "default": 20
+      },
+      "max_length": {
+        "description": "常规最大字数",
+        "hint": "单条消息的常规最大长度。程序优先在 [最小字数, 最大字数] 范围内寻找标点断句。",
+        "type": "int",
+        "default": 50
+      },
+      "allow_exceed_max": {
+        "description": "允许超出最大字数寻找断点",
+        "hint": "开启后在范围内没找到标点时会继续往后找，直到遇到标点或硬性上限；关闭则在最大字数处直接截断。",
+        "type": "bool",
+        "default": true
+      },
+      "hard_max_limit": {
+        "description": "硬性截断字数",
+        "hint": "配合上一项：允许超出时，达到该字数无论如何强制截断。建议 100-200。",
+        "type": "int",
+        "default": 100
+      },
+      "merge_short_tail": {
+        "description": "合并过短的尾部残余",
+        "hint": "断句到最后只剩几个字（如“好的。”）时并入上一段，避免单独发一段很突兀。",
+        "type": "bool",
+        "default": true
+      },
+      "short_tail_threshold": {
+        "description": "短尾合并字数阈值",
+        "hint": "最后一段剩余字数不超过该值时触发合并。",
+        "type": "int",
+        "default": 8
+      },
+      "force_split_symbols": {
+        "description": "强制分隔符列表",
+        "hint": "遇到这些符号直接分段（不受字数限制），分段后再对每段应用常规断句规则。",
+        "type": "list",
+        "default": [
+          "\\n\\n",
+          "\\n"
+        ]
+      },
+      "split_symbols": {
+        "description": "断句符号列表（按优先级排列）",
+        "hint": "优先按靠前的（停顿更强的）符号切割。",
+        "type": "list",
+        "default": [
+          "\\n\\n",
+          "\\n",
+          "。",
+          "！",
+          "？",
+          "；",
+          "……",
+          ".",
+          "!",
+          "?",
+          ";",
+          "”",
+          "、",
+          "，",
+          ","
+        ]
+      },
+      "keep_symbol": {
+        "description": "分段保留标点",
+        "hint": "开启则断句后保留该标点（推荐）；关闭则丢弃。",
+        "type": "bool",
+        "default": true
+      },
+      "extend_to_trailing_symbols": {
+        "description": "分段符后顺延连续符号",
+        "hint": "命中分段符时继续吞掉紧随的连续符号（如“？……”）直到遇到文字。",
+        "type": "bool",
+        "default": true
+      },
+      "protect_paired_symbols": {
+        "description": "成对符号内部不分段",
+        "hint": "括号/书名号/引号等配对符号内部不进行常规分段，到闭合符号后再允许断句。",
+        "type": "bool",
+        "default": false
+      },
+      "exclude_keywords": {
+        "description": "无需分段的关键词列表",
+        "hint": "回复包含以下关键词时整段跳过（不区分大小写）。关闭「处理非 LLM 输出」时仅对 LLM 回复生效。",
+        "type": "list",
+        "default": [
+          "模型列表",
+          "帮助",
+          "help",
+          "指令列表",
+          "菜单",
+          "功能列表",
+          "已加载的插件"
+        ]
+      },
+      "skip_longer_than": {
+        "description": "超长跳过阈值（字数）",
+        "hint": "回复总字数超过该值时原样发送不分段；0 表示禁用。适合代码块等不宜拆分的内容，建议 200-300。",
+        "type": "int",
+        "default": 0
+      },
+      "delay_type": {
+        "description": "发送间隔类型",
+        "hint": "fixed=固定间隔；random=区间正态随机；smart=按字符数打字间隔并叠加标点修正（疑问停顿、逗号衔接、省略号犹豫）。",
+        "type": "string",
+        "options": [
+          "fixed",
+          "random",
+          "smart"
+        ],
+        "default": "random"
+      },
+      "fixed_delay_seconds": {
+        "description": "固定间隔秒数",
+        "hint": "仅 delay_type=fixed 时生效。",
         "type": "float",
-        "default": 0.6
+        "default": 1.0
+      },
+      "random_delay_range": {
+        "description": "随机间隔范围（秒）",
+        "hint": "仅 delay_type=random 时生效，格式 [最小值, 最大值]，正态分布并限制在区间内。",
+        "type": "list",
+        "default": [
+          1,
+          3
+        ]
       }
     }
   },

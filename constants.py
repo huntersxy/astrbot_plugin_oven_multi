@@ -14,19 +14,22 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 PLUGIN_NAME = "astrbot_plugin_oven_multi"
-PLUGIN_VERSION = "1.49.0"
+PLUGIN_VERSION = "1.51.0"
 PLUGIN_AUTHOR = "汐兮雨"
 PLUGIN_DESC = "插座的多功能烤箱"
 
 # 功能配置节名称（与 _conf_schema.json 保持一致）
 FEATURE_BRACKET = "bracket_matching"
 FEATURE_REPETITION = "repetition"
-FEATURE_ACTIVE_REPLY = "active_reply"
 FEATURE_JEV = "jev"
 FEATURE_REMOVE_BLANK = "remove_blank_lines"
 FEATURE_THINKING = "iam_thinking"
 FEATURE_MENTION_PARSER = "mention_parser"
 FEATURE_FILE_READER = "file_reader"
+FEATURE_SEGMENT = "segment_reply"
+
+# 主动回复已于 1.50.0 移除，由烤箱之心（astrbot_plugin_ovenheart）的群聊参与接棒
+ACTIVE_REPLY_SUCCESSOR_URL = "https://github.com/huntersxy/astrbot_plugin_ovenheart"
 
 # 括号匹配配对表（开括号与其闭合括号互映射）
 PAIR_LIST = {

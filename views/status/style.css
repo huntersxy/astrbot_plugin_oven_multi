@@ -108,6 +108,48 @@ h3 { font-size: 14px; font-weight: 600; }
 .page-footer a { color: var(--muted); }
 .preview-notice { margin-bottom: 14px; color: var(--muted); font-size: 12px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+/* 设置页 */
+.settings-group h3 { color: var(--muted); font-size: 12px; padding: 14px 0 9px; font-weight: 550; }
+.settings-group ul { list-style: none; margin: 0; padding: 0; }
+.setting-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 13px 0; border-top: 1px solid var(--line); }
+.setting-row:first-child { border-top: 0; }
+.setting-row > div { min-width: 0; }
+.setting-label { display: block; font-weight: 550; margin-bottom: 2px; }
+.setting-hint { display: block; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.setting-input { flex: none; max-width: 46%; }
+.setting-input[type="number"], .setting-input[type="text"], .setting-input select {
+  width: 100%; min-width: 120px; box-sizing: border-box; padding: 7px 10px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2);
+  color: var(--ink); font: inherit; font-size: 13px;
+}
+.setting-input[type="number"]:focus, .setting-input[type="text"]:focus, .setting-input select:focus {
+  outline: 2px solid var(--accent); outline-offset: -1px;
+}
+.pair-inputs { display: inline-flex; gap: 7px; align-items: center; }
+.pair-inputs input { width: 92px; }
+input[type="checkbox"].setting-input {
+  appearance: none; width: 38px; height: 22px; border-radius: 11px; margin: 0;
+  background: var(--line); position: relative; cursor: pointer; transition: background .16s ease-out;
+}
+input[type="checkbox"].setting-input::before {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
+  border-radius: 50%; background: var(--surface); transition: transform .16s ease-out;
+}
+input[type="checkbox"].setting-input:checked { background: var(--accent); }
+input[type="checkbox"].setting-input:checked::before { transform: translateX(16px); }
+input[type="checkbox"].setting-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.reload-link { margin-left: 12px; min-height: 28px; padding: 3px 10px; font-size: 12px; }
+#settings-error { margin: 0 26px 12px; }
+.settings-groups { padding: 0 26px; }
+.settings-groups:not(:empty) { padding-bottom: 10px; }
+#settings-empty { border-top: 1px solid var(--line); }
+@media (max-width: 700px) {
+  .settings-groups { padding: 0 19px; }
+  #settings-error { margin: 0 19px 12px; }
+  .setting-row { align-items: start; flex-direction: column; gap: 9px; }
+  .setting-input { max-width: 100%; width: 100%; }
+}
 @media (max-width: 700px) {
   .workspace { padding: 24px 16px 18px; }
   .page-head { align-items: start; gap: 14px; margin-bottom: 23px; }

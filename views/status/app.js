@@ -1,11 +1,27 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-const state = { statusBusy: false, balanceBusy: false, balanceConfigured: false, tab: "overview", hasStatus: false, generation: 0 };
+const state = {
+  statusBusy: false,
+  balanceBusy: false,
+  balanceConfigured: false,
+  tab: "overview",
+  hasStatus: false,
+  generation: 0,
+  settingsLoaded: false,
+  settingsBusy: false,
+  settingsDirty: false,
+  settingsRevision: null,
+};
+const TAB_ORDER = ["overview", "balances", "settings"];
 
 function unwrap(payload) {
-  if (payload?.success === false || payload?.status === "error") throw new Error("API response failed");
-  return payload && "success" in payload && "data" in payload ? payload.data : payload;
+  if (payload?.success === false || payload?.status === "error") {
+    const error = new Error(payload?.message || "API response failed");
+    error.stale = Boolean(payload?.stale);
+    throw error;
+  }
+  return payload && ("success" in payload || "status" in payload) && "data" in payload ? payload.data : payload;
 }
 
 function node(tag, className, text) {
@@ -36,12 +52,13 @@ function selectTab(name, focus = false) {
     $("panel-" + button.dataset.tab).hidden = !selected;
     if (selected && focus) button.focus();
   }
+  if (name === "settings" && !state.settingsLoaded) loadSettings();
 }
 
 function renderFeatures(features) {
   const groups = [
-    { name: "消息与回复", ids: ["bracket_matching", "repetition", "remove_blank_lines", "iam_thinking", "mention_parser"] },
-    { name: "判读与文件", ids: ["active_reply", "jev", "file_reader"] },
+    { name: "消息与回复", ids: ["bracket_matching", "repetition", "remove_blank_lines", "iam_thinking", "mention_parser", "segment_reply"] },
+    { name: "判读与文件", ids: ["jev", "file_reader"] },
   ];
   const container = $("feature-groups");
   container.replaceChildren();
@@ -150,12 +167,180 @@ async function loadBalances() {
   }
 }
 
+async function loadSettings() {
+  if (state.settingsBusy) return;
+  state.settingsBusy = true;
+  try {
+    const data = unwrap(await window.AstrBotPluginPage.apiGet("settings"));
+    if (!data || !Array.isArray(data.groups)) throw new Error("Invalid settings response");
+    state.settingsRevision = data.revision;
+    state.settingsDirty = false;
+    renderSettings(data.groups);
+    $("settings-empty").hidden = data.groups.some((group) => group.fields.length > 0);
+    state.settingsLoaded = true;
+    setError("settings-error", "");
+  } catch (error) {
+    setError("settings-error", "暂时无法读取设置。请确认插件已启用，稍后重试。");
+  } finally {
+    state.settingsBusy = false;
+    $("settings-loading").hidden = true;
+    $("save-settings").disabled = !state.settingsDirty;
+    updateSettingsFooter();
+  }
+}
+
+function settingInput(field) {
+  if (field.type === "bool") {
+    const input = node("input");
+    input.type = "checkbox";
+    input.checked = Boolean(field.value);
+    input.dataset.key = field.key;
+    return input;
+  }
+  if (field.type === "enum") {
+    const select = node("select");
+    select.dataset.key = field.key;
+    for (const option of field.options || []) {
+      const item = node("option", "", option);
+      item.value = option;
+      if (option === field.value) item.selected = true;
+      select.append(item);
+    }
+    return select;
+  }
+  if (field.type === "pair") {
+    const wrap = node("span", "pair-inputs");
+    const values = Array.isArray(field.value) && field.value.length === 2 ? field.value : ["", ""];
+    values.forEach((value, index) => {
+      const input = node("input");
+      input.type = "number";
+      input.value = value;
+      input.dataset.key = field.key;
+      input.dataset.pair = String(index);
+      input.min = field.min ?? 0;
+      input.max = field.max ?? "";
+      input.step = field.step ?? "any";
+      input.setAttribute("aria-label", `${field.label} ${index === 0 ? "最小" : "最大"}值`);
+      wrap.append(input);
+    });
+    return wrap;
+  }
+  const input = node("input");
+  input.value = field.value ?? "";
+  input.dataset.key = field.key;
+  if (field.type === "int" || field.type === "float") {
+    input.type = "number";
+    input.min = field.min ?? "";
+    input.max = field.max ?? "";
+    input.step = field.step ?? (field.type === "int" ? 1 : "any");
+  } else {
+    input.type = "text";
+    input.maxLength = field.max_chars || 100;
+    input.spellcheck = false;
+  }
+  return input;
+}
+
+function settingRow(field) {
+  const row = node("li", "setting-row");
+  const body = node("div");
+  body.append(node("span", "setting-label", field.label));
+  if (field.hint) body.append(node("span", "setting-hint", field.hint));
+  const input = settingInput(field);
+  input.classList.add("setting-input");
+  row.append(body, input);
+  return row;
+}
+
+function renderSettings(groups) {
+  const container = $("settings-groups");
+  container.replaceChildren();
+  for (const group of groups) {
+    const section = node("section", "feature-section settings-group");
+    section.append(node("h3", "", group.name));
+    const list = node("ul");
+    for (const field of group.fields) list.append(settingRow(field));
+    section.append(list);
+    container.append(section);
+  }
+}
+
+function updateSettingsFooter() {
+  $("settings-state").textContent = state.settingsDirty ? "有未保存的修改" : "与当前配置一致";
+}
+
+function collectSettings() {
+  const container = $("settings-groups");
+  const values = {};
+  for (const input of container.querySelectorAll("input[data-key]:not([data-pair]), select[data-key]")) {
+    if (input.type === "checkbox") values[input.dataset.key] = input.checked;
+    else if (input.type === "number") values[input.dataset.key] = input.value === "" ? null : Number(input.value);
+    else values[input.dataset.key] = input.value;
+  }
+  const pairs = {};
+  for (const input of container.querySelectorAll("input[data-pair]")) {
+    (pairs[input.dataset.key] ??= [0, 0])[Number(input.dataset.pair)] =
+      input.value === "" ? null : Number(input.value);
+  }
+  Object.assign(values, pairs);
+  return values;
+}
+
+async function saveSettings() {
+  if (state.settingsBusy || !state.settingsDirty || !state.settingsLoaded) return;
+  state.settingsBusy = true;
+  $("save-settings").disabled = true;
+  $("save-settings").querySelector("span").textContent = "保存中…";
+  setError("settings-error", "");
+  try {
+    const data = unwrap(
+      await window.AstrBotPluginPage.apiPost("settings/save", {
+        revision: state.settingsRevision,
+        values: collectSettings(),
+      }),
+    );
+    state.settingsRevision = data.revision;
+    state.settingsDirty = false;
+    updateSettingsFooter();
+    $("announcer").textContent = "设置已保存";
+    loadStatus();
+  } catch (error) {
+    setError("settings-error", error.message || "保存失败，请稍后重试。");
+    if (error.stale) {
+      const reload = node("button", "button secondary reload-link", "重新读取设置");
+      reload.type = "button";
+      reload.addEventListener("click", () => loadSettings());
+      $("settings-error").append(reload);
+    }
+  } finally {
+    state.settingsBusy = false;
+    $("save-settings").querySelector("span").textContent = "保存修改";
+    $("save-settings").disabled = !state.settingsDirty;
+  }
+}
+
+$("settings-groups").addEventListener("input", () => {
+  if (!state.settingsDirty) {
+    state.settingsDirty = true;
+    updateSettingsFooter();
+  }
+  $("save-settings").disabled = state.settingsBusy;
+});
+$("save-settings").addEventListener("click", saveSettings);
+window.addEventListener("beforeunload", (event) => {
+  if (state.settingsDirty) event.preventDefault();
+});
+
 for (const button of document.querySelectorAll("[data-tab]")) {
   button.addEventListener("click", () => selectTab(button.dataset.tab));
   button.addEventListener("keydown", (event) => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
-    selectTab(event.key === "Home" ? "overview" : event.key === "End" ? "balances" : state.tab === "overview" ? "balances" : "overview", true);
+    const index = TAB_ORDER.indexOf(state.tab);
+    if (event.key === "Home") selectTab(TAB_ORDER[0], true);
+    else if (event.key === "End") selectTab(TAB_ORDER[TAB_ORDER.length - 1], true);
+    else if (event.key === "ArrowRight") selectTab(TAB_ORDER[(index + 1) % TAB_ORDER.length], true);
+    else selectTab(TAB_ORDER[(index - 1 + TAB_ORDER.length) % TAB_ORDER.length], true);
   });
 }
 $("refresh").addEventListener("click", loadStatus);
