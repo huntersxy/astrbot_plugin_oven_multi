@@ -24,7 +24,6 @@ import math
 import operator
 from typing import Any
 
-
 # ── 运算符映射 ───────────────────────────────────────────────────
 
 _SAFE_OPERATORS = {
@@ -41,43 +40,49 @@ _SAFE_OPERATORS = {
 # ── 白名单函数 ───────────────────────────────────────────────────
 
 _SAFE_FUNCTIONS = {
-    'abs': abs,
-    'round': round,
-    'min': min,
-    'max': max,
-    'pow': pow,
-    'sqrt': math.sqrt,
-    'floor': math.floor,
-    'ceil': math.ceil,
-    'log': math.log,
-    'log10': math.log10,
-    'exp': math.exp,
-    'sin': math.sin,
-    'cos': math.cos,
-    'tan': math.tan,
+    "abs": abs,
+    "round": round,
+    "min": min,
+    "max": max,
+    "pow": pow,
+    "sqrt": math.sqrt,
+    "floor": math.floor,
+    "ceil": math.ceil,
+    "log": math.log,
+    "log10": math.log10,
+    "exp": math.exp,
+    "sin": math.sin,
+    "cos": math.cos,
+    "tan": math.tan,
 }
 
 # ── 白名单常量 ───────────────────────────────────────────────────
 
 _SAFE_CONSTANTS = {
-    'pi': math.pi,
-    'e': math.e,
+    "pi": math.pi,
+    "e": math.e,
 }
 
 
 # ── AST 节点白名单 ───────────────────────────────────────────────
 
 _ALLOWED_NODE_TYPES = (
-    ast.Expression,   # 根节点
-    ast.Constant,     # 数字字面量（Python 3.8+）
-    ast.BinOp,        # 二元运算
-    ast.UnaryOp,      # 一元运算
-    ast.Call,         # 函数调用
-    ast.Name,         # 变量引用（常量名）
-    ast.Load,         # 变量加载上下文
+    ast.Expression,  # 根节点
+    ast.Constant,  # 数字字面量（Python 3.8+）
+    ast.BinOp,  # 二元运算
+    ast.UnaryOp,  # 一元运算
+    ast.Call,  # 函数调用
+    ast.Name,  # 变量引用（常量名）
+    ast.Load,  # 变量加载上下文
     # 运算符节点（ast.BinOp / ast.UnaryOp 的子节点）
-    ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod, ast.Pow,
-    ast.USub, ast.UAdd,
+    ast.Add,
+    ast.Sub,
+    ast.Mult,
+    ast.Div,
+    ast.Mod,
+    ast.Pow,
+    ast.USub,
+    ast.UAdd,
 )
 
 
@@ -102,14 +107,12 @@ def safe_eval(expr: str) -> Any:
         >>> safe_eval("sqrt(16)")
         4.0
     """
-    tree = ast.parse(expr, mode='eval')
+    tree = ast.parse(expr, mode="eval")
 
     # 第一遍：AST 白名单校验
     for node in ast.walk(tree):
         if not isinstance(node, _ALLOWED_NODE_TYPES):
-            raise ValueError(
-                f"表达式包含不允许的语法元素: {type(node).__name__}"
-            )
+            raise ValueError(f"表达式包含不允许的语法元素: {type(node).__name__}")
         # 只允许数字字面量，拒绝字符串等其他常量
         if isinstance(node, ast.Constant) and not isinstance(node.value, (int, float)):
             raise ValueError(f"表达式中不允许非数字常量: {type(node.value).__name__}")

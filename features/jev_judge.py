@@ -64,12 +64,20 @@ DIMENSIONS: list[tuple[str, str, str, str, object, object]] = [
         "Judge who the current message is addressed to: the bot/assistant, another "
         f"group member, or no one in particular (self-talk). {_TAIL}",
         {
-            "to_bot": "Directly addresses the bot/assistant (question, command, @ or quote of the bot, comment about the bot).",
+            "to_bot": (
+                "Directly addresses the bot/assistant (question, command, @ or "
+                "quote of the bot, comment about the bot)."
+            ),
             "to_others": "Addresses other human members; the bot is only a bystander.",
             "self_talk": "No clear addressee; self-expression, mood, or a passing note.",
             "unknown": "Not enough information to judge the addressee.",
         },
-        {"to_bot": "对机器人说", "to_others": "对他人说", "self_talk": "自言自语", "unknown": "难以判断"},
+        {
+            "to_bot": "对机器人说",
+            "to_others": "对他人说",
+            "self_talk": "自言自语",
+            "unknown": "难以判断",
+        },
     ),
     (
         "intent",
@@ -83,7 +91,9 @@ DIMENSIONS: list[tuple[str, str, str, str, object, object]] = [
             "affection": "Expressing affection, care, thanks, apology, or other feelings.",
             "banter": "Joking or meme banter without real hostility.",
             "venting": "Venting dissatisfaction; no solution is requested.",
-            "testing": "Probing the bot's ability, identity, or limits (e.g. testing if it is an AI).",
+            "testing": (
+                "Probing the bot's ability, identity, or limits (e.g. testing if it is an AI)."
+            ),
             "promotion": "Advertising products/services or pushing links.",
             "provocation": "Deliberate provocation, insult, or stirring up conflict.",
             "scam": "Fraudulent intent: trying to obtain money, information, or permissions.",
@@ -372,9 +382,7 @@ def parse_answers(answers: dict[str, Any] | None, with_decision: bool = False) -
             continue
         ok = ok or bool(choice)
 
-    out["risk_level"] = (
-        risk_level if risk_level >= 0 else RISK_LEVEL.get(out.get("risk", ""), 0)
-    )
+    out["risk_level"] = risk_level if risk_level >= 0 else RISK_LEVEL.get(out.get("risk", ""), 0)
 
     confs = [out[f"{key}_confidence"] for key, *_ in DIMENSIONS]
     out["confidence"] = round(sum(confs) / len(confs), 4) if confs else 0.0
@@ -556,8 +564,8 @@ class JevJudge:
         if self._session is not None and not self._session.closed:
             try:
                 await self._session.close()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Could not close Jev session (%s)", type(exc).__name__)
         self._session = None
         self._session_sig = ()
 
@@ -571,9 +579,7 @@ class JevJudge:
             self._session_sig = sig
         return self._session
 
-    async def judge(
-        self, cfg: dict, state: str, with_decision: bool = False
-    ) -> dict[str, Any]:
+    async def judge(self, cfg: dict, state: str, with_decision: bool = False) -> dict[str, Any]:
         """执行一次判定请求。"""
         debug = bool(cfg.get("debug_mode"))
         api_key = str(cfg.get("api_key") or "").strip()

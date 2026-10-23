@@ -110,13 +110,17 @@
         "description": "思考中表情ID列表",
         "hint": "等待LLM响应时贴的表情ID列表",
         "type": "list",
-        "default": [66]
+        "default": [
+          66
+        ]
       },
       "done_emoji_ids": {
         "description": "完成表情ID列表",
         "hint": "LLM响应完成后贴的表情ID列表",
         "type": "list",
-        "default": [74]
+        "default": [
+          74
+        ]
       },
       "remove_thinking_on_done": {
         "description": "完成后移除思考中表情",
@@ -129,104 +133,6 @@
         "hint": "LLM响应完成后是否添加完成表情",
         "type": "bool",
         "default": true
-      }
-    }
-  },
-  "style_learning": {
-    "description": "风格学习功能",
-    "hint": "从聊天中学习群聊的说话风格，并注入到LLM回复中",
-    "type": "object",
-    "items": {
-      "enabled": {
-        "description": "启用风格学习功能",
-        "hint": "开启后自动收集聊天记录并定期分析学习风格特征",
-        "type": "bool",
-        "default": true
-      },
-      "enable_style_injection": {
-        "description": "启用风格注入",
-        "hint": "是否自动将学习到的风格注入到机器人的回复中",
-        "type": "bool",
-        "default": true
-      },
-      "style_provider_id": {
-        "type": "string",
-        "description": "风格注入目标 Provider ID",
-        "_special": "select_provider",
-        "default": "",
-        "hint": "选择风格分析使用的 LLM Provider。留空则使用当前会话默认 Provider。"
-      },
-      "analysis_interval_seconds": {
-        "description": "聊天记录分析频率（秒）",
-        "hint": "每隔多少秒对积累的聊天记录进行一次学习分析。默认值为21600（6小时）。",
-        "type": "int",
-        "default": 21600
-      },
-      "min_history_for_analysis": {
-        "description": "触发分析的最少消息数",
-        "hint": "一个会话的聊天记录达到此数量时才会被纳入学习分析。默认值为10。",
-        "type": "int",
-        "default": 10
-      },
-      "max_universal_inject": {
-        "type": "int",
-        "description": "注入提示词的最大通用风格数量",
-        "hint": "按熟练度降序，最多注入多少条通用风格到 system prompt。默认 5。设为 0 则不注入。",
-        "default": 5
-      },
-      "enable_cross_group": {
-        "description": "启用跨群风格",
-        "hint": "开启后可以引用其他群的风格特征，通过嵌入向量选择最相关的全局风格注入到回复中。",
-        "type": "bool",
-        "default": false
-      },
-      "enable_emb_style_selection": {
-        "description": "启用嵌入风格选择",
-        "hint": "使用嵌入向量选择最相关的风格特征而非仅按熟练度排序，需要配置 Embedding Provider。",
-        "type": "bool",
-        "default": true
-      },
-      "embedding_provider_id": {
-        "type": "string",
-        "description": "嵌入向量 Provider ID",
-        "_special": "select_provider:embedding",
-        "default": "",
-        "hint": "用于风格特征嵌入向量计算的 Embedding Provider。留空则自动使用第一个可用的 Embedding Provider。"
-      },
-      "max_global_styles": {
-        "type": "int",
-        "description": "最大全局风格注入数",
-        "hint": "跨群风格最多注入多少条（仅 enable_cross_group 开启时生效）。",
-        "default": 3
-      },
-      "enable_situational_inject": {
-        "description": "启用场景化表达注入",
-        "hint": "开启后，仅当当前消息语境匹配时才会注入数字梗等场景化表达（如 666/233），避免 AI 每条回复都强行复读。",
-        "type": "bool",
-        "default": true
-      },
-      "max_situational_inject": {
-        "type": "int",
-        "description": "最大场景化表达注入数",
-        "hint": "每轮 LLM 请求最多注入多少条语境匹配的场景化表达。",
-        "default": 2
-      },
-      "situational_similarity_threshold": {
-        "type": "float",
-        "slider": {
-          "min": 0,
-          "max": 1,
-          "step": 0.05
-        },
-        "description": "场景化表达相似度阈值",
-        "hint": "使用嵌入向量判断当前消息与场景梗的关联度，高于该阈值才注入（0-1，建议 0.3-0.5）。",
-        "default": 0.4
-      },
-      "debug_mode": {
-        "description": "调试模式",
-        "hint": "开启后会在日志中打印每次风格注入的完整内容，方便排查注入问题。",
-        "type": "bool",
-        "default": false
       }
     }
   },
@@ -245,7 +151,10 @@
         "description": "触发模式",
         "hint": "probability：按概率触发，命中后调用 Jev 注入多维判读；model_choice：累计若干条消息后由 Jev 的 Noul 概率判定是否触发（需启用顶层「Jev 判读」）。",
         "type": "string",
-        "options": ["probability", "model_choice"],
+        "options": [
+          "probability",
+          "model_choice"
+        ],
         "default": "probability"
       },
       "possibility": {
@@ -407,7 +316,10 @@
       "config_mode": {
         "description": "配置模式",
         "type": "string",
-        "options": ["simple", "yaml"],
+        "options": [
+          "simple",
+          "yaml"
+        ],
         "default": "yaml"
       }
     }
@@ -437,7 +349,7 @@
       }
     }
   },
-    "file_reader": {
+  "file_reader": {
     "description": "文件读取",
     "hint": "读取会话中的文件供 LLM 使用，支持 RAG 语义检索与 LLM Tool 两种方式。核心实现改写自 astrbot_plugin_file_reader_pro（MIT）。",
     "type": "object",
@@ -501,7 +413,10 @@
             "description": "检索结果注入方式",
             "hint": "temp_part：以临时内容注入（不写入对话历史）；prompt：直接拼接在用户输入后。",
             "type": "string",
-            "options": ["temp_part", "prompt"],
+            "options": [
+              "temp_part",
+              "prompt"
+            ],
             "default": "temp_part"
           },
           "embedding_provider_id": {

@@ -10,9 +10,11 @@
 """
 
 import os
-from typing import Callable, Dict, Optional
+from collections.abc import Callable
 
 import chardet
+
+from astrbot.api import logger
 
 
 class FileParseError(Exception):
@@ -22,14 +24,57 @@ class FileParseError(Exception):
 # 按纯文本读取的扩展名
 TEXT_EXTENSIONS = {
     # 文档/标记语言
-    "md", "markdown", "html", "htm", "xml", "rst", "adoc",
+    "md",
+    "markdown",
+    "html",
+    "htm",
+    "xml",
+    "rst",
+    "adoc",
     # 配置与数据描述
-    "json", "yaml", "yml", "ini", "cfg", "conf", "properties", "env", "toml", "lock",
+    "json",
+    "yaml",
+    "yml",
+    "ini",
+    "cfg",
+    "conf",
+    "properties",
+    "env",
+    "toml",
+    "lock",
     # 编程语言
-    "py", "java", "cpp", "c", "h", "hpp", "cs", "js", "ts", "jsx", "tsx", "php",
-    "rb", "go", "rs", "swift", "kt", "scala", "sh", "bash", "ps1", "bat", "cmd", "vbs", "sql",
+    "py",
+    "java",
+    "cpp",
+    "c",
+    "h",
+    "hpp",
+    "cs",
+    "js",
+    "ts",
+    "jsx",
+    "tsx",
+    "php",
+    "rb",
+    "go",
+    "rs",
+    "swift",
+    "kt",
+    "scala",
+    "sh",
+    "bash",
+    "ps1",
+    "bat",
+    "cmd",
+    "vbs",
+    "sql",
     # 其他文本
-    "txt", "log", "csv", "tsv", "url", "gitignore",
+    "txt",
+    "log",
+    "csv",
+    "tsv",
+    "url",
+    "gitignore",
     "",  # 无扩展名文件按文本处理
 }
 
@@ -66,8 +111,8 @@ def detect_extension(file_path: str) -> str:
             return _MIME_TO_EXT[mime]
     except ImportError:
         pass
-    except Exception:
-        pass  # MIME 检测失败时退回扩展名
+    except Exception as exc:
+        logger.debug("MIME detection fell back to the extension (%s)", type(exc).__name__)
 
     ext = os.path.splitext(file_path)[1]
     return ext[1:].lower() if ext else ""
@@ -141,7 +186,7 @@ def _read_pptx(file_path: str) -> str:
     return "\n\n".join(slides)
 
 
-_EXT_HANDLERS: Dict[str, Callable[[str], str]] = {
+_EXT_HANDLERS: dict[str, Callable[[str], str]] = {
     "pdf": _read_pdf,
     "docx": _read_docx,
     "xlsx": _read_excel,
@@ -169,7 +214,7 @@ def supported_extensions() -> set[str]:
     return set(_EXT_HANDLERS) | TEXT_EXTENSIONS
 
 
-def read_any_file_to_text(file_path: str, allowed: Optional[set[str]] = None) -> str:
+def read_any_file_to_text(file_path: str, allowed: set[str] | None = None) -> str:
     """将文件解析为文本。
 
     Args:

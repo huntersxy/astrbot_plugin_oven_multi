@@ -14,9 +14,10 @@ import asyncio
 import os
 import shutil
 import time
+from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from astrbot.api import logger
 
@@ -38,7 +39,7 @@ class FileRecord:
 class FileReaderManager:
     """编排文件接收、预读取（向量化）、检索与 tool 读取。"""
 
-    def __init__(self, plugin: Any, config: Dict[str, Any], data_dir: Path):
+    def __init__(self, plugin: Any, config: dict[str, Any], data_dir: Path):
         self.plugin = plugin
         self.config = config or {}
         self.data_dir = Path(data_dir)
@@ -68,12 +69,12 @@ class FileReaderManager:
         self.enable_rerank = bool(rag_cfg.get("enable_rerank", True))
 
         allowed = self.config.get("supported_file_types") or []
-        self.allowed_ext: Optional[set] = (
+        self.allowed_ext: set | None = (
             {str(e).lower().lstrip(".") for e in allowed} if allowed else None
         )
 
         # session_id -> {文件名: FileRecord}
-        self.records: Dict[str, Dict[str, FileRecord]] = {}
+        self.records: dict[str, dict[str, FileRecord]] = {}
 
         self.embedding_provider: Any = None
         self.rerank_provider: Any = None
@@ -82,7 +83,7 @@ class FileReaderManager:
             chunk_size=int(rag_cfg.get("chunk_size", 512) or 512),
             chunk_overlap=int(rag_cfg.get("chunk_overlap", 100) or 100),
         )
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._cleanup_task: asyncio.Task | None = None
 
     # ── 生命周期 ─────────────────────────────────────────────────────────
 
@@ -103,10 +104,8 @@ class FileReaderManager:
     async def stop(self) -> None:
         if self._cleanup_task:
             self._cleanup_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await self._cleanup_task
-            except asyncio.CancelledError:
-                pass
             self._cleanup_task = None
         await self.rag.close()
 
@@ -155,13 +154,12 @@ class FileReaderManager:
         return d
 
     def _is_expired(self, record: FileRecord) -> bool:
-        if self.retention_minutes > 0 and (
-            time.time() - record.uploaded_at
-        ) > self.retention_minutes * 60:
+        if (
+            self.retention_minutes > 0
+            and (time.time() - record.uploaded_at) > self.retention_minutes * 60
+        ):
             return True
-        if self.max_rounds > 0 and record.rounds >= self.max_rounds:
-            return True
-        return False
+        return self.max_rounds > 0 and record.rounds >= self.max_rounds
 
     async def cleanup_expired(self) -> None:
         """清理过期文件（磁盘副本 + 索引 + 登记）。"""
@@ -171,7 +169,7 @@ class FileReaderManager:
                 if self._is_expired(record):
                     await self.remove_file(session_id, name)
 
-    async def ingest(self, session_id: str, src_path: str, file_name: str) -> Optional[str]:
+    async def ingest(self, session_id: str, src_path: str, file_name: str) -> str | None:
         """接收一个文件：登记副本，并按开关决定是否预读取向量化。
 
         Returns:
@@ -184,7 +182,8 @@ class FileReaderManager:
         size = os.path.getsize(src_path)
         if size > self.max_file_size_mb * 1024 * 1024:
             raise FileParseError(
-                f"文件 {file_name} 过大（{size / 1024 / 1024:.1f}MB > {self.max_file_size_mb:.0f}MB）"
+                f"文件 {file_name} 过大（{size / 1024 / 1024:.1f}MB "
+                f"> {self.max_file_size_mb:.0f}MB）"
             )
 
         ext = os.path.splitext(file_name)[1][1:].lower()
@@ -233,7 +232,7 @@ class FileReaderManager:
             if text:
                 await self.rag.add_file(session_id, name, text)
 
-    async def build_context(self, session_id: str, query: str) -> Optional[str]:
+    async def build_context(self, session_id: str, query: str) -> str | None:
         """检索当前会话文件并构建上下文文本；无内容时返回 None。"""
         if not (self.rag_enabled and self.rag.available and query):
             return None
@@ -296,15 +295,15 @@ class FileReaderManager:
             return f"文件 {file_name} 不存在或已过期。\n{listed}"
         self._bump_rounds(session_id)
         try:
-            text = await asyncio.to_thread(
-                read_any_file_to_text, record.path, self.allowed_ext
-            )
+            text = await asyncio.to_thread(read_any_file_to_text, record.path, self.allowed_ext)
         except FileParseError as exc:
             return f"读取 {file_name} 失败：{exc}"
         if not text:
             return f"文件 {file_name} 内容为空"
         if len(text) > self.tool_max_chars:
-            return text[: self.tool_max_chars] + f"\n……（内容过长，已截断，原文件共 {len(text)} 字符）"
+            return (
+                text[: self.tool_max_chars] + f"\n……（内容过长，已截断，原文件共 {len(text)} 字符）"
+            )
         return text
 
     async def search_text(self, session_id: str, query: str) -> str:
@@ -324,8 +323,12 @@ class FileReaderManager:
         if not active:
             return "当前会话暂无可用文件"
         results = await self.rag.retrieve(
-            session_id, query, file_keys=active, top_k=self.retrieve_top_k,
-            fetch_k=self.fetch_k, rerank=self.enable_rerank,
+            session_id,
+            query,
+            file_keys=active,
+            top_k=self.retrieve_top_k,
+            fetch_k=self.fetch_k,
+            rerank=self.enable_rerank,
         )
         if not results:
             return f"未在当前会话文件中检索到与「{query}」相关的内容"

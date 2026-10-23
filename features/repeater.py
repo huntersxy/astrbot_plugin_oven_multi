@@ -18,7 +18,7 @@
 import random
 from collections import defaultdict
 
-import astrbot.api.message_components as Comp
+import astrbot.api.message_components as components
 
 
 class Repeater:
@@ -44,7 +44,7 @@ class Repeater:
         """
         if not config.get("enabled"):
             return None
-        if any(isinstance(m, Comp.Poke) for m in message):
+        if any(isinstance(m, components.Poke) for m in message):
             return None
 
         msg_id = str([str(m) for m in message])
@@ -55,11 +55,11 @@ class Repeater:
             if self.count[session_id] >= threshold:
                 # 重置计数器，但保留 last，使下一条相同消息从 1 开始计数
                 self.count[session_id] = 0
-                if random.random() < config.get("break_spell_probability", 0.3):
+                if random.random() < config.get("break_spell_probability", 0.3):  # noqa: S311 - Non-security chat probability.
                     return ("break", config.get("break_spell_text", "打断施法！"))
                 else:
                     chain = [
-                        Comp.Image.fromURL(m.url) if isinstance(m, Comp.Image) else m
+                        components.Image.fromURL(m.url) if isinstance(m, components.Image) else m
                         for m in message
                     ]
                     return ("repeat", chain)

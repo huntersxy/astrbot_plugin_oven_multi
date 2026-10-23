@@ -1,25 +1,38 @@
-# 插座的多功能烤箱 (astrbot_plugin_oven_multi)
+# 插座的多功能烤箱 · Oven Multi
 
-整合多种实用功能的 AstrBot 插件。
+面向 AstrBot 的群聊工具箱：整理消息、判读语境、按需读取文件，在原生 Panel 查看功能状态与服务余额。
 
-## 功能
+[使用配置](#配置) · [状态总览](#panel-状态总览) · [更新记录](CHANGELOG.md) · [烤箱之心](https://github.com/huntersxy/astrbot_plugin_ovenheart)
 
-| 功能 | 说明 |
-|------|------|
-| 🔗 括号自动匹配 | 自动检测消息中缺失的括号并补全，支持中英文多种括号 |
-| 🔄 消息复读 | 相同消息连续出现时有概率复读，支持"打断施法" |
-| 📝 移除空行 | 自动清理机器人回复中的多余连续空行 |
-| 💭 思考表情 | LLM 处理请求时自动贴表情提示"正在思考" |
-| 🎨 风格学习 | 统一学习群聊的总体说话风格，支持跨群风格共享和嵌入向量选择，通过 `extra_user_content_parts` 注入 LLM |
-| @功能 | 追踪活跃发言人并注入列表，LLM 可通过 `<mention id="ID"/>` 标签 @ 用户 |
-| 💬 主动回复 | 群聊中无需 @ 即可主动回复，支持概率触发与 Jev 判定，触发后注入 Jev 多维判读 |
-| 🏷️ @保留与被动判读 | 把被适配器丢弃的「@机器人」补回消息正文；被@/唤醒时注入 Jev 多维判读（重点：意向与情绪）；为原生群上下文补齐纯@漏记 |
-| 💰 余额查询 | 查询各服务商余额，可在 Dashboard 页面查看 |
-| 📎 文件读取 | 读取会话中的文件供 LLM 使用：预读取 + RAG 语义检索自动注入，或仅通过 LLM Tool（`file_list` / `file_read` / `file_search`）按需读取 |
+> **风格学习已废弃**：从 **1.49.0** 起，Oven Multi 移除风格采集、分析、管理和注入功能。人格、表达方式与群聊词汇学习，建议使用 **[烤箱之心（OvenHeart）](https://github.com/huntersxy/astrbot_plugin_ovenheart)**。
+>
+> 旧 `style_learning` 配置不再生效；数据目录中的 `universal.json`、`chat_history.json` 保留，不再读取或更新，也不会自动导入烤箱之心。需要清理时请先自行备份。
+
+## 能做什么
+
+| 能力 | 使用场景 |
+| --- | --- |
+| 消息处理 | 补齐缺失括号、群聊复读、清理回复空行、显示思考表情 |
+| 结构化提及 | 追踪活跃发言人，将模型输出的 `<mention id="ID"/>` 转为平台 @ 组件 |
+| Jev 多维判读 | 结合上下文判断说话对象、意图、情绪、态度、回复期待与风险，以临时内容辅助回复 |
+| 主动回复 | 按概率或 Jev 判定参与群聊，独立配置触发范围 |
+| 文件读取 | 支持预读取、RAG 检索和 `file_list` / `file_read` / `file_search` 工具 |
+| 服务余额 | 按需查询已配置服务，成功结果缓存 30 秒，按服务原始币种分别展示 |
+| 原生 Panel | 运行概览与服务余额分开，刷新状态无需请求外部余额接口 |
+
+## 开始使用
+
+需要 **AstrBot >= 4.29.1 且 < 5**，支持 **aiocqhttp**（NapCat、Lagrange 等）。思考表情、群消息与 @ 相关能力依赖对应平台接口；Jev 判读需要单独配置 TypeSafe API Key。
+
+1. 在 AstrBot 插件市场安装，或通过仓库地址安装本插件。
+2. 打开插件配置，按需开启 Jev、主动回复、文件读取及余额查询。
+3. 从插件卡片打开 **状态总览**，检查配置状态；外部服务是否可用仍需实际调用确认。
+
+同时安装烤箱之心时，建议只开启其中一个插件的自动参与功能，避免两套决策分别触发回复。Oven Multi 的消息处理、文件工具与余额查询可按需保留。
 
 ## 配置
 
-> 可在 AstrBot 管理面板中调整，修改后即时生效。
+> 使用 AstrBot 原生插件配置保存设置。文件读取等需要初始化的功能，保存后请重新加载插件。状态总览为只读页面，不维护第二套配置。
 
 ### 括号自动匹配 (`bracket_matching`)
 | 配置项 | 说明 | 默认值 |
@@ -51,31 +64,6 @@
 | `done_emoji_ids` | 完成后表情 ID | `[74]` |
 | `remove_thinking_on_done` | 完成后移除思考表情 | `true` |
 | `add_done_emoji` | 完成后添加完成表情 | `true` |
-
-### 风格学习 (`style_learning`)
-
-> 学习结果分为两类：
-> - **稳定风格**：跨场景的语气、句式、措辞习惯，常驻注入，但带「参考而非复读」约束；
-> - **场景化表达**：有明确触发场景的梗/数字梗（如 666、233），仅在当前消息语境匹配时注入，避免 AI 每条回复都强行带上。
->
-> 学习提示词会显式要求 LLM 不要把数字梗/一次性梗写入稳定风格，代码层还有启发式护栏兜底（含数字串或短重复串的特征自动降级为场景化表达）。
->
-> 风格内容通过 `req.extra_user_content_parts` 注入（不修改 system_prompt，保持 system 提示词稳定以命中 LLM 前缀缓存），并标记为临时内容（`mark_as_temp()`，不持久化到会话历史）。注入前会自动剥离平台 LTM 并进行去重。
-
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `enabled` | 启用 | `true` |
-| `enable_style_injection` | 注入到 LLM 回复 | `true` |
-| `style_provider_id` | 风格分析用的 LLM Provider，留空使用当前会话默认 | `` |
-| `analysis_interval_seconds` | 分析频率（秒），默认 6 小时 | `21600` |
-| `min_history_for_analysis` | 触发分析的最少消息数 | `10` |
-| `max_universal_inject` | 每次注入的通用风格特征数量 | `5` |
-| `enable_cross_group` | 启用跨群风格，引用其他群的风格特征 | `false` |
-| `enable_emb_style_selection` | 启用嵌入向量辅助选择，按语义相关度选取风格 | `true` |
-| `max_global_styles` | 跨群风格最多注入条数（仅跨群开启时生效） | `3` |
-| `enable_situational_inject` | 启用场景化表达注入（语境匹配时才注入） | `true` |
-| `max_situational_inject` | 每轮最多注入的场景化表达条数 | `2` |
-| `situational_similarity_threshold` | 场景化表达嵌入相似度阈值（0-1） | `0.4` |
 
 ### 主动回复 (`active_reply`)
 
@@ -225,24 +213,17 @@ services:
 | 命令 | 说明 |
 |------|------|
 | `烤箱状态` | 查看所有功能的启用状态 |
-| `风格状态` | 查看当前会话的风格学习统计 |
-| `清空风格` | 清空当前会话的所有学习风格 |
-| `学习总结` | 手动触发一次风格学习分析 |
 | `清除文件` | 清理当前会话的所有已上传文件 |
 
-## Dashboard
+## Panel 状态总览
 
-插件提供「状态总览」页面（`pages/status`），在 AstrBot 管理面板中访问，可一次查看：
+在 AstrBot 插件卡片中选择 **状态总览**，沿用 AstrBot 登录与插件页面桥接，无需额外端口或独立登录。
 
-- **功能状态** — 各功能的启用状态与关键参数
-- **余额查询** — 各服务商余额
-- **风格学习** — 每个群组的通用风格、场景化表达和聊天记录（可折叠查看），并支持删除单条风格、删除单个会话风格、清空全部风格
+- **运行概览**：按“消息与回复”“判读与文件”分组显示开关、关键参数及缺失配置提醒。状态来自当前配置和初始化结果，不等同于外部服务健康检查。
+- **服务余额**：点击“查询余额”才调用服务。并发查询合并，包含成功结果的响应缓存 30 秒；全部失败时允许直接重试。显示实际查询时间，各服务币种不混算。
+- **失败与重试**：刷新失败保留上次结果并提示重试；未配置余额时提供配置指引。支持浅色、深色和移动端布局。
 
-## 安装
-
-1. 将插件文件夹放入 AstrBot `data/plugins/` 目录
-2. 在管理面板中启用插件
-3. 根据需要调整配置
+页面入口名称仍为“状态总览”。目录由旧 `pages/status` 调整为原生 `views/status`；旧风格管理区域与 `风格状态`、`清空风格`、`学习总结` 命令一并移除，后续学习管理请使用 [烤箱之心](https://github.com/huntersxy/astrbot_plugin_ovenheart)。
 
 ## 许可证
 
@@ -256,8 +237,8 @@ GNU Affero General Public License v3.0
 - astrbot_plugin_astrbot_enhance_mode by 阿汐 — 主动回复
 - astrbot_plugin_repetition by FengYing1314 — 消息复读
 - astrbot_plugin_iamthinking (AGPL-3.0) by sssn-tech — 思考表情
-- astrbot_plugin_iearning_style (AGPL-3.0) by qa296 — 风格学习
-- astrbot_plugin_group_chat_plus (AGPL-3.0) by Him666233 — System prompt 兼容增强与差分捕捉机制
+- astrbot_plugin_iearning_style (AGPL-3.0) by qa296 — 历史风格学习实现（1.49.0 已废弃）
+- astrbot_plugin_group_chat_plus (AGPL-3.0) by Him666233 — 历史 System prompt 兼容实现（1.49.0 已移除）
 - astrbot_plugin_iris_chat_memory (AGPL-3.0) by  — `extra_user_content_parts` 注入策略与 `mark_as_temp()` 实践
 - astrbot_plugin_remove_blank_lines (MIT) by Codex — 移除空行
 - astrbot_plugin_balance by BUGJI — 余额查询

@@ -15,16 +15,18 @@
 #
 # Modified from astrbot_plugin_balance by BUGJI
 
-import aiohttp
 import asyncio
-import math
+import hashlib
 import re
-import yaml
+import time
 from typing import Any
 
-from astrbot.api import logger
-from .safe_eval import safe_eval
+import aiohttp
+import yaml
 
+from astrbot.api import logger
+
+from .safe_eval import safe_eval
 
 _BUILTIN_PARSERS = {
     "deepseek": {
@@ -84,7 +86,19 @@ _BUILTIN_PARSERS = {
             "Authorization": "Bearer {api_key}",
             "Content-Type": "application/json",
         },
-        "result_template": "MiniMax: 剩余 {{round({model_remains.0.current_interval_total_count}-{model_remains.0.current_interval_usage_count})}}/{{model_remains.0.current_interval_total_count}} ({{round(({model_remains.0.current_interval_total_count}-{model_remains.0.current_interval_usage_count})/{model_remains.0.current_interval_total_count}*100, 1)}}%), 本周 {{round({model_remains.0.current_weekly_total_count}-{model_remains.0.current_weekly_usage_count})}}/{{model_remains.0.current_weekly_total_count}}",
+        "result_template": (
+            "MiniMax: 剩余 "
+            "{{round({model_remains.0.current_interval_total_count}-{model_remains.0."
+            "current_interval_usage_count})}}/{{model_remains.0.current_interval_tota"
+            "l_count}} "
+            "({{round(({model_remains.0.current_interval_total_count}-{model_remains."
+            "0.current_interval_usage_count})/{model_remains.0.current_interval_total"
+            "_count}*100, "
+            "1)}}%), 本周 "
+            "{{round({model_remains.0.current_weekly_total_count}-{model_remains.0.cu"
+            "rrent_weekly_usage_count})}}/{{model_remains.0.current_weekly_total_coun"
+            "t}}"
+        ),
     },
 }
 
@@ -93,6 +107,12 @@ class BalanceChecker:
     def __init__(self, config: dict):
         self.config = config
         self.session: aiohttp.ClientSession | None = None
+        self.cache_seconds = 30
+        self.checked_at: float | None = None
+        self._query_lock = asyncio.Lock()
+        self._cache_key = None
+        self._cached_at = 0.0
+        self._cached_results: list[dict] = []
 
     async def terminate(self):
         if self.session and not self.session.closed:
@@ -103,28 +123,50 @@ class BalanceChecker:
             self.session = aiohttp.ClientSession()
 
     async def query_all(self) -> list[dict]:
-        cfg = self.config.get("balance", {})
-        config_content = cfg.get("config_content", "") if isinstance(cfg, dict) else ""
-        config_mode = cfg.get("config_mode", "yaml") if isinstance(cfg, dict) else "yaml"
+        """Coalesce provider queries and briefly cache results per configuration.
 
-        if not config_content.strip():
-            return [{"name": "配置缺失", "value": "请在配置中添加 services", "success": False}]
-
-        try:
-            if config_mode == "yaml":
-                return await self._query_yaml(config_content)
+        Returns:
+            Provider result rows. Missing configuration yields an empty list;
+            failures contain operator-safe messages rather than raw credentials.
+        """
+        async with self._query_lock:
+            cfg = self.config.get("balance", {})
+            cfg = cfg if isinstance(cfg, dict) else {}
+            content = str(cfg.get("config_content") or "")
+            mode = cfg.get("config_mode", "yaml")
+            if not content.strip():
+                self._cache_key = None
+                self.checked_at = None
+                return []
+            key = (mode, hashlib.sha256(content.encode()).digest())
+            if key == self._cache_key and time.monotonic() - self._cached_at < self.cache_seconds:
+                return [row.copy() for row in self._cached_results]
+            try:
+                results = await (
+                    self._query_yaml(content) if mode == "yaml" else self._query_simple(content)
+                )
+            except Exception as exc:
+                logger.warning("Oven Multi balance query failed (%s)", type(exc).__name__)
+                results = [{"name": "查询失败", "value": "请检查服务配置后重试", "success": False}]
+            self.checked_at = time.time()
+            if any(row.get("success") for row in results):
+                self._cache_key = key
+                self._cached_at = time.monotonic()
+                self._cached_results = [row.copy() for row in results]
             else:
-                return await self._query_simple(config_content)
-        except Exception as e:
-            logger.error(f"[烤箱-余额查询] 查询失败: {e}")
-            return [{"name": "查询异常", "value": str(e), "success": False}]
+                self._cache_key = None
+            return results
 
     async def _query_yaml(self, config_content: str) -> list[dict]:
         try:
-            config_data = yaml.safe_load(config_content)
-            services = config_data.get("services", {})
-        except Exception as e:
-            logger.error(f"[烤箱-余额查询] 解析 YAML 失败: {e}")
+            config_data = yaml.safe_load(config_content) or {}
+            if not isinstance(config_data, dict):
+                raise ValueError("The YAML root must be a mapping")
+            services = config_data.get("services") or {}
+            if not isinstance(services, dict):
+                raise ValueError("Services must be a mapping")
+        except (yaml.YAMLError, ValueError) as exc:
+            logger.warning("Oven Multi balance YAML is invalid (%s)", type(exc).__name__)
             return [{"name": "配置错误", "value": "YAML 配置解析失败", "success": False}]
 
         if not services:
@@ -142,8 +184,10 @@ class BalanceChecker:
             if isinstance(r, dict):
                 results.append(r)
             elif isinstance(r, Exception):
-                logger.error(f"[烤箱-余额查询] 处理服务异常: {r}")
-                results.append({"name": "服务异常", "value": str(r), "success": False})
+                logger.warning("Oven Multi balance service failed (%s)", type(r).__name__)
+                results.append(
+                    {"name": "服务异常", "value": "查询失败，请检查配置", "success": False}
+                )
 
         return results
 
@@ -151,7 +195,7 @@ class BalanceChecker:
         self._ensure_session()
 
         lines = config_content.strip().splitlines()
-        tasks = [self._handle_line(line) for line in lines]
+        tasks = [self._handle_line(line.strip()) for line in lines if line.strip()]
 
         results = []
         responses = await asyncio.gather(*tasks, return_exceptions=True)
@@ -162,9 +206,12 @@ class BalanceChecker:
         return results
 
     async def _handle_yaml_service(self, name: str, info: dict) -> dict:
+        display_name = str(name)
+        if not isinstance(info, dict):
+            return {"name": display_name, "value": "服务配置必须为 YAML 对象", "success": False}
         try:
             parser_type = info.get("type", "custom") or "custom"
-            display_name = info.get("display_name")
+            display_name = info.get("display_name") or str(name)
 
             if parser_type == "custom":
                 url = info.get("url")
@@ -175,10 +222,14 @@ class BalanceChecker:
                 if not url:
                     label = display_name or name
                     return {"name": label, "value": "缺失 URL", "success": False}
-                
+
                 if not result_template:
                     label = display_name or name
-                    return {"name": label, "value": "缺失 result_template（需要 {{...}} 格式）", "success": False}
+                    return {
+                        "name": label,
+                        "value": "缺失 result_template（需要 {{...}} 格式）",
+                        "success": False,
+                    }
 
             elif parser_type in _BUILTIN_PARSERS:
                 preset = dict(_BUILTIN_PARSERS[parser_type])
@@ -202,17 +253,27 @@ class BalanceChecker:
                 for k, v in info.get("headers", {}).items():
                     headers[k] = v.replace("{api_key}", api_key).replace("{base_url}", base_url)
 
-                result_template = info.get("result_template") or preset.get("result_template", "{data}")
+                result_template = info.get("result_template") or preset.get(
+                    "result_template", "{data}"
+                )
                 method = info.get("method", preset.get("method", "GET")).upper()
 
             else:
                 label = display_name or name
-                return {"name": label, "value": f"未知的内置解析器类型 '{parser_type}'", "success": False}
+                return {
+                    "name": label,
+                    "value": f"未知的内置解析器类型 '{parser_type}'",
+                    "success": False,
+                }
 
             async with self.session.request(method, url, headers=headers, timeout=10) as resp:
                 if resp.status != 200:
                     label = display_name or name
-                    return {"name": label, "value": f"请求失败 (HTTP {resp.status})", "success": False}
+                    return {
+                        "name": label,
+                        "value": f"请求失败 (HTTP {resp.status})",
+                        "success": False,
+                    }
 
                 data = await resp.json()
                 result = self._render_template(result_template, data)
@@ -223,19 +284,19 @@ class BalanceChecker:
             label = display_name or name
             return {"name": label, "value": "请求超时", "success": False}
         except Exception as e:
-            logger.error(f"[烤箱-余额查询] [{name}] 处理失败: {type(e).__name__}: {e}")
+            logger.warning("Oven Multi balance service failed (%s)", type(e).__name__)
             label = display_name or name
             return {"name": label, "value": "异常", "success": False}
 
     def _render_template(self, template: str, data: dict) -> str:
         result = template
-        pattern = r'\{\{(.*?)\}\}'
+        pattern = r"\{\{(.*?)\}\}"
 
         def process_match(match):
             inner_content = match.group(1)
 
-            if re.search(r'\{[^{}]+\}', inner_content):
-                inner_pattern = r'\{([^{}]+)\}'
+            if re.search(r"\{[^{}]+\}", inner_content):
+                inner_pattern = r"\{([^{}]+)\}"
 
                 def replace_path(m):
                     path = m.group(1)
@@ -246,9 +307,9 @@ class BalanceChecker:
 
                     try:
                         if isinstance(value, str):
-                            cleaned = re.sub(r'[^\d.-]', '', value)
+                            cleaned = re.sub(r"[^\d.-]", "", value)
                             if cleaned:
-                                value = float(cleaned) if '.' in cleaned else int(cleaned)
+                                value = float(cleaned) if "." in cleaned else int(cleaned)
                     except (ValueError, TypeError):
                         pass
 
@@ -267,9 +328,8 @@ class BalanceChecker:
                 if value is None:
                     return "N/A"
 
-                if isinstance(value, (int, float)):
-                    if isinstance(value, float) and not value.is_integer():
-                        return f"{value:.2f}"
+                if isinstance(value, float) and not value.is_integer():
+                    return f"{value:.2f}"
                 return str(value)
 
         result = re.sub(pattern, process_match, result)
@@ -316,7 +376,7 @@ class BalanceChecker:
             return {"name": "超时", "value": "请求超时", "success": False}
         except Exception as e:
             logger.error(f"[烤箱-余额查询] 处理失败: {type(e).__name__}")
-            return {"name": "异常", "value": str(e), "success": False}
+            return {"name": "异常", "value": "查询失败，请检查服务配置", "success": False}
 
     def _parse_headers(self, header_str: str) -> dict:
         headers = {}

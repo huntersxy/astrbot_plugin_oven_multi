@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-import astrbot.api.message_components as Comp
+import astrbot.api.message_components as components
 from astrbot.api.event import AstrMessageEvent
 
 # 事件 extra 标记：本轮已补回 @文本
@@ -34,7 +34,7 @@ def _find_bot_at(event: AstrMessageEvent):
         messages = getattr(event.message_obj, "message", None) or []
         self_id = str(event.get_self_id())
         for comp in messages:
-            if isinstance(comp, Comp.At) and str(comp.qq) == self_id:
+            if isinstance(comp, components.At) and str(comp.qq) == self_id:
                 return comp
     except Exception:  # noqa: BLE001
         return None
@@ -97,6 +97,6 @@ def should_backfill_native(event: AstrMessageEvent) -> bool:
     if _find_bot_at(event) is None:
         return False
     for comp in content_components(event):
-        if isinstance(comp, (Comp.Plain, Comp.Image, Comp.Json)):
+        if isinstance(comp, (components.Plain, components.Image, components.Json)):
             return False
     return True

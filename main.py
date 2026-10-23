@@ -18,21 +18,19 @@
 #   - astrbot_plugin_astrbot_enhance_mode by 阿汐 — active reply, model_choice
 #   - astrbot_plugin_repetition by FengYing1314 — message repetition
 #   - astrbot_plugin_iamthinking (AGPL-3.0) by sssn-tech — thinking emoji reaction
-#   - astrbot_plugin_iearning_style (AGPL-3.0) by qa296 — style learning integration
+#   - astrbot_plugin_iearning_style (AGPL-3.0) by qa296
+#     historical style learning (retired in 1.49.0)
 #   - astrbot_plugin_remove_blank_lines (MIT) by Codex — remove blank lines from LLM output
 #   - astrbot_plugin_file_reader_pro (MIT) by zz6zz666 — file reading, RAG indexing
 #     (original license: see features/file_reader/LICENSE)
 # Date: 2026-06-23
 
-import asyncio
 import re
 from sys import maxsize
 
-from quart import jsonify
-
-import astrbot.api.message_components as Comp
+import astrbot.api.message_components as components
 from astrbot.api import AstrBotConfig, logger
-from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools, register
 
 from .constants import (
@@ -43,7 +41,6 @@ from .constants import (
     FEATURE_MENTION_PARSER,
     FEATURE_REMOVE_BLANK,
     FEATURE_REPETITION,
-    FEATURE_STYLE,
     FEATURE_THINKING,
     PLUGIN_AUTHOR,
     PLUGIN_DESC,
@@ -57,16 +54,10 @@ from .features.file_reader import FileParseError, FileReaderManager
 from .features.mention_parser import ActiveSpeakersTracker, transform_mention_in_chain
 from .features.mention_preserve import restore_bot_mention, should_backfill_native
 from .features.repeater import Repeater
-from .features.learning_style import (
-    CATEGORY_SITUATIONAL,
-    CATEGORY_STABLE,
-    StyleManager,
-    clean_system_prompt,
-)
 from .features.thinking_manager import ThinkingManager
 
-
 # ── 配置访问辅助 ─────────────────────────────────────────────────────────
+
 
 def feature_cfg(config, name: str) -> dict:
     """读取功能配置节（容错非 dict 值）。"""
@@ -84,9 +75,7 @@ def cfg_value(config, name: str, key: str, default=None):
 
 def blocked_by_blacklist(config, group_id=None, user_id=None) -> bool:
     """群/用户是否命中黑名单。"""
-    return (
-        bool(group_id) and str(group_id) in config.get("blacklist_groups", [])
-    ) or (
+    return (bool(group_id) and str(group_id) in config.get("blacklist_groups", [])) or (
         bool(user_id) and str(user_id) in config.get("blacklist_users", [])
     )
 
@@ -136,15 +125,6 @@ class OvenMultiPlugin(Star):
             data_dir=self.data_dir,
         )
 
-        # 风格学习（聊天记录收集 + 分析 + 注入）
-        self.style: StyleManager | None = None
-        if feature_enabled(self.config, FEATURE_STYLE):
-            try:
-                self.style = StyleManager(self, self.data_dir)
-                logger.info("[烤箱-风格学习] 初始化完成")
-            except Exception as e:
-                logger.error(f"[烤箱-风格学习] 初始化失败: {e}")
-
         # 文件读取（预读取 / RAG 检索 / LLM Tool）
         self.file_reader: FileReaderManager | None = None
         if feature_enabled(self.config, FEATURE_FILE_READER, False):
@@ -158,177 +138,146 @@ class OvenMultiPlugin(Star):
             except Exception as e:
                 logger.error(f"[烤箱-文件读取] 初始化失败: {e}")
 
-        # Web API
-        for route, handler, desc in (
-            (f"/{PLUGIN_NAME}/status", self._api_status, "烤箱状态总览"),
-            (f"/{PLUGIN_NAME}/balance", self._api_balance, "余额信息"),
-            (f"/{PLUGIN_NAME}/style_status", self._api_style_status, "风格学习状态"),
+        # Remove retired handlers retained by older versions during hot reload.
+        registrations = getattr(self.context, "registered_web_apis", [])
+        retired_routes = {f"/{PLUGIN_NAME}/style_status", f"/{PLUGIN_NAME}/style/manage"}
+        registrations[:] = [item for item in registrations if item[0] not in retired_routes]
+
+        # Register only read-only native Panel APIs.
+        for route, handler, description in (
+            (f"/{PLUGIN_NAME}/status", self._api_status, "Oven Multi feature status"),
+            (f"/{PLUGIN_NAME}/balance", self._api_balance, "Oven Multi provider balances"),
         ):
-            self.context.register_web_api(route, handler, ["GET"], desc)
-        self.context.register_web_api(
-            f"/{PLUGIN_NAME}/style/manage",
-            self._api_style_manage,
-            ["POST"],
-            "风格管理（删除单条/会话/全部）",
-        )
+            self.context.register_web_api(route, handler, ["GET"], description)
 
     # ── 生命周期 ─────────────────────────────────────────────────────────
 
     async def initialize(self):
-        if self.style:
-            self.style.start()
         if self.file_reader:
             await self.file_reader.start()
         logger.info("[插座烤箱] 启动")
 
     async def terminate(self):
-        if self.style:
-            await self.style.stop()
-            await self.style.data.force_save()
         if self.file_reader:
             await self.file_reader.stop()
         await self.active_reply.close()
         await self.balance_checker.terminate()
+        registrations = getattr(self.context, "registered_web_apis", [])
+        registrations[:] = [
+            item for item in registrations if getattr(item[1], "__self__", None) is not self
+        ]
 
     # ── Web API ──────────────────────────────────────────────────────────
 
     def _feature_status(self) -> list[dict]:
-        """汇总各功能启用状态（供命令与页面共用）。"""
-        items = []
+        """Describe configured features without external requests or private data.
 
-        def add(name, enabled, detail=""):
-            items.append({"name": name, "enabled": bool(enabled), "detail": detail})
-
-        rep_cfg = feature_cfg(self.config, FEATURE_REPETITION)
-        add("括号匹配", feature_enabled(self.config, FEATURE_BRACKET))
-        add(
-            "消息复读",
-            feature_enabled(self.config, FEATURE_REPETITION),
+        Returns:
+            Feature identifiers, configuration switches and human-readable details.
+        """
+        active = feature_cfg(self.config, FEATURE_ACTIVE_REPLY)
+        jev = feature_cfg(self.config, FEATURE_JEV)
+        files = feature_cfg(self.config, FEATURE_FILE_READER)
+        blank_limit = cfg_value(self.config, FEATURE_REMOVE_BLANK, "max_consecutive_newlines", 1)
+        mode = "Jev 判定" if active.get("mode") == "model_choice" else "概率触发"
+        rows = [
             (
-                f"打断概率 {float(rep_cfg.get('break_spell_probability', 0.3)):.0%}"
-                if rep_cfg.get("enabled")
-                else ""
+                FEATURE_BRACKET,
+                "括号匹配",
+                feature_enabled(self.config, FEATURE_BRACKET),
+                "补齐消息中未闭合的中英文括号",
             ),
-        )
-        blank_cfg = feature_cfg(self.config, FEATURE_REMOVE_BLANK)
-        add(
-            "移除空行",
-            feature_enabled(self.config, FEATURE_REMOVE_BLANK),
             (
-                f"最大连续换行 {blank_cfg.get('max_consecutive_newlines', 1)} 行"
-                if blank_cfg.get("enabled")
-                else ""
+                FEATURE_REPETITION,
+                "消息复读",
+                feature_enabled(self.config, FEATURE_REPETITION),
+                "跟随连续相同消息，支持打断复读",
             ),
-        )
-        add("思考表情", feature_enabled(self.config, FEATURE_THINKING))
-        add("风格学习", feature_enabled(self.config, FEATURE_STYLE, True))
-
-        ar_cfg = feature_cfg(self.config, FEATURE_ACTIVE_REPLY)
-        ar_enabled = bool(ar_cfg.get("enable", False))
-        ar_detail = ""
-        if ar_enabled:
-            ar_detail = f"模式 {ar_cfg.get('mode', 'probability')}"
-        add("主动回复", ar_enabled, ar_detail)
-
-        jev_cfg = feature_cfg(self.config, FEATURE_JEV)
-        jev_enabled = bool(jev_cfg.get("enabled", False))
-        jev_detail = ""
-        if jev_enabled:
-            scenes = []
-            if jev_cfg.get("inject_on_active_reply", True):
-                scenes.append("主动")
-            if jev_cfg.get("inject_on_mention", True):
-                scenes.append("被@")
-            jev_detail = "、".join(scenes) or "仅 model_choice 判定"
-            if jev_cfg.get("debug_mode"):
-                jev_detail += " · DEBUG"
-        add("Jev 判读", jev_enabled, jev_detail)
-
-        add("@功能", feature_enabled(self.config, FEATURE_MENTION_PARSER))
-
-        if self.file_reader:
-            fr_cfg = feature_cfg(self.config, FEATURE_FILE_READER)
-            preread = fr_cfg.get("preread") or {}
-            tool_cfg = fr_cfg.get("tool") or {}
-            modes = []
-            modes.append(
-                "预读取"
-                if preread.get("enabled", True)
-                else "仅 Tool"
-            )
-            if fr_cfg.get("rag", {}).get("enabled", True):
-                modes.append("RAG 检索")
-            if tool_cfg.get("enabled", True):
-                modes.append("LLM Tool")
-            add("文件读取", True, "、".join(modes))
-        else:
-            add("文件读取", False)
-
-        return items
-
-    def _style_status_data(self) -> dict:
-        if not self.style:
-            return {}
-        result = {}
-        for session_id in self.style.data.universal:
-            traits = self.style.data.get_universal_for_session(session_id)
-            result[session_id] = {
-                "session_id": session_id,
-                "display_name": session_id.split("_")[-1] if "_" in session_id else session_id,
-                "universal": [
-                    t for t in traits if t.get("category", CATEGORY_STABLE) == CATEGORY_STABLE
-                ],
-                "situational": [t for t in traits if t.get("category") == CATEGORY_SITUATIONAL],
-                "history": self.style.data.get_chat_history(session_id, limit=50),
-            }
-        return result
+            (
+                FEATURE_REMOVE_BLANK,
+                "空行整理",
+                feature_enabled(self.config, FEATURE_REMOVE_BLANK),
+                f"最多保留 {blank_limit} 个连续换行",
+            ),
+            (
+                FEATURE_THINKING,
+                "思考表情",
+                feature_enabled(self.config, FEATURE_THINKING),
+                "用 QQ 表情标记开始处理与回复完成",
+            ),
+            (
+                FEATURE_MENTION_PARSER,
+                "成员提及",
+                feature_enabled(self.config, FEATURE_MENTION_PARSER),
+                "追踪活跃成员，将模型提及标签转换为真实 @",
+            ),
+            (FEATURE_ACTIVE_REPLY, "主动回复", active.get("enable", False), mode),
+            (
+                FEATURE_JEV,
+                "Jev 多维判读",
+                jev.get("enabled", False),
+                "理解说话对象、意图、情绪、态度、回复期待与风险",
+            ),
+            (
+                FEATURE_FILE_READER,
+                "文件读取",
+                self.file_reader is not None,
+                (
+                    "预读取与按需工具"
+                    if (files.get("preread") or {}).get("enabled", True)
+                    else "按需文件工具"
+                )
+                if self.file_reader
+                else "在插件配置中开启文件读取",
+            ),
+        ]
+        return [
+            {"id": key, "name": name, "enabled": bool(enabled), "detail": detail}
+            for key, name, enabled, detail in rows
+        ]
 
     async def _api_status(self):
-        return jsonify(
-            {
-                "success": True,
-                "data": {
-                    "features": self._feature_status(),
-                    "balance": await self.balance_checker.query_all(),
-                    "style": self._style_status_data(),
-                },
-            }
-        )
+        """Return fast, credential-free Panel state without querying providers.
+
+        Returns:
+            Native Panel response containing configuration state and actionable notices.
+        """
+        active = feature_cfg(self.config, FEATURE_ACTIVE_REPLY)
+        jev = feature_cfg(self.config, FEATURE_JEV)
+        notices = []
+        if jev.get("enabled") and not str(jev.get("api_key") or "").strip():
+            notices.append("Jev 已开启但未配置 API Key，请在插件配置中填写后使用判读。")
+        if active.get("enable") and active.get("mode") == "model_choice" and not jev.get("enabled"):
+            notices.append("主动回复选择了 Jev 判定模式，但 Jev 总开关未开启，当前不会触发。")
+        if feature_enabled(self.config, FEATURE_FILE_READER, False) and not self.file_reader:
+            notices.append("文件读取已配置开启，但尚未初始化成功，请检查 AstrBot 日志。")
+        return {
+            "success": True,
+            "data": {
+                "plugin": {"name": PLUGIN_NAME, "version": PLUGIN_VERSION},
+                "features": self._feature_status(),
+                "notices": notices,
+                "balance_configured": bool(
+                    str(feature_cfg(self.config, "balance").get("config_content") or "").strip()
+                ),
+            },
+        }
 
     async def _api_balance(self):
-        return jsonify({"success": True, "data": await self.balance_checker.query_all()})
+        """Query balances on demand, reusing a short-lived shared result.
 
-    async def _api_style_status(self):
-        return jsonify({"success": True, "data": self._style_status_data()})
-
-    async def _api_style_manage(self):
-        """风格删除管理：action=delete_trait / clear_session / clear_all。"""
-        if not self.style:
-            return jsonify({"success": False, "message": "风格学习功能未初始化。"})
-        try:
-            from astrbot.api.web import request
-
-            body = await request.json(default={}) or {}
-        except Exception:
-            body = {}
-        action = str(body.get("action") or "").strip()
-        session_id = str(body.get("session_id") or "").strip()
-        content = str(body.get("content") or "").strip()
-
-        if action == "delete_trait":
-            if not session_id or not content:
-                return jsonify({"success": False, "message": "缺少 session_id 或 content。"})
-            removed = await self.style.data.delete_trait(session_id, content)
-            return jsonify({"success": True, "data": {"removed": removed}})
-        if action == "clear_session":
-            if not session_id:
-                return jsonify({"success": False, "message": "缺少 session_id。"})
-            await self.style.data.clear_universal(session_id)
-            return jsonify({"success": True})
-        if action == "clear_all":
-            cleared = await self.style.data.clear_all_universal()
-            return jsonify({"success": True, "data": {"cleared": cleared}})
-        return jsonify({"success": False, "message": f"未知操作: {action}"})
+        Returns:
+            Native Panel response with results and the actual query timestamp.
+        """
+        items = await self.balance_checker.query_all()
+        return {
+            "success": True,
+            "data": {
+                "items": items,
+                "checked_at": self.balance_checker.checked_at,
+                "cache_seconds": self.balance_checker.cache_seconds,
+            },
+        }
 
     # ── 工具方法 ─────────────────────────────────────────────────────────
 
@@ -347,14 +296,6 @@ class OvenMultiPlugin(Star):
             if item["detail"]:
                 line += f"（{item['detail']}）"
             lines.append(line)
-
-        if self.style and feature_enabled(self.config, FEATURE_STYLE, True):
-            summary = self.style.injector.get_style_summary(event.unified_msg_origin)
-            if summary["has_styles"]:
-                line = f"  └─ 本群已学习 {summary['universal_count']} 条稳定风格"
-                if summary.get("situational_count"):
-                    line += f"，{summary['situational_count']} 条场景梗"
-                lines.append(line)
 
         yield event.plain_result("\n".join(lines))
 
@@ -418,9 +359,7 @@ class OvenMultiPlugin(Star):
         if event.get_extra("oven_native_record_backfilled", False):
             return
         ltm = (
-            self.context.get_config(umo=event.unified_msg_origin).get(
-                "provider_ltm_settings", {}
-            )
+            self.context.get_config(umo=event.unified_msg_origin).get("provider_ltm_settings", {})
             or {}
         )
         if not ltm.get("group_icl_enable"):
@@ -472,9 +411,7 @@ class OvenMultiPlugin(Star):
             if result:
                 kind, payload = result
                 await event.send(
-                    event.plain_result(payload)
-                    if kind == "break"
-                    else event.chain_result(payload)
+                    event.plain_result(payload) if kind == "break" else event.chain_result(payload)
                 )
 
         # 主动回复
@@ -504,11 +441,10 @@ class OvenMultiPlugin(Star):
         if not result or not getattr(result, "chain", None):
             return
         max_nl = int(
-            cfg_value(self.config, FEATURE_REMOVE_BLANK, "max_consecutive_newlines", 1)
-            or 1
+            cfg_value(self.config, FEATURE_REMOVE_BLANK, "max_consecutive_newlines", 1) or 1
         )
         for comp in result.chain:
-            if isinstance(comp, Comp.Plain):
+            if isinstance(comp, components.Plain):
                 comp.text = collapse_blank_lines(comp.text, max_nl)
 
     # ── Handler：Mention 标签解析（@ 功能）───────────────────────────────
@@ -540,9 +476,7 @@ class OvenMultiPlugin(Star):
             await self.thinking.emoji(
                 event,
                 msg_id,
-                cfg_value(
-                    self.config, FEATURE_THINKING, "thinking_emoji_ids", []
-                ),
+                cfg_value(self.config, FEATURE_THINKING, "thinking_emoji_ids", []),
                 True,
             )
 
@@ -564,47 +498,11 @@ class OvenMultiPlugin(Star):
             )
         event.set_extra("thinking_done", True)
 
-    # ── Handler：风格学习 - 聊天记录收集 ────────────────────────────────
-
-    @filter.event_message_type(filter.EventMessageType.ALL)
-    async def on_all_message(self, event: AstrMessageEvent):
-        if self._blocked(event) or not self.style:
-            return
-        if not feature_enabled(self.config, FEATURE_STYLE):
-            return
-        if event.get_sender_id() == event.get_self_id():
-            return
-        content = event.get_message_str()
-        if not content or content.startswith("/"):
-            return
-        await self.style.data.add_message_to_history(
-            event.unified_msg_origin,
-            {
-                "sender": event.get_sender_name(),
-                "content": content,
-                "timestamp": asyncio.get_running_loop().time(),
-            },
-        )
-
-    # ── Handler：LLM 请求注入（风格 + 主动回复引导 + 活跃发言人）─────────
+    # Native system prompts and histories remain unchanged.
 
     @filter.on_llm_request(priority=17)
     async def on_llm_request(self, event: AstrMessageEvent, req):
-        # 剥离平台 LTM 与重复片段，避免 prompt 膨胀
-        cleaned = clean_system_prompt(req.system_prompt or "")
-        if cleaned != (req.system_prompt or ""):
-            req.system_prompt = cleaned
-
         from astrbot.core.agent.message import TextPart
-
-        # 风格注入（临时内容，不持久化）
-        if self.style and feature_enabled(self.config, FEATURE_STYLE):
-            style_text = await self.style.injector.build_injection_text(
-                event.unified_msg_origin,
-                user_message=req.prompt or "",
-            )
-            if style_text:
-                req.extra_user_content_parts.append(TextPart(text=style_text).mark_as_temp())
 
         # 主动回复触发引导注入（临时内容，不持久化）
         if event.get_extra("oven_active_reply_triggered", False):
@@ -620,19 +518,12 @@ class OvenMultiPlugin(Star):
             # Jev 多维判读注入（ActiveReply 触发时挂到 extra，同样不进历史）
             reading = event.get_extra("oven_jev_reading")
             if reading:
-                req.extra_user_content_parts.append(
-                    TextPart(text=str(reading)).mark_as_temp()
-                )
-        elif (
-            feature_enabled(self.config, FEATURE_JEV, False)
-            and not self._blocked(event)
-        ):
+                req.extra_user_content_parts.append(TextPart(text=str(reading)).mark_as_temp())
+        elif feature_enabled(self.config, FEATURE_JEV, False) and not self._blocked(event):
             # 被@/唤醒触发（非主动回复）的一次 Jev 判读注入：重点是意向与情绪
             block = await self.active_reply.mention_reading(event, self.config)
             if block:
-                req.extra_user_content_parts.append(
-                    TextPart(text=str(block)).mark_as_temp()
-                )
+                req.extra_user_content_parts.append(TextPart(text=str(block)).mark_as_temp())
 
         # 活跃发言人列表注入（@ 功能）
         if feature_enabled(self.config, FEATURE_MENTION_PARSER):
@@ -641,9 +532,7 @@ class OvenMultiPlugin(Star):
             if event.get_message_type() == MessageType.GROUP_MESSAGE:
                 speakers_text = self.speakers.build_speakers_prompt(event.unified_msg_origin)
                 if speakers_text:
-                    req.extra_user_content_parts.append(
-                        TextPart(text=speakers_text).mark_as_temp()
-                    )
+                    req.extra_user_content_parts.append(TextPart(text=speakers_text).mark_as_temp())
 
     # ── Handler：文件读取 ────────────────────────────────────────────────
 
@@ -655,7 +544,7 @@ class OvenMultiPlugin(Star):
         if event.get_sender_id() == event.get_self_id():
             return
         file_items = [
-            item for item in event.message_obj.message if isinstance(item, Comp.File)
+            item for item in event.message_obj.message if isinstance(item, components.File)
         ]
         if not file_items:
             return
@@ -688,9 +577,7 @@ class OvenMultiPlugin(Star):
             return
         if not (req.prompt or "").strip():
             return
-        context_text = await self.file_reader.build_context(
-            event.unified_msg_origin, req.prompt
-        )
+        context_text = await self.file_reader.build_context(event.unified_msg_origin, req.prompt)
         if not context_text:
             return
         if str(rag_cfg.get("injection_type", "temp_part")) == "prompt":
@@ -698,9 +585,7 @@ class OvenMultiPlugin(Star):
         else:
             from astrbot.core.agent.message import TextPart
 
-            req.extra_user_content_parts.append(
-                TextPart(text=context_text).mark_as_temp()
-            )
+            req.extra_user_content_parts.append(TextPart(text=context_text).mark_as_temp())
         logger.debug("[烤箱-文件读取] 已注入文件检索结果")
 
     @filter.llm_tool("file_list")
@@ -744,75 +629,13 @@ class OvenMultiPlugin(Star):
             "enabled", True
         ):
             return "文件读取的 Tool 功能已关闭"
-        return await self.file_reader.search_text(
-            event.unified_msg_origin, str(query or "")
-        )
+        return await self.file_reader.search_text(event.unified_msg_origin, str(query or ""))
 
     @filter.command("清除文件")
     async def clear_files(self, event: AstrMessageEvent):
-        '''清理当前会话的所有已上传文件'''
+        """清理当前会话的所有已上传文件"""
         if not self.file_reader:
             yield event.plain_result("文件读取功能未启用")
             return
         count = await self.file_reader.clear_session(event.unified_msg_origin)
         yield event.plain_result(f"已清理当前会话的 {count} 个文件")
-
-    # ── Handler：风格命令 ────────────────────────────────────────────────
-
-    @filter.command("风格状态")
-    async def style_status(self, event: AstrMessageEvent):
-        if not self.style:
-            yield event.plain_result("风格学习功能未初始化。")
-            return
-        summary = self.style.injector.get_style_summary(event.unified_msg_origin)
-        if not summary["has_styles"]:
-            yield event.plain_result("当前会话还没有学习到任何风格特点。")
-            return
-        preview = "、".join(summary["universal_preview"])
-        response = f"当前会话风格状态：\n通用风格：{summary['universal_count']} 条"
-        if preview:
-            response += f"\nTop-{min(3, summary['universal_count'])}：{preview}"
-        if summary.get("situational_count"):
-            response += f"\n场景化表达：{summary['situational_count']} 条（仅在语境匹配时注入）"
-        yield event.plain_result(response)
-
-    @filter.command("清空风格")
-    async def clear_styles(self, event: AstrMessageEvent):
-        if not self.style:
-            yield event.plain_result("风格学习功能未初始化。")
-            return
-        await self.style.data.clear_universal(event.unified_msg_origin)
-        yield event.plain_result("已清空当前会话的所有学习风格。")
-
-    @filter.command("学习总结")
-    async def learn_now(self, event: AstrMessageEvent):
-        if not self.style:
-            yield event.plain_result("风格学习功能未初始化。")
-            return
-        session_id = event.unified_msg_origin
-        chat_history = self.style.data.get_chat_history(session_id, limit=100)
-        min_history = int(
-            cfg_value(self.config, FEATURE_STYLE, "min_history_for_analysis", 10) or 10
-        )
-        if len(chat_history) < min_history:
-            yield event.plain_result(
-                f"当前会话聊天记录不足 {min_history} 条，无法进行分析。"
-            )
-            return
-
-        yield event.plain_result("正在分析聊天记录并学习风格特征，请稍候...")
-        try:
-            provider_id = (
-                cfg_value(self.config, FEATURE_STYLE, "style_provider_id", "")
-                or ""
-            ).strip()
-            await self.style.learn(session_id, provider_id=provider_id)
-            summary = self.style.injector.get_style_summary(session_id)
-            preview = "、".join(summary["universal_preview"])
-            response = f"学习分析完成！\n通用风格：{summary['universal_count']} 条"
-            if preview:
-                response += f"\nTop-{min(3, summary['universal_count'])}：{preview}"
-            yield event.plain_result(response)
-        except Exception as e:
-            logger.error(f"[烤箱-风格学习] 手动触发学习分析失败: {e}")
-            yield event.plain_result(f"学习分析失败：{e}")

@@ -13,10 +13,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from .active_reply import ActiveReply
 from .bracket_matcher import BracketMatcher
 from .repeater import Repeater
 from .thinking_manager import ThinkingManager
-from .active_reply import ActiveReply
 
 __all__ = [
     "BracketMatcher",

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>多功能烤箱 · 状态总览</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main class="workspace">
+    <header class="page-head">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/><rect x="7" y="12" width="10" height="5" rx="1"/></svg></span>
+        <div><h1>插座的多功能烤箱</h1><p>消息、文件和服务的日常管理。</p></div>
+      </div>
+      <button class="button secondary" id="refresh" type="button" aria-label="刷新状态"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M19 12a7 7 0 1 0-2 5"/></svg><span>刷新状态</span></button>
+    </header>
+
+    <div class="toolbar">
+      <div class="tabs" role="tablist" aria-label="总览页面">
+        <button id="tab-overview" type="button" role="tab" aria-selected="true" aria-controls="panel-overview" data-tab="overview">运行概览</button>
+        <button id="tab-balances" type="button" role="tab" aria-selected="false" aria-controls="panel-balances" tabindex="-1" data-tab="balances">服务余额</button>
+      </div>
+      <span class="version" id="version">正在连接</span>
+    </div>
+
+    <div id="status-error" class="message error" role="alert" hidden></div>
+    <p class="preview-notice" id="preview-notice" hidden>本地预览 · 演示数据，不连接真实模型或余额服务。</p>
+
+    <section class="sheet" id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" aria-busy="true">
+      <div class="sheet-heading"><div><h2>功能状态</h2><p>显示当前配置；实际执行仍受宿主权限与会话设置约束。</p></div><span id="feature-summary" class="summary">读取中</span></div>
+      <div id="feature-loading" class="loading" role="status">正在读取插件状态…<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>
+      <div id="notices" class="notices" aria-live="polite"></div>
+      <div id="feature-groups" class="feature-groups"></div>
+      <p id="feature-empty" class="empty" hidden>暂时没有功能状态。请确认插件已启用，再点击「刷新状态」。</p>
+      <footer class="sheet-footer"><span id="status-time">尚未更新</span><span>修改开关请使用 AstrBot 插件配置。</span></footer>
+    </section>
+
+    <section class="sheet" id="panel-balances" role="tabpanel" aria-labelledby="tab-balances" hidden>
+      <div class="sheet-heading"><div><h2>服务余额</h2><p>按需向已配置的服务查询，独立于功能状态刷新。</p></div><button id="query-balances" class="button primary" type="button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M19 12a7 7 0 1 0-2 5"/></svg><span>查询余额</span></button></div>
+      <div id="balance-error" class="message error" role="alert" hidden></div>
+      <div id="balance-empty" class="empty balance-empty"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="5" y="7" width="22" height="18" rx="3"/><path d="M5 12h22M21 18h2"/></svg><h3>需要时，再查一次</h3><p id="balance-empty-copy">先读取插件状态，再查询已配置服务的余额。</p></div>
+      <div id="balance-results" class="balance-results" aria-live="polite"></div>
+      <footer class="sheet-footer"><span id="balance-time">尚未查询</span><span>结果按服务原始币种显示，不合并计算。</span></footer>
+    </section>
+
+    <aside class="migration" aria-labelledby="migration-title">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-8-5-8-11a4.5 4.5 0 0 1 8-3 4.5 4.5 0 0 1 8 3c0 6-8 11-8 11Z"/></svg>
+      <div><h2 id="migration-title">风格学习已废弃</h2><p>学习人格、表达与群聊词汇，请使用烤箱之心。旧数据保留，本插件不再采集、分析或注入风格。</p></div>
+      <a class="text-link" href="https://github.com/huntersxy/astrbot_plugin_ovenheart" target="_blank" rel="noopener noreferrer">了解烤箱之心<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a>
+    </aside>
+    <footer class="page-footer"><span>Oven Multi</span><a href="https://github.com/huntersxy/astrbot_plugin_oven_multi#readme" target="_blank" rel="noopener noreferrer">使用说明</a></footer>
+    <div id="announcer" class="sr-only" role="status" aria-live="polite"></div>
+  </main>
+  <script src="/api/v1/plugins/page-bridge-sdk.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

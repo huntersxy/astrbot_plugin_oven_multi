@@ -1,6 +1,6 @@
 [project]
 name = "astrbot_plugin_oven_multi"
-version = "1.48.0"
+version = "1.49.0"
 description = "插座的多功能烤箱 — AstrBot 多功能插件"
 requires-python = ">=3.10"
 license = {text = "AGPL-3.0"}
@@ -8,7 +8,7 @@ license = {text = "AGPL-3.0"}
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-exclude = ["参考资料/*", "__pycache__/*", "pages/*"]
+exclude = ["参考资料/*", "__pycache__/*", "views/*"]
 
 [tool.ruff.lint]
 select = [

@@ -14,13 +14,13 @@
 import re
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from astrbot.api import logger
 
 try:
-    from astrbot.core.knowledge_base.chunking.recursive import RecursiveCharacterChunker
     from astrbot.core.db.vec_db.faiss_impl.vec_db import FaissVecDB
+    from astrbot.core.knowledge_base.chunking.recursive import RecursiveCharacterChunker
 
     RAG_AVAILABLE = True
 except Exception as _exc:  # 内核组件缺失或 API 变动
@@ -52,8 +52,8 @@ class RAGIndex:
         self.chunk_size = int(chunk_size)
         self.chunk_overlap = int(chunk_overlap)
         # key: (session_dir, file_key) -> FaissVecDB
-        self._dbs: Dict[Tuple[str, str], Any] = {}
-        self._chunker: Optional[Any] = None
+        self._dbs: dict[tuple[str, str], Any] = {}
+        self._chunker: Any | None = None
         if RAG_AVAILABLE:
             self._chunker = RecursiveCharacterChunker(
                 chunk_size=self.chunk_size, chunk_overlap=self.chunk_overlap
@@ -66,7 +66,7 @@ class RAGIndex:
     def _db_dir(self, session_id: str, file_key: str) -> Path:
         return self.base_dir / safe_dir_name(session_id) / safe_dir_name(file_key)
 
-    async def _get_db(self, session_id: str, file_key: str) -> Optional[Any]:
+    async def _get_db(self, session_id: str, file_key: str) -> Any | None:
         key = (session_id, file_key)
         if key in self._dbs:
             return self._dbs[key]
@@ -97,9 +97,7 @@ class RAGIndex:
             chunks = await self._chunker.chunk(text)
             if not chunks:
                 return False
-            metadatas = [
-                {"file_name": file_key, "chunk_index": i} for i in range(len(chunks))
-            ]
+            metadatas = [{"file_name": file_key, "chunk_index": i} for i in range(len(chunks))]
             await vec_db.insert_batch(chunks, metadatas)
             logger.info(f"[烤箱-文件读取] {file_key} 已写入向量库（{len(chunks)} 块）")
             return True
@@ -111,13 +109,13 @@ class RAGIndex:
         self,
         session_id: str,
         query: str,
-        file_keys: Optional[List[str]] = None,
+        file_keys: list[str] | None = None,
         top_k: int = 5,
         fetch_k: int = 20,
         rerank: bool = True,
-    ) -> List[Tuple[str, str]]:
+    ) -> list[tuple[str, str]]:
         """在会话内的文件向量库中检索，返回 (文件名, 片段) 列表。"""
-        results: List[Tuple[str, str]] = []
+        results: list[tuple[str, str]] = []
         for db_session, file_key in list(self._dbs):
             if db_session != session_id:
                 continue
@@ -128,7 +126,10 @@ class RAGIndex:
                 continue
             try:
                 hits = await vec_db.retrieve(
-                    query, k=top_k, fetch_k=fetch_k, rerank=rerank and self.rerank_provider is not None
+                    query,
+                    k=top_k,
+                    fetch_k=fetch_k,
+                    rerank=rerank and self.rerank_provider is not None,
                 )
             except Exception as exc:
                 logger.error(f"[烤箱-文件读取] 检索 {file_key} 失败: {exc}")
@@ -153,8 +154,8 @@ class RAGIndex:
         if vec_db:
             try:
                 await vec_db.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Could not close file index (%s)", type(exc).__name__)
         db_dir = self._db_dir(session_id, file_key)
         try:
             if db_dir.exists():
@@ -174,7 +175,7 @@ class RAGIndex:
         except Exception as exc:
             logger.error(f"[烤箱-文件读取] 删除会话索引目录失败: {exc}")
 
-    def list_file_keys(self, session_id: str) -> List[str]:
+    def list_file_keys(self, session_id: str) -> list[str]:
         """列出会话内已索引的文件键。"""
         keys = {fk for ds, fk in self._dbs if ds == session_id}
         session_dir = self.base_dir / safe_dir_name(session_id)
@@ -188,6 +189,6 @@ class RAGIndex:
         for key, vec_db in list(self._dbs.items()):
             try:
                 await vec_db.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Could not close file index (%s)", type(exc).__name__)
             self._dbs.pop(key, None)

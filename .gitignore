@@ -1,6 +1,5 @@
 /参考资料
 __pycache__/
-/learning_style/__pycache__
 astrbot_plugin_oven_multi.zip
 CODE_REVIEW_GUIDE.md
 /.github/ISSUE_TEMPLATE
@@ -8,3 +7,18 @@ CODE_REVIEW_GUIDE.md
 /tests
 /.trae
 /.workbuddy
+
+# Local design context and build evidence.
+.impeccable/
+PRODUCT.md
+DESIGN.md
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+*.sqlite3*
+*.db
+*.log
+.env
+.env.*
+!.env.example

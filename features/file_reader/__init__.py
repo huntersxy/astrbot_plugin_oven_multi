@@ -6,7 +6,7 @@
 在其基础上调整了架构与行为，原版许可证文本见同目录 LICENSE 文件。
 """
 
-from .manager import FileRecord, FileReaderManager
+from .manager import FileReaderManager, FileRecord
 from .parsers import FileParseError, read_any_file_to_text, supported_extensions
 from .rag import RAGIndex
 

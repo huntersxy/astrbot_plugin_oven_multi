@@ -23,7 +23,7 @@ import time
 from collections import OrderedDict
 from pathlib import Path
 
-import astrbot.api.message_components as Comp
+import astrbot.api.message_components as components
 from astrbot.api import logger
 
 MENTION_RE = re.compile(
@@ -57,9 +57,7 @@ class ActiveSpeakersTracker:
                 for uid, info in users.items():
                     od[uid] = info
                 self._speakers[origin] = od
-            logger.debug(
-                f"[烤箱-@功能] 已加载发言人数据 | 来源数: {len(self._speakers)}"
-            )
+            logger.debug(f"[烤箱-@功能] 已加载发言人数据 | 来源数: {len(self._speakers)}")
         except Exception as e:
             logger.warning(f"[烤箱-@功能] 加载发言人数据失败: {e}")
 
@@ -111,17 +109,14 @@ class ActiveSpeakersTracker:
 
         lines = []
         for uid, info in speakers.items():
-            lines.append(
-                f"  - {info['nickname']} (ID: {uid}) [last: {info['last_active']}]"
-            )
+            lines.append(f"  - {info['nickname']} (ID: {uid}) [last: {info['last_active']}]")
 
         return (
             "\n\n## Active Speakers\n"
             "Below are the recently active users in this group. "
             'If you want to @mention someone in your reply, use <mention id="ID"/>.\n'
-            "For example: <mention id=\"123456\"> Hello!\n"
-            "You can mention multiple users. Do NOT output </mention>.\n"
-            + "\n".join(lines)
+            'For example: <mention id="123456"> Hello!\n'
+            "You can mention multiple users. Do NOT output </mention>.\n" + "\n".join(lines)
         )
 
 
@@ -135,15 +130,14 @@ def transform_mention_in_chain(chain: list) -> list | None:
         转换后的新 chain，若无 mention 标签则返回 None。
     """
     has_mention = any(
-        isinstance(comp, Comp.Plain) and MENTION_RE.search(comp.text)
-        for comp in chain
+        isinstance(comp, components.Plain) and MENTION_RE.search(comp.text) for comp in chain
     )
     if not has_mention:
         return None
 
     new_chain = []
     for comp in chain:
-        if not isinstance(comp, Comp.Plain):
+        if not isinstance(comp, components.Plain):
             new_chain.append(comp)
             continue
 
@@ -154,12 +148,12 @@ def transform_mention_in_chain(chain: list) -> list | None:
                 if idx % 2 == 0:
                     cleaned = MENTION_CLOSE_RE.sub("", part)
                     if cleaned.strip():
-                        new_chain.append(Comp.Plain(text=cleaned))
+                        new_chain.append(components.Plain(text=cleaned))
                 else:
-                    new_chain.append(Comp.At(qq=part))
+                    new_chain.append(components.At(qq=part))
         else:
             cleaned = MENTION_CLOSE_RE.sub("", text)
             if cleaned.strip():
-                new_chain.append(Comp.Plain(text=cleaned))
+                new_chain.append(components.Plain(text=cleaned))
 
     return new_chain

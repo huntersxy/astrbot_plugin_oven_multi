@@ -15,6 +15,7 @@
 #
 # Modified from astrbot_plugin_iamthinking (AGPL-3.0) by sssn-tech
 
+
 from astrbot.api import logger
 
 
@@ -47,8 +48,6 @@ class ThinkingManager:
         if bot and hasattr(bot, "set_msg_emoji_like"):
             for eid in set(ids):
                 try:
-                    await bot.set_msg_emoji_like(
-                        message_id=msg_id, emoji_id=eid, set=set_
-                    )
-                except Exception:
-                    pass
+                    await bot.set_msg_emoji_like(message_id=msg_id, emoji_id=eid, set=set_)
+                except Exception as exc:
+                    logger.debug("Could not update QQ reaction (%s)", type(exc).__name__)

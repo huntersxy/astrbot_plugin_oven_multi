@@ -21,7 +21,7 @@ import random
 import re
 from collections import defaultdict
 
-import astrbot.api.message_components as Comp
+import astrbot.api.message_components as components
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 
@@ -192,7 +192,8 @@ class ActiveReply:
                 if rid is not None and int(rid) >= int(current_id):
                     continue  # 当前消息及之后的行不含（当前条由缓冲补上）
                 line = self._format_native(rec)
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Skipping invalid native history row (%s)", type(exc).__name__)
                 continue
             if line:
                 lines.append(line)
@@ -266,8 +267,7 @@ class ActiveReply:
         if not msg or not getattr(msg, "message", None):
             return False
         if not any(
-            isinstance(comp, Comp.Plain) and (comp.text or "").strip()
-            for comp in msg.message
+            isinstance(comp, components.Plain) and (comp.text or "").strip() for comp in msg.message
         ):
             return False
         text = (event.get_message_str() or "").strip()
@@ -288,11 +288,8 @@ class ActiveReply:
         self, config: dict, ar: dict, event: AstrMessageEvent, origin: str, text: str
     ) -> bool:
         possibility = _float(ar.get("possibility", 0.1), 0.1)
-        hit = random.random() < possibility
-        logger.info(
-            f"[烤箱-主动回复] probability | origin={origin} "
-            f"{'命中' if hit else '未命中'}"
-        )
+        hit = random.random() < possibility  # noqa: S311 - Non-security chat probability.
+        logger.info(f"[烤箱-主动回复] probability | origin={origin} {'命中' if hit else '未命中'}")
         if not hit:
             return False
 
@@ -335,10 +332,7 @@ class ActiveReply:
 
         jev = self._jev_cfg(config)
         if not jev.get("enabled", False):
-            logger.warning(
-                "[烤箱-主动回复] model_choice 模式由 Jev 判定，"
-                "但 jev 未启用，本轮跳过"
-            )
+            logger.warning("[烤箱-主动回复] model_choice 模式由 Jev 判定，但 jev 未启用，本轮跳过")
             return False
 
         result = await self._run_jev(config, event, origin, None, with_decision=True)
@@ -368,8 +362,7 @@ class ActiveReply:
         if not jev.get("suppress_high_risk", True):
             _dbg(
                 jev,
-                f"检测到高危风险但 suppress_high_risk=false，不拦截 | "
-                f"origin={origin} 触发={how}",
+                f"检测到高危风险但 suppress_high_risk=false，不拦截 | origin={origin} 触发={how}",
             )
             return False
         logger.warning(
@@ -381,9 +374,7 @@ class ActiveReply:
 
     # ── 被@/唤醒触发：一次多维判读（重点：意向与情绪） ─────────────────────
 
-    async def mention_reading(
-        self, event: AstrMessageEvent, config: dict
-    ) -> str | None:
+    async def mention_reading(self, event: AstrMessageEvent, config: dict) -> str | None:
         """被@/唤醒触发（非主动回复）时调用一次 Jev 判读，返回注入块。
 
         只产出六维判读（不消费 should_reply 判定结果）；失败仅告警并降级为
@@ -517,9 +508,7 @@ class ActiveReply:
             return None
         return result
 
-    def _attach(
-        self, config: dict, event: AstrMessageEvent, result: dict, *, scene: str
-    ) -> None:
+    def _attach(self, config: dict, event: AstrMessageEvent, result: dict, *, scene: str) -> None:
         """把判读块挂到事件 extra，供主插件注入本轮 LLM 请求。"""
         jev = self._jev_cfg(config)
         block = format_block(
