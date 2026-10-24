@@ -55,6 +55,7 @@ from .constants import (
 )
 from .features.balance_checker import BalanceChecker
 from .features.bili_auto import BiliAutoTakeover
+from .features.bili_dashboard import BiliDashboard
 from .features.bili_proxy import BiliProxyManager
 from .features.bili_requests import BiliRequestBridge
 from .features.bili_wire import BiliWireManager
@@ -134,6 +135,9 @@ class OvenMultiPlugin(Star):
             lambda: feature_cfg(self.config, FEATURE_BILI), self.data_dir
         )
         self.bili_wire = BiliWireManager(lambda: self._host_config(), self.data_dir)
+        self.bili_dashboard = BiliDashboard(
+            self.bili_proxy, lambda: feature_cfg(self.config, FEATURE_BILI)
+        )
         self._bili_task = None
         self.bili_requests = BiliRequestBridge(self)
         self.bili_auto = BiliAutoTakeover(self)
@@ -169,6 +173,12 @@ class OvenMultiPlugin(Star):
 
         # Register only native Panel APIs.
         for route, handler, method, description in (
+            (
+                f"/{PLUGIN_NAME}/billion/dashboard",
+                self._api_billion_dashboard,
+                "GET",
+                "Oven Multi read-only compression statistics",
+            ),
             (f"/{PLUGIN_NAME}/status", self._api_status, "GET", "Oven Multi feature status"),
             (f"/{PLUGIN_NAME}/balance", self._api_balance, "GET", "Oven Multi provider balances"),
             (f"/{PLUGIN_NAME}/settings", self._api_settings, "GET", "Oven Multi panel settings"),
@@ -619,6 +629,17 @@ class OvenMultiPlugin(Star):
             if pid in view:
                 return pid
         return next(iter(view)) if len(view) == 1 else None
+
+    async def _api_billion_dashboard(self):
+        try:
+            page = int(request.query.get("page", "1"))
+        except (ValueError, TypeError):
+            return {"success": False, "message": "页码必须是整数。"}
+        data = await self.bili_dashboard.get(
+            page=page, query=request.query.get("q", ""),
+            session_id=request.query.get("session", ""),
+        )
+        return {"success": True, "data": data}
 
     async def _api_billion_status(self):
         """压缩代理与接管状态（含巡检告警），供状态卡展示。"""

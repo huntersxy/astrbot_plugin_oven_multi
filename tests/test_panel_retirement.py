@@ -117,6 +117,7 @@ async def test_segment_reply_defaults_off_and_non_llm_gate(plugin):
 async def test_only_native_routes_and_scoped_cleanup(plugin):
     routes = plugin.context.registered_web_apis
     assert [row[0].replace(f"/{ROOT.name}/", "") for row in routes] == [
+        "billion/dashboard",
         "status",
         "balance",
         "settings",
@@ -126,7 +127,7 @@ async def test_only_native_routes_and_scoped_cleanup(plugin):
         "billion/restore",
     ]
     assert [row[2] for row in routes] == [
-        ["GET"], ["GET"], ["GET"], ["POST"], ["GET"], ["POST"], ["POST"],
+        ["GET"], ["GET"], ["GET"], ["GET"], ["POST"], ["GET"], ["POST"], ["POST"],
     ]
     unrelated = ("/other", lambda: {}, ["GET"], "other plugin")
     routes.append(unrelated)
@@ -190,7 +191,7 @@ async def test_malformed_service_and_exception_never_leak_credentials():
 
 def test_versions_native_view_and_provider_templates_remain_consistent():
     metadata = yaml.safe_load((ROOT / "metadata.yaml").read_text("utf-8"))
-    assert metadata["version"] == plugin_module.PLUGIN_VERSION == "1.55.0"
+    assert metadata["version"] == plugin_module.PLUGIN_VERSION == "1.56.0"
     assert metadata["views"] == [{"name": "status", "title": "状态总览"}]
     template = balance_module._BUILTIN_PARSERS["minimax"]["result_template"]
     checker = balance_module.BalanceChecker({})

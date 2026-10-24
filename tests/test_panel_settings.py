@@ -433,6 +433,7 @@ def test_api_settings_routes_registered():
         for row in plugin.context.registered_web_apis
     ]
     assert routes == [
+        ("billion/dashboard", ["GET"]),
         ("status", ["GET"]),
         ("balance", ["GET"]),
         ("settings", ["GET"]),

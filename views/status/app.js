@@ -13,8 +13,14 @@ const state = {
   settingsDirty: false,
   settingsRevision: null,
   biliBusy: false,
+  settingsCategory: "消息与回复",
+  compressionBusy: false,
+  compressionLoaded: false,
+  compressionPage: 1,
+  compressionQuery: "",
+  compressionDetail: 0,
 };
-const TAB_ORDER = ["overview", "balances", "settings"];
+const TAB_ORDER = ["overview", "compression", "balances", "settings"];
 
 function unwrap(payload) {
   if (payload?.success === false || payload?.status === "error") {
@@ -54,6 +60,7 @@ function selectTab(name, focus = false) {
     if (selected && focus) button.focus();
   }
   if (name === "settings" && !state.settingsLoaded) loadSettings();
+  if (name === "compression" && !state.compressionLoaded) loadCompression();
 }
 
 function renderFeatures(features) {
@@ -206,7 +213,7 @@ const BILI_STATE_TEXT = {
 
 function renderBiliCard(data) {
   const card = $("bili-card");
-  card.hidden = false;
+  card.hidden = state.settingsCategory !== "上下文压缩";
   const proxy = data.proxy || {};
   const wire = data.wire;
   const stateText = BILI_STATE_TEXT[proxy.state] || proxy.state || "未知";
@@ -276,6 +283,160 @@ function armBiliButton(kind) {
   }, 5000);
 }
 
+function quantity(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  const abs = Math.abs(value);
+  const scale = abs >= 1e9 ? [1e9, "B"] : abs >= 1e6 ? [1e6, "M"] : abs >= 1e3 ? [1e3, "K"] : [1, ""];
+  return (value / scale[0]).toLocaleString("zh-CN", { maximumFractionDigits: scale[0] === 1 ? 0 : 2 }) + scale[1];
+}
+
+function percentage(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) + "%" : "—";
+}
+
+function metric(label, value, note = "") {
+  const group = node("div", "metric");
+  const number = node("dd", "metric-value", value);
+  group.append(node("dt", "", label), number);
+  if (note) group.append(node("dd", "metric-note", note));
+  return group;
+}
+
+function cells(values) {
+  const row = node("tr");
+  values.forEach(value => row.append(node("td", "", value)));
+  return row;
+}
+
+function ago(raw) {
+  const time = typeof raw === "number" ? raw : Date.parse(raw);
+  if (!Number.isFinite(time)) return "—";
+  const seconds = Math.max(0, (Date.now() - time) / 1000);
+  return seconds < 60 ? "刚刚" : seconds < 3600 ? Math.floor(seconds / 60) + " 分钟前" : seconds < 86400 ? Math.floor(seconds / 3600) + " 小时前" : Math.floor(seconds / 86400) + " 天前";
+}
+
+function renderCompression(data) {
+  const o = data.overview || {};
+  $("compression-content").hidden = false;
+  $("compression-empty").hidden = true;
+  $("compression-metrics").replaceChildren(
+    metric("会话总数", quantity(o.sessions), `${quantity(o.live)} 个运行中，其余为历史会话`),
+    metric("请求总数", quantity(o.requests), "引擎记录的全部请求"),
+    metric("压缩累计节省", quantity(o.grossSavedTotal), "逐次请求累计的理论节省 token"),
+    metric("净节省 token", o.hasFoldData ? quantity(o.netSavedTotal) : "—", o.hasFoldData ? `已扣除回填 ${quantity(o.repayTotal)} 与摘要 ${quantity(o.summaryCostTotal)}` : "暂无可核算的压缩账本"),
+    metric("缓存命中率", percentage(o.hitPct), "按实际 usage 加权统计"),
+    metric("输入 token", quantity(o.inputTokens)),
+    metric("缓存命中 token", quantity(o.cachedTokens)),
+    metric("输出 token", quantity(o.outputTokens)),
+  );
+  const miss = (label, value) => `${label} ${quantity(value)}${o.missInputTotal > 0 && typeof value === "number" ? `（${percentage(value / o.missInputTotal * 100)}）` : ""}`;
+  $("compression-misses").textContent = "未命中构成：" + [miss("新增内容", o.missNewTotal), miss("压缩回填", o.missCompTotal), miss("TTL／淘汰／未知", o.missTtlTotal)].join("；") + (o.savedEstimated > 0 ? `。另有历史估算 ${quantity(o.savedEstimated)}，不计入净节省。` : "。");
+  const runtime = data.runtime || {};
+  $("compression-runtime").textContent = runtime.stale ? "运行版本与磁盘不同，等待代理重启" : "代理运行信息";
+  $("compression-system").replaceChildren(
+    metric("运行版本", runtime.version || "—", runtime.commit || ""),
+    metric("磁盘版本", runtime.diskVersion || "—"),
+    metric("进行中请求", quantity(runtime.inFlight)),
+    metric("MITM 盲隧道", quantity(runtime.blindTunnels), "CONNECT 后未解密 TLS 的连接数"),
+  );
+  const protocolRows = (o.byProtocol || []).map(p => cells([p.protocol, quantity(p.sessions), quantity(p.requests), quantity(p.inputTokens), quantity(p.cachedTokens), percentage(p.hitPct), quantity(p.savedNet), quantity(p.folds)]));
+  if (!protocolRows.length) protocolRows.push(cells(["暂无协议记录"]));
+  $("compression-protocols").replaceChildren(...protocolRows);
+  const rows = (data.sessions || []).map(s => {
+    const row = node("tr");
+    const first = node("td", "session-name");
+    const button = node("button", "session-link", s.title || "未命名会话");
+    button.type = "button";
+    button.addEventListener("click", () => loadCompressionDetail(s.id));
+    first.append(button, node("span", "session-id", s.id), node("span", "setting-hint", `${s.live && !s.restored ? "运行中" : "历史"}　${s.protocol || "未知协议"}　${s.clientHint || ""}　${s.upstream || ""}`));
+    row.append(first);
+    const values = [quantity(s.requests), quantity(s.contextBest?.tokens ?? s.contextTokens), quantity(s.inputTokens), percentage(s.cacheHitPct), quantity(s.netSaved ?? s.tokensSaved), quantity(s.foldCount), `${quantity(s.modelSwitches)} / ${quantity(s.keySwitches)}`, quantity(s.blocks), ago(s.lastSeen)];
+    values.forEach(value => row.append(node("td", "", value)));
+    row.children[2].title = s.contextBest?.kind || s.contextTokensSource || "引擎提供的当前上下文";
+    row.children[4].title = `未命中：新增 ${percentage(s.missDropNew)}；压缩 ${percentage(s.missDropComp)}；TTL／未知 ${percentage(s.missDropTtl)}`;
+    row.children[5].title = s.netSaved == null ? "历史本地估算；暂无净节省账本" : "已扣除回填与摘要成本";
+    row.children[7].title = `模型变更相关未命中 ${quantity(s.switchMissedTokens)}；密钥变更 ${quantity(s.keySwitchMissedTokens)}；提示词变更 ${quantity(s.promptSwitches)} 次`;
+    return row;
+  });
+  if (!rows.length) rows.push(cells([state.compressionQuery ? "没有匹配的会话，请更换关键词。" : "暂无会话记录，真实请求经过代理后会显示在这里。"]));
+  $("compression-sessions").replaceChildren(...rows);
+  const pages = Math.max(1, Math.ceil((data.total || 0) / (data.page_size || 30)));
+  $("compression-page").textContent = `共 ${data.total || 0} 个会话，第 ${data.page || 1} / ${pages} 页`;
+  $("compression-prev").disabled = data.page <= 1;
+  $("compression-next").disabled = data.page >= pages;
+  $("compression-time").textContent = `数据更新于 ${new Date(data.checked_at * 1000).toLocaleTimeString("zh-CN", { hour12: false })}。当前页面每 10 秒刷新；缺少测量值时显示「—」。`;
+}
+
+async function loadCompression() {
+  if (state.compressionBusy) { state.compressionQueued = true; return; }
+  state.compressionBusy = true;
+  const page = state.compressionPage, query = state.compressionQuery;
+  $("refresh-compression").disabled = true;
+  $("panel-compression").setAttribute("aria-busy", "true");
+  setError("compression-error", "");
+  try {
+    const data = unwrap(await window.AstrBotPluginPage.apiGet(`billion/dashboard?page=${page}&q=${encodeURIComponent(query)}`));
+    if (page !== state.compressionPage || query !== state.compressionQuery) return;
+    if (!data || typeof data.available !== "boolean") throw new Error("Invalid compression response");
+    if (!data.available) {
+      $("compression-empty").hidden = false;
+      $("compression-empty").textContent = data.reason || "压缩统计暂不可用，请检查代理连接后重试。";
+      $("compression-content").hidden = true;
+      return;
+    }
+    renderCompression(data);
+    state.compressionLoaded = true;
+    if (data.stale) setError("compression-error", (data.reason || "暂时无法刷新") + " 已保留上次数据。");
+    if (state.compressionSession) await loadCompressionDetail(state.compressionSession, true);
+  } catch (error) {
+    setError("compression-error", state.compressionLoaded ? "压缩统计刷新失败，已保留上次数据。请检查代理后重试。" : "无法读取压缩统计，请检查压缩代理是否运行，再点击「刷新数据」。");
+  } finally {
+    state.compressionBusy = false;
+    $("compression-loading").hidden = true;
+    $("refresh-compression").disabled = false;
+    $("panel-compression").setAttribute("aria-busy", "false");
+    if (state.compressionQueued) { state.compressionQueued = false; loadCompression(); }
+  }
+}
+
+async function loadCompressionDetail(id, refresh = false) {
+  state.compressionSession = id;
+  const ticket = ++state.compressionDetail;
+  $("compression-detail").hidden = false;
+  if (!refresh) {
+    $("compression-detail-state").textContent = "正在读取会话详情…";
+    $("compression-detail-metrics").replaceChildren();
+    $("compression-detail").scrollIntoView?.({ behavior: "instant", block: "nearest" });
+  }
+  try {
+    const data = unwrap(await window.AstrBotPluginPage.apiGet("billion/dashboard?session=" + encodeURIComponent(id)));
+    if (ticket !== state.compressionDetail) return;
+    if (!data.available || !data.session) throw new Error(data.reason || "会话详情不可用，请刷新后重试。");
+    const s = data.session;
+    $("compression-detail-title").textContent = s.title || "未命名会话";
+    const checked = data.checked_at ? new Date(data.checked_at * 1000).toLocaleTimeString("zh-CN", {hour12:false}) : "未报告";
+    $("compression-detail-state").textContent = `${s.id}。详情采集于 ${checked}；上下文来源：${s.contextBest?.kind || s.contextTokensSource || "未报告"}。${data.stale ? "当前为上次读取结果。" : ""}`;
+    $("compression-detail-metrics").replaceChildren(
+      metric("当前上下文", quantity(s.contextBest?.tokens ?? s.contextTokens), `窗口上限 ${quantity(s.contextWindow)}`),
+      metric("最近计费输入", quantity(s.lastInputTokens), "与引擎估算的当前上下文分别显示"),
+      metric("系统提示 token", quantity(s.systemPromptTokens)),
+      metric("缓存命中率", percentage(s.cacheHitPct), `命中 ${quantity(s.cachedTokens)} / 输入 ${quantity(s.inputTokens)}`),
+      metric("节省 token", quantity(s.netSaved ?? s.tokensSaved), s.netSaved == null ? "本地估算，尚无净节省账本" : "净节省，含回填与摘要成本"),
+      metric("压缩次数", quantity(s.foldCount)),
+      metric("未命中：新增内容", quantity(s.newContent), percentage(s.missDropNew)),
+      metric("未命中：压缩回填", quantity(s.compRepay), percentage(s.missDropComp)),
+      metric("未命中：TTL／未知", quantity(s.ttlRepay), percentage(s.missDropTtl)),
+      metric("模型切换", quantity(s.modelSwitches), `相关未命中 ${quantity(s.switchMissedTokens)}`),
+      metric("密钥切换", quantity(s.keySwitches), `相关未命中 ${quantity(s.keySwitchMissedTokens)}`),
+      metric("提示词变更", quantity(s.promptSwitches), `相关未命中 ${quantity(s.promptSwitchMissedTokens)}`),
+      metric("内容块", quantity(s.blocks)),
+      metric("内容检索", quantity(s.retrieveCalls), `命中 ${quantity(s.retrieveHits)}；未命中 ${quantity(s.retrieveMisses)}`),
+    );
+  } catch (error) {
+    if (ticket === state.compressionDetail) $("compression-detail-state").textContent = refresh ? "详情刷新失败，已保留上次详情。" : error.message || "会话详情读取失败，请重试。";
+  }
+}
+
 function settingInput(field) {
   if (field.type === "bool") {
     const input = node("input");
@@ -339,28 +500,91 @@ function settingInput(field) {
 }
 
 function settingRow(field) {
-  const row = node("li", "setting-row");
+  const row = node("li", "setting-row" + (field.type === "bool" ? " setting-toggle" : "") + (field.type === "list" ? " setting-wide" : ""));
   const body = node("div");
-  body.append(node("span", "setting-label", field.label));
-  if (field.hint) body.append(node("span", "setting-hint", field.hint));
+  const label = node("label", "setting-label", field.label);
+  const id = "setting-" + field.key.replaceAll(".", "-");
+  label.setAttribute("for", id);
+  body.append(label);
+  if (field.hint) {
+    const hint = node("span", "setting-hint", field.hint);
+    hint.id = id + "-hint";
+    body.append(hint);
+  }
   const input = settingInput(field);
+  input.id = id;
+  if (field.hint) input.setAttribute("aria-describedby", id + "-hint");
   input.classList.add("setting-input");
   row.append(body, input);
   return row;
 }
 
+const SETTINGS_SECTIONS = {
+  bracket_matching: "括号补全", repetition: "复读与打断", remove_blank_lines: "空行整理",
+  iam_thinking: "思考表情", mention_parser: "成员提及", segment_reply: "分段与节奏",
+  jev: "Jev 判读", file_reader: "文件与检索", bili: "压缩代理", blacklist: "使用范围",
+};
+const COMMON_SETTINGS = new Set([
+  "repetition.repeat_threshold", "remove_blank_lines.max_consecutive_newlines",
+  "segment_reply.min_length", "segment_reply.max_length", "segment_reply.delay_type",
+  "segment_reply.fixed_delay_seconds", "segment_reply.random_delay_range",
+  "jev.model", "jev.base_url", "bili.mode", "bili.auto_follow", "bili.provider_ids",
+  "file_reader.preread.enabled", "file_reader.tool.enabled", "file_reader.rag.enabled",
+]);
+
+function selectSettingsCategory(name, focus = false) {
+  state.settingsCategory = name;
+  $("bili-card").hidden = name !== "上下文压缩";
+  for (const button of $("settings-nav").children) {
+    const selected = button.dataset.category === name;
+    button.setAttribute("aria-current", selected ? "page" : "false");
+    if (selected && focus) button.focus();
+  }
+  for (const section of $("settings-groups").children) section.hidden = section.dataset.category !== name;
+}
+
 function renderSettings(groups) {
   const container = $("settings-groups");
   container.replaceChildren();
+  $("settings-nav").replaceChildren();
   for (const group of groups) {
-    const section = node("section", "feature-section settings-group");
+    const button = node("button", "category-button", group.name);
+    button.type = "button";
+    button.dataset.category = group.name;
+    button.addEventListener("click", () => selectSettingsCategory(group.name));
+    $("settings-nav").append(button);
+    const section = node("section", "settings-group");
+    section.dataset.category = group.name;
     section.append(node("h3", "", group.name));
     if (group.note) section.append(node("p", "group-note", group.note));
-    const list = node("ul");
-    for (const field of group.fields) list.append(settingRow(field));
-    section.append(list);
+    const parts = new Map();
+    for (const field of group.fields) {
+      const prefix = field.key.includes(".") ? field.key.split(".")[0] : "blacklist";
+      if (!parts.has(prefix)) parts.set(prefix, []);
+      parts.get(prefix).push(field);
+    }
+    if (parts.size > 1) section.classList.add("settings-group-multi");
+    for (const [prefix, fields] of parts) {
+      const block = node("section", "settings-block");
+      block.append(node("h4", "", SETTINGS_SECTIONS[prefix] || group.name));
+      const common = node("ul", "settings-fields");
+      const advanced = node("ul", "settings-fields");
+      for (const field of fields) {
+        const primary = field.key.endsWith(".enabled") && field.key.split(".").length === 2;
+        const target = primary || prefix === "blacklist" || COMMON_SETTINGS.has(field.key) ? common : advanced;
+        target.append(settingRow(field));
+      }
+      block.append(common);
+      if (advanced.children.length) {
+        const details = node("details", "advanced-settings");
+        details.append(node("summary", "", `高级参数（${advanced.children.length}）`), advanced);
+        block.append(details);
+      }
+      section.append(block);
+    }
     container.append(section);
   }
+  selectSettingsCategory(groups.some(g => g.name === state.settingsCategory) ? state.settingsCategory : groups[0]?.name);
 }
 
 function updateSettingsFooter() {
@@ -394,6 +618,7 @@ function collectSettings() {
 async function saveSettings() {
   if (state.settingsBusy || !state.settingsDirty || !state.settingsLoaded) return;
   state.settingsBusy = true;
+  $("settings-groups").inert = true;
   $("save-settings").disabled = true;
   $("save-settings").querySelector("span").textContent = "保存中…";
   setError("settings-error", "");
@@ -419,6 +644,7 @@ async function saveSettings() {
     }
   } finally {
     state.settingsBusy = false;
+    $("settings-groups").inert = false;
     $("save-settings").querySelector("span").textContent = "保存修改";
     $("save-settings").disabled = !state.settingsDirty;
   }
@@ -452,6 +678,22 @@ for (const button of document.querySelectorAll("[data-tab]")) {
 }
 $("refresh").addEventListener("click", loadStatus);
 $("query-balances").addEventListener("click", loadBalances);
+$("refresh-compression").addEventListener("click", loadCompression);
+$("compression-prev").addEventListener("click", () => { state.compressionPage = Math.max(1, state.compressionPage - 1); loadCompression(); });
+$("compression-next").addEventListener("click", () => { state.compressionPage += 1; loadCompression(); });
+let compressionSearchTimer;
+$("compression-search").addEventListener("input", event => {
+  clearTimeout(compressionSearchTimer);
+  compressionSearchTimer = setTimeout(() => {
+    state.compressionQuery = event.target.value.trim();
+    state.compressionPage = 1;
+    loadCompression();
+  }, 350);
+});
+$("close-compression-detail").addEventListener("click", () => { state.compressionSession = ""; state.compressionDetail += 1; $("compression-detail").hidden = true; });
+if (typeof setInterval === "function") setInterval(() => {
+  if (state.tab === "compression" && document.visibilityState !== "hidden") loadCompression();
+}, 10000);
 
 async function start() {
   try {

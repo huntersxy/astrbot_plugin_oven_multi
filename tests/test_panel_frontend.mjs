@@ -43,7 +43,7 @@ class Element {
 }
 const elements=new Map();
 const get=(id)=>{ if(!elements.has(id))elements.set(id,new Element());return elements.get(id); };
-const tabs=['overview','balances','settings'].map(name=>{const e=get('tab-'+name);e.dataset.tab=name;return e;});
+const tabs=['overview','compression','balances','settings'].map(name=>{const e=get('tab-'+name);e.dataset.tab=name;return e;});
 const calls=[];const waiting=[];
 const apiGet=(name)=>{calls.push(name);return new Promise((resolve,reject)=>waiting.push({name,resolve,reject}));};
 const posts=[];
@@ -55,7 +55,7 @@ const bridge = sandbox.window.AstrBotPluginPage;
 delete sandbox.window.AstrBotPluginPage;
 let resolveReady;
 bridge.ready = () => new Promise(resolve => { resolveReady = resolve; });
-const source = fs.readFileSync('views/status/app.js','utf8')+'\nthis.api={state,loadStatus,loadBalances,selectTab,loadSettings,saveSettings};';
+const source = fs.readFileSync('views/status/app.js','utf8')+'\nthis.api={state,loadStatus,loadBalances,selectTab,loadSettings,saveSettings,loadCompression,loadCompressionDetail,quantity};';
 const html = fs.readFileSync('views/status/index.html','utf8');
 const scripts = [...html.matchAll(/<script\b([^>]*)>\s*<\/script>/g)];
 assert.equal(scripts.length, 1, 'Let the host inject exactly one bridge SDK');
@@ -111,11 +111,10 @@ assert.equal(sandbox.api.state.settingsLoaded,true);
 assert.equal(get('settings-groups').children.length,1);
 const settingsSection=get('settings-groups').children[0];
 assert.equal(settingsSection.children[1].textContent,'分组指引文本'); // 组指引行
-const settingsRows=settingsSection.children.find((child)=>child.tagName==='ul').children;
-const managedInput=settingsRows[0].querySelectorAll('input')[0];
+const managedInput=settingsSection.querySelectorAll('input').find(input=>input.dataset.key==='mention_parser.enabled');
 assert.equal(managedInput.disabled,true);
 assert.equal(managedInput.checked,false);
-const listArea=settingsRows.map((row)=>row.children.find((child)=>child.tagName==='textarea')).find(Boolean);
+const listArea=settingsSection.querySelectorAll('textarea')[0];
 assert.equal(listArea.value,'帮助\n菜单'); // 列表项按行渲染
 listArea.value=' 帮助 \n\n菜单\n'; // 保存时去空白、丢空行
 assert.equal(get('save-settings').disabled,true); // 未修改时不可保存
@@ -133,7 +132,7 @@ shiftNamed('status').resolve(status);await tick(); // 排空刷新请求
 const biliStatus=shiftNamed('billion/status'); // 来自初始 loadSettings
 biliStatus.resolve({enabled:true,proxy:{state:'spawned',mode:'managed',url:'http://127.0.0.1:8787',detail:'',healthy:true},wire:null,doctor:['巡检示例']});
 await tick();
-assert.equal(get('bili-card').hidden,false);
+assert.equal(get('bili-card').hidden,true); // 压缩状态仅显示在压缩分类
 assert.match(get('bili-state').textContent,/代理运行中/);
 assert.equal(get('bili-wire').hidden,false);
 assert.equal(get('bili-doctor').children.length,1);
@@ -161,3 +160,40 @@ reloadBtn.click();
 const reload=shiftNamed('settings');reload.resolve(groupsPayload);await tick();
 assert.equal(sandbox.api.state.settingsRevision,'rev-1');
 console.log('Panel behavior passed: manual queries, XSS-safe text, duplicate suppression, stale-result rejection, disabled-config reset, error retention, tabs, settings render/save/stale-reload.');
+
+// Compression data: lazy load, measured zero vs unknown, XSS-safe sessions and stale retention.
+sandbox.api.selectTab('compression');
+const compressionCall=shiftNamed('billion/dashboard?page=1&q=');
+assert.ok(compressionCall);
+const compressionData={available:true,stale:false,checked_at:100,page:1,page_size:30,total:1,runtime:{version:'0.1.206',diskVersion:'0.1.206',inFlight:0},overview:{sessions:1,live:1,requests:3,hitPct:0,inputTokens:1000,cachedTokens:0,hasFoldData:true,netSavedTotal:-12,grossSavedTotal:500,repayTotal:500,summaryCostTotal:12,byProtocol:[]},sessions:[{id:'<unsafe/id>',title:'<img onerror=bad()>',live:true,inputTokens:1000,cachedTokens:0,cacheHitPct:0,contextBest:{tokens:333,kind:'usage'},netSaved:-12}]};
+compressionCall.resolve(compressionData);await tick();
+assert.equal(get('compression-content').hidden,false);
+assert.equal(get('compression-metrics').children.length,8);
+assert.equal(get('compression-metrics').children[4].children[1].textContent,'0.0%');
+assert.equal(get('compression-metrics').children[7].children[1].textContent,'—');
+assert.equal(get('compression-sessions').children[0].children[0].children[0].textContent,'<img onerror=bad()>');
+assert.equal(get('compression-sessions').children[0].children[2].textContent,'333');
+assert.equal(get('compression-next').disabled,true);
+assert.equal(sandbox.api.quantity(null),'—');
+assert.equal(sandbox.api.quantity(0),'0');
+assert.equal(sandbox.api.quantity(-1200),'-1.2K');
+const failingCompression=sandbox.api.loadCompression();shiftNamed('billion/dashboard?page=1&q=').reject(Error('offline'));await failingCompression;
+assert.equal(get('compression-content').hidden,false);
+assert.match(get('compression-error').textContent,/保留上次/);
+const detail=sandbox.api.loadCompressionDetail('<unsafe/id>');
+shiftNamed('billion/dashboard?session=%3Cunsafe%2Fid%3E').resolve({available:true,session:compressionData.sessions[0]});await detail;
+assert.equal(get('compression-detail-title').textContent,'<img onerror=bad()>');
+assert.equal(get('compression-detail-metrics').children.length,14);
+const refreshedOverview=sandbox.api.loadCompression();
+shiftNamed('billion/dashboard?page=1&q=').resolve(compressionData);await tick();
+const refreshedDetail=shiftNamed('billion/dashboard?session=%3Cunsafe%2Fid%3E');
+assert.ok(refreshedDetail,'Visible session detail refreshes with the overview');
+refreshedDetail.resolve({available:true,checked_at:200,session:{...compressionData.sessions[0],title:'updated detail'}});await refreshedOverview;
+assert.equal(get('compression-detail-title').textContent,'updated detail');
+assert.match(get('compression-detail-state').textContent,/详情采集于/);
+const lateDetail=sandbox.api.loadCompressionDetail('late');
+get('close-compression-detail').click();
+shiftNamed('billion/dashboard?session=late').resolve({available:true,session:{title:'stale'}});await lateDetail;
+assert.equal(get('compression-detail').hidden,true);
+assert.notEqual(get('compression-detail-title').textContent,'stale');
+console.log('Compression dashboard behavior passed.');

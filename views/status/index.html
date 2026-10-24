@@ -20,6 +20,7 @@
     <div class="toolbar">
       <div class="tabs" role="tablist" aria-label="总览页面">
         <button id="tab-overview" type="button" role="tab" aria-selected="true" aria-controls="panel-overview" data-tab="overview">运行概览</button>
+        <button id="tab-compression" type="button" role="tab" aria-selected="false" aria-controls="panel-compression" tabindex="-1" data-tab="compression">上下文压缩</button>
         <button id="tab-balances" type="button" role="tab" aria-selected="false" aria-controls="panel-balances" tabindex="-1" data-tab="balances">服务余额</button>
         <button id="tab-settings" type="button" role="tab" aria-selected="false" aria-controls="panel-settings" tabindex="-1" data-tab="settings">设置</button>
       </div>
@@ -46,8 +47,29 @@
       <footer class="sheet-footer"><span id="balance-time">尚未查询</span><span>结果按服务原始币种显示，不合并计算。</span></footer>
     </section>
 
-    <section class="sheet" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
-      <div class="sheet-heading"><div><h2>快捷设置</h2><p>常用开关与参数，保存后立即生效并写入插件配置。完整配置（含密钥、符号与关键词列表）请使用 AstrBot 插件配置页。</p></div><button id="save-settings" class="button primary" type="button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg><span>保存修改</span></button></div>
+    <section id="panel-compression" role="tabpanel" aria-labelledby="tab-compression" hidden>
+      <div class="compression-heading"><div><h2>压缩与缓存</h2><p>读取 billion-context 内存与磁盘中的全部会话。</p></div><button id="refresh-compression" class="button secondary" type="button">刷新数据</button></div>
+      <div id="compression-error" class="message error" role="alert" hidden></div>
+      <div id="compression-loading" class="loading" role="status">正在读取压缩统计…<div class="skeleton"></div><div class="skeleton"></div></div>
+      <div id="compression-empty" class="sheet empty" hidden></div>
+      <div id="compression-content" hidden>
+        <dl id="compression-metrics" class="compression-metrics"></dl>
+        <p id="compression-misses" class="data-note"></p>
+        <section class="sheet data-sheet"><div class="data-heading"><h3>按协议统计</h3></div><div class="table-scroll" tabindex="0" role="region" aria-label="协议统计，可横向滚动"><table><thead><tr><th scope="col">协议</th><th scope="col">会话</th><th scope="col">请求</th><th scope="col">输入 token</th><th scope="col">缓存 token</th><th scope="col">命中率</th><th scope="col">净节省</th><th scope="col">压缩次数</th></tr></thead><tbody id="compression-protocols"></tbody></table></div></section>
+        <section class="sheet data-sheet"><div class="data-heading"><h3>系统状态</h3><span id="compression-runtime" class="summary"></span></div><dl id="compression-system" class="system-metrics"></dl></section>
+        <section class="sheet data-sheet">
+          <div class="data-heading"><div><h3>会话明细</h3><p class="setting-hint">点击会话查看上下文与缓存消耗。</p></div><label class="session-search"><span class="sr-only">搜索会话</span><input id="compression-search" type="search" placeholder="搜索会话名称或 ID" maxlength="128"></label></div>
+          <div class="table-scroll" tabindex="0" role="region" aria-label="会话明细，可横向滚动"><table class="sessions-table"><thead><tr><th scope="col">会话</th><th scope="col">请求</th><th scope="col">当前上下文</th><th scope="col">累计输入</th><th scope="col">缓存命中</th><th scope="col">节省 token</th><th scope="col">压缩</th><th scope="col">模型／密钥变更</th><th scope="col">内容块</th><th scope="col">最近活动</th></tr></thead><tbody id="compression-sessions"></tbody></table></div>
+          <footer class="sheet-footer session-pager"><span id="compression-page"></span><span class="pager-buttons"><button id="compression-prev" class="button secondary" type="button">上一页</button><button id="compression-next" class="button secondary" type="button">下一页</button></span></footer>
+        </section>
+        <section id="compression-detail" class="sheet data-sheet" hidden><div class="data-heading"><h3 id="compression-detail-title">会话详情</h3><button id="close-compression-detail" class="button secondary" type="button">收起详情</button></div><p id="compression-detail-state" class="data-note" role="status"></p><dl id="compression-detail-metrics" class="detail-metrics"></dl></section>
+        <p class="data-note" id="compression-time"></p>
+      </div>
+      <p class="bili-credit">压缩引擎：<a href="https://github.com/ranxianglei/billion-context" target="_blank" rel="noopener noreferrer">billion-context</a> 与 <a href="https://github.com/ranxianglei/acp-kernel" target="_blank" rel="noopener noreferrer">acp-kernel</a>。统计沿用引擎口径，节省 token 不等于账单金额。</p>
+    </section>
+
+    <section class="sheet settings-sheet" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+      <div class="sheet-heading"><div><h2>设置</h2><p>按功能调整，保存后立即生效。密钥、余额服务与模型选择器在 AstrBot 插件配置页维护。</p></div><button id="save-settings" class="button primary" type="button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg><span>保存修改</span></button></div>
       <div id="settings-error" class="message error" role="alert" hidden></div>
       <div id="bili-card" class="bili-card" hidden>
         <div class="bili-head">
@@ -64,7 +86,7 @@
         <p class="bili-credit">压缩引擎：<a href="https://github.com/ranxianglei/billion-context" target="_blank" rel="noopener noreferrer">billion-context</a> · <a href="https://github.com/ranxianglei/acp-kernel" target="_blank" rel="noopener noreferrer">acp-kernel</a></p>
       </div>
       <div id="settings-loading" class="loading" role="status">正在读取设置…<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>
-      <div id="settings-groups" class="settings-groups"></div>
+      <div class="settings-layout"><nav id="settings-nav" class="settings-nav" aria-label="设置分类"></nav><div id="settings-groups" class="settings-groups"></div></div>
       <p id="settings-empty" class="empty" hidden>暂时没有可编辑的设置。请确认插件已启用，再点击「刷新状态」。</p>
       <footer class="sheet-footer"><span id="settings-state">尚未修改</span><span>保存后立即生效，无需重载插件。</span></footer>
     </section>
