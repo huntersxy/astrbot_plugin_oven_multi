@@ -63,7 +63,7 @@
     <footer class="page-footer"><span>Oven Multi</span><a href="https://github.com/huntersxy/astrbot_plugin_oven_multi#readme" target="_blank" rel="noopener noreferrer">使用说明</a></footer>
     <div id="announcer" class="sr-only" role="status" aria-live="polite"></div>
   </main>
-  <script src="/api/v1/plugins/page-bridge-sdk.js"></script>
-  <script src="./app.js"></script>
+  <!-- AstrBot injects the bridge at the end of body; initialize after it loads. -->
+  <script src="./app.js" defer></script>
 </body>
 </html>
