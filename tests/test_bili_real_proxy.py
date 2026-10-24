@@ -10,6 +10,7 @@ import os
 import shutil
 import socket
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -112,6 +113,7 @@ async def test_real_proxy_keeps_helpers_out_of_compression_sessions(plugin, tmp_
     log_path = tmp_path / "proxy.log"
     process = None
     prov = None
+    switched = None
     try:
         with log_path.open("wb") as output:
             process = await asyncio.create_subprocess_exec(
@@ -193,13 +195,46 @@ async def test_real_proxy_keeps_helpers_out_of_compression_sessions(plugin, tmp_
                 )
             ]
             assert responses[-1].completion_text == "STREAM_ANSWER"
+        # A newly selected, originally direct SDK must enter this real proxy on
+        # its very first chat, while helper traffic still has no session/tools.
+        origin = f"http://127.0.0.1:{upstream_port}/v1"
+        switched = provider(origin)
+        switched.provider_config["id"] = "switched"
+        host = {
+            "provider": [
+                prov.provider_config | {"api_base": origin},
+                dict(switched.provider_config),
+            ],
+            "agent_runner": {"config": {"compression": {"max_turns": 50}}},
+        }
+        plugin.context.get_config = lambda umo=None: host
+        assert plugin.bili_wire.wire(["main"], "127.0.0.1", port)["ok"]
+        plugin.context.provider_manager.provider_insts.append(switched)
+        plugin.config["bili"].update(enabled=True, auto_follow=True)
+        plugin.bili_proxy.state = "external_ok"
+        plugin.bili_proxy.session_header_state = "ok"
+        await plugin.bili_auto.follow(
+            SimpleNamespace(
+                unified_msg_origin="switched-room",
+                get_extra=lambda key: "switched" if key == "selected_provider" else None,
+            )
+        )
+        assert str(switched.client.base_url).startswith(proxy + "/bili/")
+        await asyncio.wait_for(
+            switched.text_chat(prompt="FIRST_SWITCHED_CHAT", conversation_id="room-switch"), 15
+        )
+        await asyncio.wait_for(switched.text_chat(prompt="SWITCHED_HELPER"), 15)
+        assert upstream_requests[-1][1]["messages"] == [
+            {"role": "user", "content": "SWITCHED_HELPER"}
+        ]
+        assert not upstream_requests[-1][1].get("tools")
         # Inspect the real proxy's durable session surface, not a stubbed bridge.
         async with httpx.AsyncClient(timeout=3) as admin:
             sessions = await admin.get(proxy + "/__bili/sessions")
             assert sessions.status_code == 200
             raw = sessions.text
             by_id = {s["id"]: s for s in sessions.json()["sessions"]}
-            assert set(by_id) == {"room-a", "room-b", "room-compress", "room-stream"}
+            assert set(by_id) == {"room-a", "room-b", "room-compress", "room-stream", "room-switch"}
             assert by_id["room-compress"]["blocks"] >= 1, result.completion_text
             assert all(
                 topic not in raw for topic in ("PLANNER_JSON", "LEARNING_JSON", "RECALL_JSON")
@@ -212,6 +247,8 @@ async def test_real_proxy_keeps_helpers_out_of_compression_sessions(plugin, tmp_
         await plugin.terminate()
         if prov is not None:
             await prov.client.close()
+        if switched is not None:
+            await switched.client.close()
         if process is not None and process.returncode is None:
             process.terminate()
             await asyncio.wait_for(process.wait(), 10)

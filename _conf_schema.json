@@ -457,9 +457,15 @@
       },
       "provider_ids": {
         "description": "接管的 Provider 列表",
-        "hint": "一行一个 provider ID。留空=懒人模式，自动接管当前生效的对话 provider；填写则只接管列出的（须为对话类）。",
+        "hint": "一行一个对话 provider ID。开启自动跟随后作为初始接管列表，随后按实际聊天模型补充；关闭自动跟随后只接管此列表，留空则使用启动时的当前模型。",
         "type": "list",
         "default": []
+      },
+      "auto_follow": {
+        "description": "自动跟随聊天模型",
+        "hint": "切换模型后，在下一次聊天请求前自动接管当前模型和备用链，当次生效，无需手动重载。关闭后保留已有接管范围；关闭压缩功能才恢复原配置。",
+        "type": "bool",
+        "default": true
       },
       "session_header": {
         "description": "会话头名称",

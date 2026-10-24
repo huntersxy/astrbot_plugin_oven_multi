@@ -235,6 +235,62 @@ def test_doctor_detects_model_switch_without_expanding_explicit_scope():
         assert manager.record_path.read_bytes() == record
 
 
+def test_extend_keeps_existing_originals_and_restores_all_models():
+    with tempfile.TemporaryDirectory() as td:
+        host = sample_host()
+        original = json.loads(json.dumps(host))
+        manager, _ = make_manager(Path(td), host)
+        assert manager.wire(["main"], "127.0.0.1", 8787)["ok"]
+        record = manager.load_record()
+        result = manager.extend(["main", "bare", "bare"], "127.0.0.1", 8787, lambda: True)
+        assert result["ok"] and result["added"] == ["bare"]
+        assert manager.load_record()["providers"]["main"] == record["providers"]["main"]
+        assert manager.load_record()["compression"] == record["compression"]
+        assert "SECRET" not in manager.record_path.read_text()
+        count = len(host.saved)
+        assert manager.extend(["main", "bare"], "127.0.0.1", 8787)["ok"]
+        assert len(host.saved) == count
+        assert manager.restore()["ok"]
+        assert host == original
+
+
+def test_extend_does_not_overwrite_edits_or_mutate_when_record_save_fails():
+    with tempfile.TemporaryDirectory() as td:
+        manager, host = make_manager(Path(td), sample_host())
+        assert manager.wire(["main"], "127.0.0.1", 8787)["ok"]
+        wired = json.loads(json.dumps(host))
+        record = manager.record_path.read_bytes()
+        original_save = manager._save_record
+
+        def fail(_):
+            raise OSError("disk full")
+
+        manager._save_record = fail
+        assert not manager.extend(["bare"], "127.0.0.1", 8787)["ok"]
+        assert host == wired and manager.record_path.read_bytes() == record
+        manager._save_record = original_save
+        host["provider"][0]["api_base"] = "https://user-edited.invalid/v1"
+        before = json.loads(json.dumps(host))
+        assert not manager.extend(["bare"], "127.0.0.1", 8787)["ok"]
+        assert host == before and manager.record_path.read_bytes() == record
+
+
+def test_extend_save_failure_keeps_full_recovery_record():
+    with tempfile.TemporaryDirectory() as td:
+        manager, host = make_manager(Path(td), sample_host())
+        original = json.loads(json.dumps(host))
+        assert manager.wire(["main"], "127.0.0.1", 8787)["ok"]
+        before = json.loads(json.dumps(host))
+        save = host.save_config
+        host.save_config = lambda: (_ for _ in ()).throw(OSError("save failed"))
+        assert not manager.extend(["bare"], "127.0.0.1", 8787)["ok"]
+        assert host == before
+        assert set(manager.load_record()["providers"]) == {"main", "bare"}
+        host.save_config = save
+        assert manager.restore()["ok"]
+        assert host == original
+
+
 def inherited_host() -> FakeHostConfig:
     """provider 无自身 api_base、经 provider_source 继承的宿主配置。"""
     return FakeHostConfig(

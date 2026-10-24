@@ -337,6 +337,74 @@ class BiliWireManager:
 
     # ── 恢复 ─────────────────────────────────────────────────────────────
 
+    def extend(self, provider_ids: list[str], host: str, port: int, health_check=None) -> dict:
+        """Add chat models without restoring existing routes or losing their originals."""
+        record = self.load_record()
+        if self.record_state() == "none":
+            return self.wire(provider_ids, host, port, health_check)
+        if not record:
+            return {"ok": False, "message": "接管记录损坏，已停止自动接管。"}
+        if health_check is not None and not health_check():
+            return {"ok": False, "message": "代理未就绪，已停止自动接管。"}
+        if (record.get("host"), record.get("port")) != (host, port):
+            return {"ok": False, "message": "代理地址与接管记录不同，请先恢复原接管。"}
+        config = self._host_config_get()
+        entries = self._provider_entries(config)
+        for pid, fields in record["providers"].items():
+            _, entry = self._find_entry(entries, pid)
+            # Preserve deliberate edits instead of silently undoing them.
+            if entry is not None and any(
+                entry.get(key) != spec["new"] for key, spec in fields.items()
+            ):
+                return {"ok": False, "message": f"模型 {pid} 的接管字段已被修改，请先恢复或核对。"}
+        for key, spec in record["compression"].items():
+            if self._compression_dict(config).get(key) != spec["new"]:
+                return {"ok": False, "message": "宿主压缩设置已被修改，请先核对后再自动接管。"}
+        additions = list(
+            dict.fromkeys(pid for pid in provider_ids if pid not in record["providers"])
+        )
+        if not additions:
+            return {"ok": True, "message": "所需模型已接管。", "added": []}
+        preview = self.preview(additions, host, port)
+        if preview["skipped"]:
+            return {"ok": False, "message": "新增模型地址不可接管，请核对 Provider 设置。"}
+        expanded = json.loads(json.dumps(record))
+        for pid in additions:
+            _, entry = self._find_entry(entries, pid)
+            effective = self._effective_api_base(config, entry)
+            expanded["providers"][pid] = {
+                "api_base": _field(
+                    entry.get("api_base", effective),
+                    "api_base" not in entry,
+                    bili_prefix_url(host, port, effective),
+                ),
+                "max_context_tokens": _field(
+                    entry.get("max_context_tokens"),
+                    "max_context_tokens" not in entry,
+                    INFLATED_MAX_CONTEXT_TOKENS,
+                ),
+            }
+        try:
+            self._save_record(expanded)
+        except OSError:
+            return {"ok": False, "message": "接管记录写入失败，未修改模型配置。"}
+        previous = list(entries)
+        try:
+            for pid in additions:
+                index, entry = self._find_entry(entries, pid)
+                entries[index] = entry | {
+                    key: spec["new"] for key, spec in expanded["providers"][pid].items()
+                }
+            save = getattr(config, "save_config", None)
+            if callable(save):
+                save()
+        except Exception:
+            entries[:] = previous
+            # Keep the expanded recovery record even if saving partially wrote.
+            # restore() accepts an already-original field and remains safe.
+            return {"ok": False, "message": "模型配置保存失败，内存已回滚；恢复记录保留。"}
+        return {"ok": True, "message": "已自动接管新增聊天模型。", "added": additions}
+
     def restore(self) -> dict:
         """三方比对恢复：当前值≠我方写入值的字段跳过（用户已再修改）。"""
         if self.record_state() == "corrupt":
@@ -442,6 +510,7 @@ class BiliWireManager:
         runtime_client_api: dict[str, str] | None = None,
         fallback_ids: list[str] | None = None,
         active_ids: list[str] | None = None,
+        auto_follow: bool = False,
     ) -> list[str]:
         """同步巡检告警（供状态命令/面板通知；不发起网络请求）。"""
         notices: list[str] = []
@@ -456,10 +525,15 @@ class BiliWireManager:
             dict.fromkeys(pid for pid in (active_ids or []) if pid and pid not in wired)
         )
         if unwired_active:
-            notices.append(
-                f"当前对话模型未接管（{'、'.join(unwired_active)}）：主聊天正在绕过 bili。"
-                "若需继续压缩，请恢复后将新模型加入接管列表，再重新接管并重载对应 Provider。"
-            )
+            if auto_follow:
+                notices.append(
+                    f"当前对话模型（{'、'.join(unwired_active)}）等待下一次聊天请求前自动接管。"
+                )
+            else:
+                notices.append(
+                    f"当前对话模型未接管（{'、'.join(unwired_active)}）：主聊天正在绕过 bili。"
+                    "若需继续压缩，请恢复后将新模型加入接管列表，再重新接管并重载对应 Provider。"
+                )
         if not proxy_healthy:
             notices.append(
                 "bili 代理当前不可用：被接管 provider 的请求将失败，请先恢复或修复代理。"

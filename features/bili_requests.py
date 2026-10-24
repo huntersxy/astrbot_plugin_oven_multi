@@ -56,6 +56,9 @@ class BiliRequestBridge:
             return False
 
     def attach(self, provider):
+        automatic = getattr(self.plugin, "bili_auto", None)
+        if automatic is not None:
+            automatic.sync_runtime(provider)
         sdk = getattr(provider, "client", None)
         if not self._route(getattr(sdk, "base_url", "")):
             return

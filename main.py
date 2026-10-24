@@ -54,6 +54,7 @@ from .constants import (
     PLUGIN_VERSION,
 )
 from .features.balance_checker import BalanceChecker
+from .features.bili_auto import BiliAutoTakeover
 from .features.bili_proxy import BiliProxyManager
 from .features.bili_requests import BiliRequestBridge
 from .features.bili_wire import BiliWireManager
@@ -135,6 +136,7 @@ class OvenMultiPlugin(Star):
         self.bili_wire = BiliWireManager(lambda: self._host_config(), self.data_dir)
         self._bili_task = None
         self.bili_requests = BiliRequestBridge(self)
+        self.bili_auto = BiliAutoTakeover(self)
 
         # 余额查询
         self.balance_checker = BalanceChecker(self.config)
@@ -515,6 +517,7 @@ class OvenMultiPlugin(Star):
             runtime_client_api=self._chat_provider_view(),
             fallback_ids=self._fallback_provider_ids(),
             active_ids=[active_id] if active_id else [],
+            auto_follow=self.bili_auto.enabled(),
         )
 
     def _bili_status_detail(self) -> str:
@@ -524,6 +527,8 @@ class OvenMultiPlugin(Star):
         summary = self.bili_wire.record_summary()
         if summary:
             parts.append(f"已接管 {'、'.join(summary['providers'])}")
+        if self.bili_auto.paused:
+            parts.append("自动跟随已暂停，重新保存压缩设置或执行接管后恢复")
         if self.bili_proxy.session_header_state != "ok":
             parts.append(f"会话标识{self.bili_proxy.session_header_state}")
         return "，".join(parts)
@@ -552,6 +557,9 @@ class OvenMultiPlugin(Star):
                 f"{status.get('session_header_detail') or '会话标识未确认'}"
             )
             return
+        if cfg.get("auto_follow", True):
+            await self.bili_auto.follow(initial=True)
+            return
         if self.bili_wire.record_exists():
             return
         host, port = self._bili_endpoint()
@@ -575,6 +583,7 @@ class OvenMultiPlugin(Star):
         停用不立即停代理：运行中的 SDK 客户端与管线压缩配置要等重载/重启
         才切回原地址，卸载时也会检查实际 SDK 是否仍依赖代理再决定是否停进程。
         """
+        self.bili_auto.paused = False
         if not feature_enabled(self.config, FEATURE_BILI, False):
             if self.bili_wire.record_exists():
                 result = self.bili_wire.restore()
@@ -616,6 +625,8 @@ class OvenMultiPlugin(Star):
         cfg = feature_cfg(self.config, FEATURE_BILI)
         record = self.bili_wire.record_summary()
         doctor = self._bili_doctor() if self.bili_wire.record_exists() else []
+        if self.bili_auto.message:
+            doctor.append(self.bili_auto.message)
         if cfg.get("enabled", False):
             warning = self._bili_header_warning()
             if warning:
@@ -628,6 +639,8 @@ class OvenMultiPlugin(Star):
                 "wire": record,
                 "doctor": doctor,
                 "requests": self.bili_requests.status(),
+                "auto_follow": feature_cfg(self.config, FEATURE_BILI).get("auto_follow", True),
+                "auto_follow_paused": self.bili_auto.paused,
             },
         }
 
@@ -666,6 +679,8 @@ class OvenMultiPlugin(Star):
         )
         if not result["ok"]:
             return {"success": False, "message": result["message"]}
+        self.bili_auto.paused = False
+        await self.bili_auto.follow(initial=True)
         return {"success": True, "data": {"message": result["message"]}}
 
     async def _api_billion_restore(self):
@@ -686,6 +701,8 @@ class OvenMultiPlugin(Star):
                 "data": {"wire": record, "message": "请带 confirm: true 再次提交以执行恢复。"},
             }
         result = self.bili_wire.restore()
+        if result["ok"]:
+            self.bili_auto.paused = True
         return {"success": bool(result["ok"]), "data": {"message": result["message"]}}
 
     # ── 工具方法 ─────────────────────────────────────────────────────────
@@ -772,6 +789,9 @@ class OvenMultiPlugin(Star):
         result = self.bili_wire.wire(
             targets, host, port, health_check=lambda: self.bili_proxy.healthy
         )
+        if result["ok"]:
+            self.bili_auto.paused = False
+            await self.bili_auto.follow(initial=True)
         yield event.plain_result(result["message"])
 
     @filter.permission_type(filter.PermissionType.ADMIN)
@@ -789,6 +809,8 @@ class OvenMultiPlugin(Star):
             )
             return
         result = self.bili_wire.restore()
+        if result["ok"]:
+            self.bili_auto.paused = True
         yield event.plain_result(result["message"])
 
     # ── Handler：群消息预处理（最高优先级）────────────────────────────────
@@ -1048,6 +1070,7 @@ class OvenMultiPlugin(Star):
     async def on_llm_request(self, event: AstrMessageEvent, req):
         from astrbot.core.agent.message import TextPart
 
+        await self.bili_auto.follow(event)
         self.bili_requests.install()
         owned = await self.ovenheart.owned(event)
 

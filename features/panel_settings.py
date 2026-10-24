@@ -138,6 +138,7 @@ GROUP_PATHS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "bili.host",
             "bili.port",
             "bili.provider_ids",
+            "bili.auto_follow",
             "bili.session_header",
             "bili.health_interval_sec",
         ),
@@ -198,8 +199,8 @@ FIELD_OVERRIDES: dict[str, dict] = {
         "max_chars": 100,
     },
     "bili.provider_ids": {
-        "hint": "要接管的对话 provider ID，一行一个；留空=懒人模式自动接管当前生效的对话"
-        " provider。",
+        "hint": "一行一个对话 provider ID；自动跟随开启时作为初始列表，后续切换的模型会自动补充。"
+        "关闭自动跟随后固定已有接管范围。",
     },
 }
 
