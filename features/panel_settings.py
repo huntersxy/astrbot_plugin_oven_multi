@@ -510,9 +510,14 @@ class PanelSettingsManager:
         self._lock = asyncio.Lock()
 
     def describe(self, config: dict) -> dict:
-        """返回分组字段与当前值；首次读取时记录快照。"""
-        if self._snapshot is None:
-            self._snapshot = collect_values(config)
+        """返回分组字段与当前值；每次读取都重置防陈旧快照。
+
+        快照必须随读取重置：报错指引是「刷新设置页后重新编辑」，若只在
+        首次读取时记录，一旦配置被外部修改，刷新也无法恢复，保存将永远
+        被拒。未刷新就保存（表单基于旧值渲染）仍会被快照对比拦截；并发
+        编辑由 revision 机制兜底。
+        """
+        self._snapshot = collect_values(config)
         return {
             "revision": self.revision,
             "groups": describe_groups(config),

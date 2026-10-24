@@ -346,6 +346,15 @@ def test_save_detects_dashboard_side_change():
     else:
         raise AssertionError("宿主侧改动应触发陈旧拒绝")
     assert "segment_reply" not in config  # 拒绝后未写入
+
+    # 刷新设置页（重新 describe）后快照重置，外部改动未经过面板时 revision
+    # 仍有效，保存应恢复成功——否则陈旧状态永远无法解除
+    refreshed = manager.describe(config)
+    revision = run(
+        manager.save(config, {"segment_reply.max_length": 80}, refreshed["revision"])
+    )
+    assert config["segment_reply"]["max_length"] == 80
+    assert revision != data["revision"]
     print("宿主侧改动防陈旧 ok")
 
 
