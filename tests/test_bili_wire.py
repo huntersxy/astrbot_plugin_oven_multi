@@ -220,6 +220,21 @@ def test_doctor_notices():
         print("doctor 巡检 ok")
 
 
+def test_doctor_detects_model_switch_without_expanding_explicit_scope():
+    with tempfile.TemporaryDirectory() as td:
+        manager, host = make_manager(Path(td), sample_host())
+        assert manager.wire(["main"], "127.0.0.1", 8787)["ok"]
+        before = json.loads(json.dumps(host))
+        record = manager.record_path.read_bytes()
+        assert manager.doctor(proxy_healthy=True, active_ids=["main"]) == []
+        notices = manager.doctor(proxy_healthy=True, active_ids=["backup", "backup"])
+        assert len(notices) == 1
+        assert "当前对话模型未接管（backup）" in notices[0]
+        assert "绕过 bili" in notices[0]
+        assert host == before
+        assert manager.record_path.read_bytes() == record
+
+
 def inherited_host() -> FakeHostConfig:
     """provider 无自身 api_base、经 provider_source 继承的宿主配置。"""
     return FakeHostConfig(

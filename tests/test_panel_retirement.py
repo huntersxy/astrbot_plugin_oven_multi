@@ -190,7 +190,7 @@ async def test_malformed_service_and_exception_never_leak_credentials():
 
 def test_versions_native_view_and_provider_templates_remain_consistent():
     metadata = yaml.safe_load((ROOT / "metadata.yaml").read_text("utf-8"))
-    assert metadata["version"] == plugin_module.PLUGIN_VERSION == "1.54.1"
+    assert metadata["version"] == plugin_module.PLUGIN_VERSION == "1.54.2"
     assert metadata["views"] == [{"name": "status", "title": "状态总览"}]
     template = balance_module._BUILTIN_PARSERS["minimax"]["result_template"]
     checker = balance_module.BalanceChecker({})

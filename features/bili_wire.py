@@ -441,6 +441,7 @@ class BiliWireManager:
         proxy_healthy: bool,
         runtime_client_api: dict[str, str] | None = None,
         fallback_ids: list[str] | None = None,
+        active_ids: list[str] | None = None,
     ) -> list[str]:
         """同步巡检告警（供状态命令/面板通知；不发起网络请求）。"""
         notices: list[str] = []
@@ -451,6 +452,14 @@ class BiliWireManager:
         if not record:
             return notices
         wired = set((record.get("providers") or {}).keys())
+        unwired_active = list(
+            dict.fromkeys(pid for pid in (active_ids or []) if pid and pid not in wired)
+        )
+        if unwired_active:
+            notices.append(
+                f"当前对话模型未接管（{'、'.join(unwired_active)}）：主聊天正在绕过 bili。"
+                "若需继续压缩，请恢复后将新模型加入接管列表，再重新接管并重载对应 Provider。"
+            )
         if not proxy_healthy:
             notices.append(
                 "bili 代理当前不可用：被接管 provider 的请求将失败，请先恢复或修复代理。"

@@ -96,3 +96,22 @@ def test_auto_detection_does_not_guess_first_of_multiple_providers(plugin):
         ]
     )
     assert plugin._sync_using_provider_id() is None
+
+
+def test_status_reports_current_model_outside_existing_wire_scope(plugin):
+    host = {
+        "provider": [
+            {"id": pid, "api_base": "https://example.invalid/v1"}
+            for pid in ("original", "new-current")
+        ],
+        "agent_runner": {"config": {"model": {"provider_id": "new-current"}}},
+    }
+    plugin.context.get_config = lambda: host
+    plugin.context.provider_manager = SimpleNamespace(
+        provider_insts=[SimpleNamespace(provider_config=entry) for entry in host["provider"]]
+    )
+    assert plugin.bili_wire.wire(["original"], "127.0.0.1", 8787)["ok"]
+    notices = plugin._bili_doctor()
+    assert any("当前对话模型未接管（new-current）" in notice for notice in notices)
+    assert plugin.bili_wire.record_summary()["providers"] == ["original"]
+    assert host["provider"][1]["api_base"] == "https://example.invalid/v1"

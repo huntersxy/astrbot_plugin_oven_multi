@@ -509,10 +509,12 @@ class OvenMultiPlugin(Star):
         return host, port
 
     def _bili_doctor(self) -> list[str]:
+        active_id = self._sync_using_provider_id()
         return self.bili_wire.doctor(
             proxy_healthy=self.bili_proxy.healthy,
             runtime_client_api=self._chat_provider_view(),
             fallback_ids=self._fallback_provider_ids(),
+            active_ids=[active_id] if active_id else [],
         )
 
     def _bili_status_detail(self) -> str:
