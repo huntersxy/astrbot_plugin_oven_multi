@@ -8,7 +8,7 @@
 >
 > 旧 `style_learning` 配置不再生效；数据目录中的 `universal.json`、`chat_history.json` 保留，不再读取或更新，也不会自动导入烤箱之心。需要清理时请先自行备份。
 
-> **主动回复已移除**：从 **1.50.0** 起，Oven Multi 不再提供无需 @ 的主动回复。群聊参与（自主接话、名称提及响应等）请使用 **[烤箱之心（OvenHeart）](https://github.com/huntersxy/astrbot_plugin_ovenheart)** 的「群聊参与」能力；配置页原位置保留跳转指引，旧配置项不再生效。
+> **主动回复已移除**：从 **1.50.0** 起，Oven Multi 不再提供无需 @ 的主动回复。群聊参与（自主接话、名称提及响应等）请使用 **[烤箱之心（OvenHeart）](https://github.com/huntersxy/astrbot_plugin_ovenheart)** 的「群聊参与」能力；旧 `active_reply` 配置节已于 1.52.0 清理。
 
 ## 能做什么
 
@@ -20,6 +20,7 @@
 | Jev 多维判读 | 被 @ 时结合上下文判断说话对象、意图、情绪、态度、回复期待与风险，以临时内容辅助回复 |
 | 文件读取 | 支持预读取、RAG 检索和 `file_list` / `file_read` / `file_search` 工具 |
 | 服务余额 | 按需查询已配置服务，成功结果缓存 30 秒，按服务原始币种分别展示 |
+| 上下文压缩 | 经本地 [billion-context](https://github.com/ranxianglei/billion-context) 代理接管上下文压缩，长会话不截断、API 侧大幅省 token |
 | 原生 Panel | 运行概览与服务余额分开，刷新状态无需请求外部余额接口 |
 
 ## 开始使用
@@ -27,14 +28,19 @@
 需要 **AstrBot >= 4.29.1 且 < 5**，支持 **aiocqhttp**（NapCat、Lagrange 等）。思考表情、群消息与 @ 相关能力依赖对应平台接口；Jev 判读需要单独配置 TypeSafe API Key。
 
 1. 在 AstrBot 插件市场安装，或通过仓库地址安装本插件。
-2. 打开插件配置，按需开启 Jev、分段回复、文件读取及余额查询。
-3. 从插件卡片打开 **状态总览**，检查配置状态；外部服务是否可用仍需实际调用确认。
+2. 打开插件配置，按需填写 Jev API Key、文件读取的 Embedding / Rerank Provider 及余额查询 YAML——配置页只保留这些密钥与选择器。
+3. 从插件卡片打开 **状态总览**，在「设置」页签管理其余全部参数；外部服务是否可用仍需实际调用确认。
 
 需要机器人在群聊中自主接话时，请安装 [烤箱之心](https://github.com/huntersxy/astrbot_plugin_ovenheart) 并开启其「群聊参与」；本插件的消息处理、分段回复、文件工具与余额查询可与之共存。
 
 ## 配置
 
-> 使用 AstrBot 原生插件配置保存设置。文件读取等需要初始化的功能，保存后请重新加载插件。状态总览为只读页面，不维护第二套配置。
+> **配置双入口（1.52.0 起）**：
+>
+> - **AstrBot 插件配置页**只保留 5 个字段：Jev `api_key`、余额查询的 `config_content` / `config_mode`（YAML 编辑器）与文件读取的 `rag.embedding_provider_id` / `rag.rerank_provider_id`（原生 Provider 选择器）。其余字段仍在配置文件中生效，但已在配置页隐藏。
+> - **状态总览 → 设置**管理上述字段之外的全部配置项（黑名单、消息与回复、分段回复、Jev 判读、文件读取五个分组），保存后立即生效并写入插件配置；文件读取等需要初始化的功能，开关变更后请重新加载插件。
+>
+> 下方各表按配置节列出全部字段与默认值，供查阅。
 
 ### 括号自动匹配 (`bracket_matching`)
 | 配置项 | 说明 | 默认值 |
@@ -100,6 +106,8 @@
 
 ### Jev 多维判读 (`jev`)
 
+> `api_key` 在 AstrBot 插件配置页填写，其余参数在「状态总览 → 设置」中管理。
+
 > 用 TypeSafe SystemOne（Jev）为**被 @ / 唤醒回复**注入一次多维判读（`extra_user_content_parts` 临时内容，不写入对话历史）：被 @机器人 / 唤醒前缀 / 引用唤醒时判读，重点是**意图与情绪**（置顶「重点 ·」行）+ 行动建议；裸@第一条仍走 AstrBot 原生空@流程，其后 60 秒内的消息正常判读；判读失败只降级为普通回复。
 >
 > 判读维度：说话对象 / 意图 / 情绪 / 对bot态度 / 期待回复 / 风险（均带置信度）。题型按 TypeSafe 官方 primitives 选择：无序集合（说话对象/意图/情绪/态度，意图含「其他」兜底）用 `choice`，有序光谱（风险、期待回复）用 `score`。**发给 Jev 的问题全部为英文**（场景说明、指令、选项 key、选项描述、score 等级——Jev 主训练语言，CJK 精度较低）；选项返回后在解析边界映射回中文，注入块与行动建议保持中文。
@@ -126,9 +134,49 @@
 | `show_confidence` | 注入块显示各维度置信度 | `true` |
 | `max_injection_chars` | 注入块长度上限 | `600` |
 
+### 上下文压缩 (`bili`)
+
+> 基于 [billion-context](https://github.com/ranxianglei/billion-context)（本地 HTTP 代理）接管 AstrBot 的上下文压缩：provider 请求改经代理，由**模型自驱**把旧消息段折叠成可逆、增量、前缀缓存友好的摘要（模型调用 `compress`/`decompress` 等工具，代理模式下这些调用在代理内部执行，AstrBot 无感知）。本插件不修改 AstrBot 源码，也不改写插件钩子中的历史；其他插件经同一 Provider 发起的模型请求仍会经过代理。
+>
+> **懒人模式**：在「状态总览 → 设置 → 上下文压缩」只打开启用开关即可——插件自动确保代理可用（端口上已有健康 bili 则直接复用；缺失时自动 `npm install -g billion-context`，要求宿主机 **Node ≥ 20**；不会代装 Node），播种代理配置（以 AstrBot 自带的 `x-astrbot-conversation-id` 请求头作为会话标识，按会话隔离压缩状态），检测当前生效的对话 provider 并自动接管。关闭开关则自动尝试恢复原配置。
+
+接管时会做以下**可恢复**的修改（记录保存在插件数据目录 `bili_wire_record.json`，只记被改字段原值，不含 API Key）：
+
+| 位置 | 改为 | 目的 |
+|------|------|------|
+| 目标 provider 的 `api_base` | `http://127.0.0.1:8787/bili/<原地址>` | 请求经代理压缩 |
+| `agent_runner.config.compression.max_turns` | `-1` | 停用轮数截断（历史无界增长是前提） |
+| `agent_runner.config.compression.overflow_strategy` | `truncate_by_turns` | 停用原生 LLM 压缩（避免双重压缩） |
+| 目标 provider 的 `max_context_tokens` | `10000000` | 抬高 AstrBot 自身 82% 触发阈值 |
+
+**必须重载/重启 AstrBot 后生效**（压缩配置在管线初始化时冻结）。命令：`烤箱压缩状态`（所有人）、`烤箱压缩接管 确认` / `烤箱压缩恢复 确认`（管理员，两步确认）；面板设置页顶部也有状态卡与接管/恢复按钮。
+
+注意事项与边界：
+
+- 自动和手动接管都要求代理健康、会话头验证通过；多个模型且未明确选择当前模型时不猜测接管目标。
+- 接管记录原子写入，宿主配置写入失败时保留恢复依据；恢复支持失败重试，用户另行修改的字段保留。
+- 关闭或卸载会尝试恢复配置；运行中的 SDK 要等宿主重载后才切换。若仍使用代理，卸载会保留自有代理进程以避免断流。重启 AstrBot 后确认所有 Provider 已切回，再停止保留的 bili 实例。代理运行期间不能在面板更换地址、端口或运行方式。
+- 当前压缩配置接管范围是 AstrBot 默认配置档；额外会话配置档需要单独协调压缩设置。
+
+- **真实模型窗口须在 bili 侧配置**（托管模式下插件数据目录 `billion-context.json` 的 `providers.<url前缀>.models` / `modelContextLimit`；外部实例使用其自身配置文件），AstrBot 侧调大的 `max_context_tokens` 只是防误触发，不会传给代理。
+- 接管**不会找回**此前已被原生「LLM 压缩上下文」摘要覆盖的历史，从当前状态继续。
+- AstrBot 本地对话历史将无界增长（这正是"十亿上下文"的前提），每次全量发往**本地**代理、由代理在上游压缩。
+- 若被接管 provider 配置了**备用 provider**（fallback），请一并接管或移除备用链：代理不可用时 AstrBot 会把完整历史直送未接管的备用上游（状态卡会告警）。
+- 插件自身与辅助调用不经被接管对话 provider（Jev 判读直连 TypeSafe、余额查询直连各服务商、文件 RAG 走 Embedding Provider）。其他插件若经主 provider 发起辅助 LLM 调用（不带会话头），会落入代理的匿名会话——建议在 bili 侧按模型路由隔离。
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `enabled` | 启用（开启即懒人模式） | `false` |
+| `mode` | `managed`（插件拉起并守护）/ `external`（连接自跑代理） | `"managed"` |
+| `executable` | bili 可执行文件（PATH 名或完整路径） | `"bili"` |
+| `auto_install` | 缺失时自动 `npm install -g billion-context` | `true` |
+| `host` / `port` | 代理地址与端口 | `"127.0.0.1"` / `8787` |
+| `provider_ids` | 接管的对话 provider，一行一个；**留空=懒人模式自动接管当前生效者** | `[]` |
+| `session_header` | 会话标识请求头 | `"x-astrbot-conversation-id"` |
+| `health_interval_sec` | 守护健康检查间隔（秒） | `60` |
+
 ### 余额查询 (`balance`)
 
-通过 API 查询各服务商余额，在 Dashboard 页面查看。
+通过 API 查询各服务商余额，在 Dashboard 页面查看。两项配置均在 AstrBot 插件配置页维护（YAML 编辑器）。
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
@@ -187,6 +235,8 @@ services:
 
 ### 文件读取 (`file_reader`)
 
+> Embedding / Rerank Provider 在 AstrBot 插件配置页选择，其余参数在「状态总览 → 设置」中管理。
+
 > 核心实现改写自 [astrbot_plugin_file_reader_pro](https://github.com/zz6zz666/astrbot_plugin_file_reader_pro)（MIT）。
 >
 > 支持 pdf / docx / xlsx / xls / ods / pptx / csv / tsv 及常见文本与代码格式（自动检测编码）。旧版 `.doc` / `.ppt` 与压缩包不支持，会给出明确提示。可选安装 `python-magic` 获得精确的 MIME 类型检测，未安装时按扩展名判断。
@@ -225,6 +275,9 @@ services:
 |------|------|
 | `烤箱状态` | 查看所有功能的启用状态 |
 | `清除文件` | 清理当前会话的所有已上传文件 |
+| `烤箱压缩状态` | 查看上下文压缩代理与接管状态、巡检告警 |
+| `烤箱压缩接管 确认` | 管理员：预览后接管 provider（先不带「确认」发送可看预览） |
+| `烤箱压缩恢复 确认` | 管理员：恢复被接管的配置并删除接管记录 |
 
 ## Panel 状态总览
 
@@ -232,7 +285,8 @@ services:
 
 - **运行概览**：按“消息与回复”“判读与文件”分组显示开关、关键参数及缺失配置提醒。状态来自当前配置和初始化结果，不等同于外部服务健康检查。
 - **服务余额**：点击“查询余额”才调用服务。并发查询合并，包含成功结果的响应缓存 30 秒；全部失败时允许直接重试。显示实际查询时间，各服务币种不混算。
-- **设置**：直接在面板修改常用开关与参数（各功能开关、复读/空行阈值、分段回复全部参数、Jev 场景开关等），保存后立即生效并写入插件配置，无需重载插件。可编辑字段是白名单子集（元数据与边界直接取自配置 schema）；密钥、符号/关键词列表等高级字段仍请使用 AstrBot 插件配置页。带 revision 与配置快照双重防陈旧：其他页面保存过或配置页改过相关字段时，旧表单会被拒绝并提示刷新。
+- **设置**：面板是除密钥与 Provider 选择器外**全部配置项的管理入口**——黑名单、消息与回复、分段回复、Jev 判读、文件读取、上下文压缩六个分组，含表情 ID、关键词、断句符号等列表项（一行一个），保存后立即写入插件配置；文件读取等需初始化的功能，开关变更后请重载插件。Jev API Key 与 Embedding / Rerank Provider 仍在 AstrBot 插件配置页维护，分组顶部有指引。带 revision 与配置快照双重防陈旧：其他页面保存过或配置页改过相关字段时，旧表单会被拒绝并提示刷新。
+- **上下文压缩状态卡**：设置页顶部的 billion-context 卡片显示代理健康、接管状态与巡检告警，并可二次确认执行接管/恢复。
 - **失败与重试**：刷新失败保留上次结果并提示重试；未配置余额时提供配置指引。支持浅色、深色和移动端布局。
 
 页面入口名称仍为“状态总览”。目录由旧 `pages/status` 调整为原生 `views/status`；旧风格管理区域与 `风格状态`、`清空风格`、`学习总结` 命令一并移除，后续学习管理请使用 [烤箱之心](https://github.com/huntersxy/astrbot_plugin_ovenheart)。
@@ -258,3 +312,5 @@ GNU Affero General Public License v3.0
 - astrbot_plugin_file_reader_pro (MIT) by zz6zz666 — 文件读取与 RAG 索引
 
 另参考：astrbot_plugin_jev_intent_boost (MIT) by 汐兮雨 — Jev 多维判读的维度体系与注入思路；astrbot_plugin_qq_group_enhance (MIT) by rytte — @保留与纯@补记思路（本插件按最新 AstrBot 源码独立实现）。
+
+上下文压缩基于 [billion-context](https://github.com/ranxianglei/billion-context) 与 [acp-kernel](https://github.com/ranxianglei/acp-kernel)（MIT + 署名条款）by ranxianglei —— 依其许可条款在此及 Panel 页面署名。

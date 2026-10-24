@@ -3,18 +3,21 @@
     "description": "黑名单群组",
     "hint": "不启用插件的群号码列表",
     "type": "list",
+    "invisible": true,
     "default": []
   },
   "blacklist_users": {
     "description": "黑名单用户",
     "hint": "不启用插件的 QQ 用户号码列表",
     "type": "list",
+    "invisible": true,
     "default": []
   },
   "bracket_matching": {
     "description": "括号自动匹配功能",
-    "hint": "自动补全缺失的括号，让消息中的括号成对出现",
+    "hint": "自动补全缺失的括号，让消息中的括号成对出现。设置在状态总览 → 设置中管理。",
     "type": "object",
+    "invisible": true,
     "items": {
       "enabled": {
         "description": "启用括号自动匹配功能",
@@ -32,8 +35,9 @@
   },
   "repetition": {
     "description": "消息复读功能",
-    "hint": "有概率复读相同的消息，增加趣味性",
+    "hint": "有概率复读相同的消息，增加趣味性。设置在状态总览 → 设置中管理。",
     "type": "object",
+    "invisible": true,
     "items": {
       "enabled": {
         "description": "启用消息复读功能",
@@ -73,8 +77,9 @@
   },
   "remove_blank_lines": {
     "description": "移除空行功能",
-    "hint": "自动清理机器人回复中的多余空行",
+    "hint": "自动清理机器人回复中的多余空行。设置在状态总览 → 设置中管理。",
     "type": "object",
+    "invisible": true,
     "items": {
       "enabled": {
         "description": "启用移除空行功能",
@@ -97,8 +102,9 @@
   },
   "iam_thinking": {
     "description": "思考表情功能",
-    "hint": "在处理LLM请求时自动贴表情提示用户正在思考",
+    "hint": "在处理LLM请求时自动贴表情提示用户正在思考。设置在状态总览 → 设置中管理。",
     "type": "object",
+    "invisible": true,
     "items": {
       "enabled": {
         "description": "启用思考表情功能",
@@ -108,7 +114,7 @@
       },
       "thinking_emoji_ids": {
         "description": "思考中表情ID列表",
-        "hint": "等待LLM响应时贴的表情ID列表",
+        "hint": "等待LLM响应时贴的表情ID列表，一行一个",
         "type": "list",
         "default": [
           66
@@ -116,7 +122,7 @@
       },
       "done_emoji_ids": {
         "description": "完成表情ID列表",
-        "hint": "LLM响应完成后贴的表情ID列表",
+        "hint": "LLM响应完成后贴的表情ID列表，一行一个",
         "type": "list",
         "default": [
           74
@@ -136,40 +142,30 @@
       }
     }
   },
-  "active_reply": {
-    "description": "主动回复（已移除）",
-    "hint": "主动回复已从本插件移除，由「烤箱之心」的群聊参与能力接棒，请前往 https://github.com/huntersxy/astrbot_plugin_ovenheart 安装使用。",
-    "type": "object",
-    "items": {
-      "moved": {
-        "description": "功能去向指引",
-        "hint": "主动回复请改用烤箱之心（astrbot_plugin_ovenheart）的「群聊参与」：https://github.com/huntersxy/astrbot_plugin_ovenheart 。旧配置项已不再生效，可清理。",
-        "type": "string",
-        "default": ""
-      }
-    }
-  },
   "jev": {
     "description": "Jev 多维判读",
-    "hint": "用 TypeSafe SystemOne（Jev）做多维判读并按场景注入提示词。连接参数与场景开关均在此节，当前仅覆盖被@/唤醒回复场景。",
+    "hint": "用 TypeSafe SystemOne（Jev）做多维判读并按场景注入提示词。本节仅保留 API Key，场景开关与判读参数请在插件「状态总览 → 设置」中管理。",
     "type": "object",
     "items": {
       "enabled": {
         "description": "启用 Jev 判读",
         "hint": "总开关。关闭后：被@/唤醒回复不判读不注入，判读上下文也不记录。",
         "type": "bool",
+        "invisible": true,
         "default": false
       },
       "inject_on_mention": {
         "description": "被@回复判读注入",
         "hint": "被 @机器人 / 唤醒前缀 / 引用唤醒时注入一次多维判读（重点：意图与情绪）。关闭则该场景不调用 Jev。裸@第一条仍走 AstrBot 原生空@流程。",
         "type": "bool",
+        "invisible": true,
         "default": true
       },
       "debug_mode": {
         "description": "调试完整日志",
         "hint": "开启后以 INFO 级别输出每次 Jev 调用的完整输入（state 上下文原文 + 全部问题）与原始输出，用于核对上下文是否真的进来了；排查完请关闭。",
         "type": "bool",
+        "invisible": true,
         "default": false
       },
       "api_key": {
@@ -182,74 +178,86 @@
         "description": "TypeSafe 接口地址",
         "hint": "实际请求 POST {base_url}/v1/systemone。",
         "type": "string",
+        "invisible": true,
         "default": "https://api.typesafe.ai"
       },
       "model": {
         "description": "Jev 模型名",
         "hint": "默认 jev-latest；另有 jev-preview。",
         "type": "string",
+        "invisible": true,
         "default": "jev-latest"
       },
       "timeout_sec": {
         "description": "请求超时（秒）",
         "hint": "超时后被@判读降级为普通回复。建议 5-10 秒。",
         "type": "int",
+        "invisible": true,
         "default": 8
       },
       "retries": {
         "description": "失败重试次数",
         "hint": "仅对 429/503/529（限流/过载）重试；重试会拉长回复延迟。",
         "type": "int",
+        "invisible": true,
         "default": 1
       },
       "history_rounds": {
         "description": "判读带入的上下文条数",
         "hint": "判读时附带的最近群聊消息条数。0 表示不带上下文。",
         "type": "int",
+        "invisible": true,
         "default": 6
       },
       "max_state_chars": {
         "description": "发送上下文长度上限",
         "hint": "发送给 Jev 的整段文本（场景说明 + 当前消息 + 上下文）裁剪上限，超出部分截断。",
         "type": "int",
+        "invisible": true,
         "default": 1200
       },
       "min_message_chars": {
         "description": "判读最小字数",
         "hint": "被@判读时生效：当前消息去掉开头 @标记 与空白后短于此字数则不判读（省调用），不影响是否回复；0 表示不限制。",
         "type": "int",
+        "invisible": true,
         "default": 2
       },
       "desensitize": {
         "description": "发送前本地脱敏",
         "hint": "开启后将手机号/邮箱/身份证/银行卡/超长数字替换为占位符再发送。",
         "type": "bool",
+        "invisible": true,
         "default": true
       },
       "enable_advice": {
         "description": "附带行动建议",
         "hint": "开启后把判读结论按规则翻译成「怎么回」的建议一并注入。",
         "type": "bool",
+        "invisible": true,
         "default": true
       },
       "show_confidence": {
         "description": "显示置信度",
         "hint": "开启后注入块每个维度带（0.xx）置信度。",
         "type": "bool",
+        "invisible": true,
         "default": true
       },
       "max_injection_chars": {
         "description": "注入块长度上限",
         "hint": "注入到提示词区的判读块最大字符数，0 表示不限。",
         "type": "int",
+        "invisible": true,
         "default": 600
       }
     }
   },
   "segment_reply": {
     "description": "分段回复",
-    "hint": "把长回复按标点与字数规则切成多条消息依次发送，模拟真人打字节奏。核心实现改写自 astrbot_plugin_custome_segment_reply（MIT）by LinJohn8。建议关闭 WebUI 内置「分段回复」，二选一。",
+    "hint": "把长回复按标点与字数规则切成多条消息依次发送，模拟真人打字节奏。核心实现改写自 astrbot_plugin_custome_segment_reply（MIT）by LinJohn8。建议关闭 WebUI 内置「分段回复」，二选一。设置在状态总览 → 设置中管理。",
     "type": "object",
+    "invisible": true,
     "items": {
       "enabled": {
         "description": "启用分段回复",
@@ -301,7 +309,7 @@
       },
       "force_split_symbols": {
         "description": "强制分隔符列表",
-        "hint": "遇到这些符号直接分段（不受字数限制），分段后再对每段应用常规断句规则。",
+        "hint": "遇到这些符号直接分段（不受字数限制），分段后再对每段应用常规断句规则。一行一个，换行请写 \\n。",
         "type": "list",
         "default": [
           "\\n\\n",
@@ -310,7 +318,7 @@
       },
       "split_symbols": {
         "description": "断句符号列表（按优先级排列）",
-        "hint": "优先按靠前的（停顿更强的）符号切割。",
+        "hint": "优先按靠前的（停顿更强的）符号切割。一行一个，换行请写 \\n。",
         "type": "list",
         "default": [
           "\\n\\n",
@@ -350,7 +358,7 @@
       },
       "exclude_keywords": {
         "description": "无需分段的关键词列表",
-        "hint": "回复包含以下关键词时整段跳过（不区分大小写）。关闭「处理非 LLM 输出」时仅对 LLM 回复生效。",
+        "hint": "回复包含以下关键词时整段跳过（不区分大小写）。关闭「处理非 LLM 输出」时仅对 LLM 回复生效。一行一个。",
         "type": "list",
         "default": [
           "模型列表",
@@ -396,6 +404,82 @@
       }
     }
   },
+  "bili": {
+    "description": "上下文压缩 (billion-context)",
+    "hint": "经本地 bili 代理接管上下文压缩：provider 请求改经代理，由模型自驱、可逆地压缩长历史。开启即懒人模式——自动确保代理可用并接管当前对话 provider。设置在状态总览 → 设置中管理。",
+    "type": "object",
+    "invisible": true,
+    "items": {
+      "enabled": {
+        "description": "启用上下文压缩",
+        "hint": "开启即懒人模式：自动确保 bili 代理（缺失时自动安装，需 Node≥20）、检测当前对话 provider 并完成接管；关闭时自动尝试恢复原配置。接管与恢复均可用「烤箱压缩」命令或面板按钮手动操作。",
+        "type": "bool",
+        "default": false
+      },
+      "mode": {
+        "description": "代理运行模式",
+        "hint": "managed=插件拉起并守护 bili 进程（宿主机需 Node≥20）；external=连接用户自跑的代理（Docker/远程/手动）。",
+        "type": "string",
+        "options": [
+          "managed",
+          "external"
+        ],
+        "default": "managed"
+      },
+      "executable": {
+        "description": "bili 可执行文件",
+        "hint": "默认在 PATH 上找 bili；也可填完整路径。",
+        "type": "string",
+        "default": "bili"
+      },
+      "auto_install": {
+        "description": "缺失时自动安装",
+        "hint": "managed 模式下 bili 不存在时自动执行 npm install -g billion-context（需 Node≥20）；不会自动安装 Node 本体。",
+        "type": "bool",
+        "default": true
+      },
+      "host": {
+        "description": "代理地址",
+        "hint": "bili 代理监听/连接地址。",
+        "type": "string",
+        "default": "127.0.0.1"
+      },
+      "port": {
+        "description": "代理端口",
+        "hint": "bili 代理监听/连接端口，默认 8787。",
+        "type": "int",
+        "slider": {
+          "min": 1,
+          "max": 65535,
+          "step": 1
+        },
+        "default": 8787
+      },
+      "provider_ids": {
+        "description": "接管的 Provider 列表",
+        "hint": "一行一个 provider ID。留空=懒人模式，自动接管当前生效的对话 provider；填写则只接管列出的（须为对话类）。",
+        "type": "list",
+        "default": []
+      },
+      "session_header": {
+        "description": "会话头名称",
+        "hint": "AstrBot 主对话请求自动携带此头（默认 x-astrbot-conversation-id），managed 模式会将其播种为 bili 的 sessionHeader 以按会话隔离压缩状态。",
+        "type": "string",
+        "default": "x-astrbot-conversation-id"
+      },
+      "health_interval_sec": {
+        "description": "健康检查间隔（秒）",
+        "hint": "managed 模式周期检查代理进程与健康端点，进程死亡自动重启。",
+        "type": "int",
+        "slider": {
+          "min": 10,
+          "max": 600,
+          "step": 5
+        },
+        "default": 60
+      }
+    }
+  },
   "balance": {
     "description": "余额查询",
     "hint": "通过 API 查询各服务商余额，在 Dashboard 页面查看。",
@@ -423,8 +507,9 @@
   },
   "mention_parser": {
     "description": "@功能 - 活跃发言人追踪",
-    "hint": "追踪最近发言的用户昵称与 ID，注入到 LLM 上下文让 AI 可以主动 @ 他人。",
+    "hint": "追踪最近发言的用户昵称与 ID，注入到 LLM 上下文让 AI 可以主动 @ 他人。设置在状态总览 → 设置中管理。",
     "type": "object",
+    "invisible": true,
     "items": {
       "enabled": {
         "description": "启用 @功能",
@@ -448,19 +533,21 @@
   },
   "file_reader": {
     "description": "文件读取",
-    "hint": "读取会话中的文件供 LLM 使用，支持 RAG 语义检索与 LLM Tool 两种方式。核心实现改写自 astrbot_plugin_file_reader_pro（MIT）。",
+    "hint": "读取会话中的文件供 LLM 使用，支持 RAG 语义检索与 LLM Tool 两种方式。核心实现改写自 astrbot_plugin_file_reader_pro（MIT）。本节仅保留 Provider 选择，其余参数请在插件「状态总览 → 设置」中管理。",
     "type": "object",
     "items": {
       "enabled": {
         "description": "启用文件读取",
         "hint": "总开关。关闭后不再接收文件，Tool 也不可用。",
         "type": "bool",
+        "invisible": true,
         "default": false
       },
       "preread": {
         "description": "预读取",
         "hint": "收到文件后自动解析并向量化，后续提问时自动检索相关内容注入回复上下文。",
         "type": "object",
+        "invisible": true,
         "items": {
           "enabled": {
             "description": "启用预读取",
@@ -480,6 +567,7 @@
         "description": "LLM Tool",
         "hint": "向 LLM 暴露 file_list / file_read / file_search 三个工具，由模型按需调用读取文件。",
         "type": "object",
+        "invisible": true,
         "items": {
           "enabled": {
             "description": "启用 LLM Tool",
@@ -504,6 +592,7 @@
             "description": "启用 RAG",
             "hint": "关闭后不做向量化与自动检索注入，file_search 也不可用。",
             "type": "bool",
+            "invisible": true,
             "default": true
           },
           "injection_type": {
@@ -514,6 +603,7 @@
               "temp_part",
               "prompt"
             ],
+            "invisible": true,
             "default": "temp_part"
           },
           "embedding_provider_id": {
@@ -527,36 +617,42 @@
             "description": "Rerank Provider ID",
             "hint": "用于检索结果重排序的 Rerank Provider。留空自动选择或不启用重排序。",
             "type": "string",
+            "_special": "select_provider:rerank",
             "default": ""
           },
           "chunk_size": {
             "description": "分块大小",
             "hint": "文本分块的字符数。",
             "type": "int",
+            "invisible": true,
             "default": 512
           },
           "chunk_overlap": {
             "description": "分块重叠",
             "hint": "相邻分块之间的重叠字符数。",
             "type": "int",
+            "invisible": true,
             "default": 100
           },
           "retrieve_top_k": {
             "description": "检索条数",
             "hint": "每次检索返回的相关片段数量。",
             "type": "int",
+            "invisible": true,
             "default": 5
           },
           "fetch_k": {
             "description": "候选条数",
             "hint": "重排序前的候选片段数量。",
             "type": "int",
+            "invisible": true,
             "default": 20
           },
           "enable_rerank": {
             "description": "启用重排序",
             "hint": "有 Rerank Provider 时对检索结果重排序。",
             "type": "bool",
+            "invisible": true,
             "default": true
           }
         }
@@ -565,30 +661,35 @@
         "description": "最大文件大小（MB）",
         "hint": "超过该大小的文件将被拒绝。",
         "type": "int",
+        "invisible": true,
         "default": 100
       },
       "retention_minutes": {
         "description": "文件保留时间（分钟）",
         "hint": "文件接收后超过该时间自动清理。设为 0 表示不按时间过期。",
         "type": "int",
+        "invisible": true,
         "default": 60
       },
       "max_rounds": {
         "description": "最大使用轮数",
         "hint": "文件被检索/读取累计达到该轮数后自动清理。设为 0 表示不限轮数。",
         "type": "int",
+        "invisible": true,
         "default": 5
       },
       "cleanup_interval_minutes": {
         "description": "清理检查间隔（分钟）",
         "hint": "定期扫描并清理过期文件的间隔。",
         "type": "int",
+        "invisible": true,
         "default": 15
       },
       "supported_file_types": {
         "description": "支持的文件类型",
-        "hint": "留空表示支持全部内置类型（pdf/docx/xlsx/xls/ods/pptx/csv/tsv 及常见文本与代码格式）。",
+        "hint": "留空表示支持全部内置类型（pdf/docx/xlsx/xls/ods/pptx/csv/tsv 及常见文本与代码格式）。一行一个扩展名。",
         "type": "list",
+        "invisible": true,
         "default": []
       }
     }

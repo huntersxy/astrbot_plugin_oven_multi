@@ -24,6 +24,7 @@ class Element {
       const isPair = child.dataset.pair !== undefined;
       return parts.some((part) => {
         if (part.includes('input[data-pair]')) return child.tagName === 'input' && isPair;
+        if (part.includes('textarea')) return child.tagName === 'textarea';
         if (part.includes('input')) return child.tagName === 'input' && !isPair;
         if (part.includes('select')) return child.tagName === 'select';
         return false;
@@ -47,7 +48,7 @@ const calls=[];const waiting=[];
 const apiGet=(name)=>{calls.push(name);return new Promise((resolve,reject)=>waiting.push({name,resolve,reject}));};
 const posts=[];
 const apiPost=(name,body)=>{calls.push(name);posts.push(body);return new Promise((resolve,reject)=>waiting.push({name,resolve,reject}));};
-const sandbox={document:{getElementById:get,createElement:tag=>new Element(tag),createElementNS:(_,tag)=>new Element(tag),querySelectorAll:()=>tabs},window:{AstrBotPluginPage:{ready:async()=>{},apiGet,apiPost},addEventListener(){}},console:{warn(){}},Date,Set};
+const sandbox={document:{getElementById:get,createElement:tag=>new Element(tag),createElementNS:(_,tag)=>new Element(tag),querySelectorAll:()=>tabs},window:{AstrBotPluginPage:{ready:async()=>{},apiGet,apiPost},addEventListener(){}},console:{warn(){}},Date,Set,setTimeout:()=>0};
 vm.createContext(sandbox);
 // The host appends its bridge after the view's scripts. Simulate parser order.
 const bridge = sandbox.window.AstrBotPluginPage;
@@ -96,8 +97,9 @@ sandbox.api.selectTab('settings');
 assert.equal(get('panel-balances').hidden,true);assert.equal(get('panel-settings').hidden,false);
 assert.deepEqual(calls[calls.length-1],'settings'); // 首次进入才拉取
 const groupsPayload={revision:'rev-1',groups:[
-  {name:'分段回复',fields:[
+  {name:'分段回复',note:'分组指引文本',fields:[
     {key:'segment_reply.enabled',label:'启用分段回复',type:'bool',value:false},
+    {key:'segment_reply.exclude_keywords',label:'无需分段的关键词列表',type:'list',value:['帮助','菜单']},
     {key:'segment_reply.delay_type',label:'发送间隔类型',type:'enum',value:'random',options:['fixed','random','smart']},
     {key:'segment_reply.max_length',label:'常规最大字数',type:'int',value:50,min:1,max:2000,step:1},
     {key:'segment_reply.random_delay_range',label:'随机间隔范围（秒）',type:'pair',value:[1,3],min:0,max:60,step:0.5},
@@ -106,16 +108,43 @@ const groupsPayload={revision:'rev-1',groups:[
 const settingsLoad=waiting.shift();assert.equal(settingsLoad.name,'settings');settingsLoad.resolve(groupsPayload);await tick();
 assert.equal(sandbox.api.state.settingsLoaded,true);
 assert.equal(get('settings-groups').children.length,1);
+const settingsSection=get('settings-groups').children[0];
+assert.equal(settingsSection.children[1].textContent,'分组指引文本'); // 组指引行
+const settingsRows=settingsSection.children.find((child)=>child.tagName==='ul').children;
+const listArea=settingsRows.map((row)=>row.children.find((child)=>child.tagName==='textarea')).find(Boolean);
+assert.equal(listArea.value,'帮助\n菜单'); // 列表项按行渲染
+listArea.value=' 帮助 \n\n菜单\n'; // 保存时去空白、丢空行
 assert.equal(get('save-settings').disabled,true); // 未修改时不可保存
 sandbox.api.state.settingsDirty=true;
 const saving=sandbox.api.saveSettings();
 const saveCall=shiftNamed('settings/save');
-assert.deepEqual(JSON.parse(JSON.stringify(posts[0])),{revision:'rev-1',values:{"segment_reply.enabled":false,"segment_reply.delay_type":'random',"segment_reply.max_length":50,"segment_reply.random_delay_range":[1,3]}});
+assert.deepEqual(JSON.parse(JSON.stringify(posts[0])),{revision:'rev-1',values:{"segment_reply.enabled":false,"segment_reply.exclude_keywords":['帮助','菜单'],"segment_reply.delay_type":'random',"segment_reply.max_length":50,"segment_reply.random_delay_range":[1,3]}});
 saveCall.resolve({revision:'rev-2',message:'ok'});await saving;
 assert.equal(sandbox.api.state.settingsRevision,'rev-2');
 assert.equal(sandbox.api.state.settingsDirty,false);
 assert.deepEqual(calls[calls.length-1],'status'); // 保存后刷新运行概览
 shiftNamed('status').resolve(status);await tick(); // 排空刷新请求
+
+// 上下文压缩状态卡：设置页加载即并发拉取，按钮二次确认后提交
+const biliStatus=shiftNamed('billion/status'); // 来自初始 loadSettings
+biliStatus.resolve({enabled:true,proxy:{state:'spawned',mode:'managed',url:'http://127.0.0.1:8787',detail:'',healthy:true},wire:null,doctor:['巡检示例']});
+await tick();
+assert.equal(get('bili-card').hidden,false);
+assert.match(get('bili-state').textContent,/代理运行中/);
+assert.equal(get('bili-wire').hidden,false);
+assert.equal(get('bili-doctor').children.length,1);
+get('bili-wire').click(); // 第一次：进入确认态
+assert.equal(get('bili-wire').textContent,'再次点击确认');
+get('bili-wire').click(); // 第二次：执行接管
+const biliCall=shiftNamed('billion/wire');
+assert.equal(JSON.stringify(posts[posts.length-1]),JSON.stringify({confirm:true}));
+biliCall.resolve({message:'已接管'});await tick(); // 完成后刷新状态卡与运行概览
+shiftNamed('billion/status').resolve({enabled:true,proxy:{state:'spawned',mode:'managed',url:'http://127.0.0.1:8787',detail:'',healthy:true},wire:{wired_at:'t',proxy_url:'u',providers:['main']},doctor:[]});
+await tick(); // 状态卡刷新完成后才会发起运行概览刷新
+shiftNamed('status').resolve(status);await tick();
+assert.equal(get('bili-restore').hidden,false); // 接管后出现恢复按钮
+assert.equal(get('bili-wire').hidden,true);
+assert.equal(get('bili-wire').textContent,'接管'); // 按钮文案回到原始标签
 sandbox.api.state.settingsDirty=true;
 const stale=sandbox.api.saveSettings();
 const staleCall=shiftNamed('settings/save');

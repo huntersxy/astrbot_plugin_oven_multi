@@ -49,6 +49,20 @@
     <section class="sheet" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
       <div class="sheet-heading"><div><h2>快捷设置</h2><p>常用开关与参数，保存后立即生效并写入插件配置。完整配置（含密钥、符号与关键词列表）请使用 AstrBot 插件配置页。</p></div><button id="save-settings" class="button primary" type="button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg><span>保存修改</span></button></div>
       <div id="settings-error" class="message error" role="alert" hidden></div>
+      <div id="bili-card" class="bili-card" hidden>
+        <div class="bili-head">
+          <div>
+            <h3 id="bili-state">上下文压缩 (billion-context)</h3>
+            <p id="bili-detail" class="setting-hint"></p>
+          </div>
+          <span class="bili-actions">
+            <button id="bili-wire" class="button secondary" type="button" hidden>接管</button>
+            <button id="bili-restore" class="button secondary" type="button" hidden>恢复</button>
+          </span>
+        </div>
+        <ul id="bili-doctor" class="bili-doctor" aria-live="polite"></ul>
+        <p class="bili-credit">压缩引擎：<a href="https://github.com/ranxianglei/billion-context" target="_blank" rel="noopener noreferrer">billion-context</a> · <a href="https://github.com/ranxianglei/acp-kernel" target="_blank" rel="noopener noreferrer">acp-kernel</a></p>
+      </div>
       <div id="settings-loading" class="loading" role="status">正在读取设置…<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>
       <div id="settings-groups" class="settings-groups"></div>
       <p id="settings-empty" class="empty" hidden>暂时没有可编辑的设置。请确认插件已启用，再点击「刷新状态」。</p>

@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.53.0 (2026-10-24)
+
+### New Features
+
+- **上下文压缩（billion-context 接管）**：经本地 [billion-context](https://github.com/ranxianglei/billion-context) 代理接管 AstrBot 的上下文压缩——provider 请求改经 `http://host:port/bili/<原地址>`，由模型自驱、可逆、增量地压缩长历史；AstrBot 本地与各插件看到的历史保持完整。插件不改 AstrBot 源码、不挂任何改写请求的钩子。
+  - **懒人模式**：只开 `bili.enabled` 即可——自动确保代理可用（复用已有健康实例；缺失时自动 `npm install -g billion-context`，需 Node ≥ 20，不代装 Node）、播种代理配置（以 AstrBot 自带的 `x-astrbot-conversation-id` 头作会话标识）、检测当前生效的对话 provider 并自动接管；关闭开关自动尝试恢复。任何环节无法唯一确定时不改配置、给出明确提示。
+  - **可逆接管**：改写 provider `api_base` + 压缩三件套（`max_turns=-1`、`overflow_strategy=truncate_by_turns`、`max_context_tokens=10_000_000` 等效停用原生压缩，避免双重压缩回路）；接管记录只存被改字段原值（不含 API Key），恢复时三方比对，用户接管后再改过的字段跳过不覆盖。需重载/重启 AstrBot 生效。
+  - **守护与巡检**：managed 模式周期健康检查、进程死亡自动重启；巡检告警覆盖代理不可用、待重载、备用链含未接管 provider（防超长历史直送上游）、接管记录与配置不一致、sessionHeader 不一致。
+  - 入口：面板设置页新增「上下文压缩」分组与状态卡（含二次确认接管/恢复按钮）；命令 `烤箱压缩状态` / `烤箱压缩接管 确认` / `烤箱压缩恢复 确认`（后两者限管理员）。
+  - 兼容性：Jev 判读、余额查询、文件 RAG 等辅助调用不经被接管对话 provider；真实模型窗口须在 bili 侧配置（文档说明）；依 billion-context 许可条款在 README 与 Panel 署名。
+
+### Fixed
+
+- **provider_source 继承解析**：接管按实际生效地址（entry 自身 `api_base` 优先，否则按 `provider_source_id` 从 `provider_sources` 继承，合并语义与 AstrBot `get_merged_provider_config` 一致）解析，继承地址物化为自身覆盖字段、绝不修改共享 source；记录 `old_absent` 标记，恢复时移除覆盖、恢复继承。
+- **接管记录先行落盘**：恢复依据写盘失败则不改任何配置；宿主配置持久化失败时回滚内存并保留恢复依据；记录原子写入、校验结构，恢复可幂等重试；损坏的记录文件阻断接管与恢复并进入巡检告警，不再当作"无记录"继续接管。
+- **停用不再立即停代理**：运行中 SDK 客户端与管线压缩配置要等重载/重启才切回原地址，停用和卸载时，只要实际 SDK 客户端仍依赖自有代理，就保留进程直到宿主重载完成，避免切断仍在使用代理的客户端。
+- **会话标识验证实际运行实例**：兼容 `GET /__bili/config` 管理端点的 `raw` 配置格式读取 `sessionHeader`（自拉实例端点不可用时以播种文件兜底）；不匹配或未知均**阻断自动接管**，手动接管同样校验并阻断；复用已有代理同样纳入验证。
+- **守护恢复能力补齐**：自有进程"活着但服务失效"连续失败达阈值后终止并重新拉起（此前只计数不恢复）；复用/外部实例也进入周期探活，失联后按获取链重新接管或拉起。
+
+## 1.52.0 (2026-10-24)
+
+### Changed
+
+- **配置双入口**：AstrBot 插件配置页精简为只保留 5 个字段——Jev `api_key`、余额查询 `config_content` / `config_mode`（YAML 编辑器）、文件读取 `rag.embedding_provider_id` / `rag.rerank_provider_id`（原生 Provider 选择器，`rerank` 本次补上 `_special` 声明）；其余约 67 个字段在 schema 中以 `invisible` 隐藏（字段必须留在 schema：AstrBot 加载插件时会剔除 schema 之外的 key，删掉即丢值），全部改由 Panel「状态总览 → 设置」管理。所有配置 key 与已保存值不变，老用户无感。
+- Panel 设置页接管全部常规配置：新增「黑名单」分组与 Jev 判读、文件读取的完整参数，分组顶部指引留在插件配置页的字段；新增**列表控件**（黑名单、表情 ID、关键词、断句符号、文件类型等一行一个，表情 ID 自动转整数）。
+
+### Fixed
+
+- 修复 Panel 保存整节覆盖配置的隐患：原生 `save_config(补丁)` 对顶层是浅合并，会把同节未提交的字段（如 `jev.api_key`，以及 1.51.0 中被排除在面板白名单外的符号/关键词列表等自定义值）一并抹掉、重载后回落默认值；现改为深层合并进宿主配置后整体持久化，写盘失败照旧回滚内存。
+- 移除 `active_reply` 墓碑配置节与永不触发的迁移提示死代码（其读取的旧 `enable` 键在 AstrBot 加载时已被配置完整性检查剔除）；主动回复迁移指引见 README 与 1.50.0 更新记录。
+
 ## 1.51.0 (2026-10-24)
 
 ### New Features

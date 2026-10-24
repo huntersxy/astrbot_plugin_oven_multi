@@ -26,6 +26,7 @@
 # Date: 2026-06-23
 
 import asyncio
+import contextlib
 import json
 import re
 from sys import maxsize
@@ -38,7 +39,7 @@ from astrbot.api.web import request
 from astrbot.core.message.message_event_result import ResultContentType
 
 from .constants import (
-    ACTIVE_REPLY_SUCCESSOR_URL,
+    FEATURE_BILI,
     FEATURE_BRACKET,
     FEATURE_FILE_READER,
     FEATURE_JEV,
@@ -53,6 +54,8 @@ from .constants import (
     PLUGIN_VERSION,
 )
 from .features.balance_checker import BalanceChecker
+from .features.bili_proxy import BiliProxyManager
+from .features.bili_wire import BiliWireManager
 from .features.bracket_matcher import BracketMatcher
 from .features.file_reader import FileParseError, FileReaderManager
 from .features.jev_scenes import JevScenes
@@ -119,6 +122,13 @@ class OvenMultiPlugin(Star):
         # 面板快捷设置（revision 防陈旧 + 校验写回）
         self.panel_settings = PanelSettingsManager()
 
+        # 上下文压缩（billion-context 代理）：懒人获取链 + 接管/恢复
+        self.bili_proxy = BiliProxyManager(
+            lambda: feature_cfg(self.config, FEATURE_BILI), self.data_dir
+        )
+        self.bili_wire = BiliWireManager(lambda: self._host_config(), self.data_dir)
+        self._bili_task = None
+
         # 余额查询
         self.balance_checker = BalanceChecker(self.config)
 
@@ -159,6 +169,24 @@ class OvenMultiPlugin(Star):
                 "POST",
                 "Oven Multi save panel settings",
             ),
+            (
+                f"/{PLUGIN_NAME}/billion/status",
+                self._api_billion_status,
+                "GET",
+                "Oven Multi billion-context compression status",
+            ),
+            (
+                f"/{PLUGIN_NAME}/billion/wire",
+                self._api_billion_wire,
+                "POST",
+                "Oven Multi wire providers to billion-context",
+            ),
+            (
+                f"/{PLUGIN_NAME}/billion/restore",
+                self._api_billion_restore,
+                "POST",
+                "Oven Multi restore providers from billion-context",
+            ),
         ):
             self.context.register_web_api(route, handler, [method], description)
 
@@ -167,9 +195,33 @@ class OvenMultiPlugin(Star):
     async def initialize(self):
         if self.file_reader:
             await self.file_reader.start()
+        if feature_enabled(self.config, FEATURE_BILI, False):
+            self._bili_task = asyncio.get_event_loop().create_task(self._bili_startup())
+        elif self.bili_wire.record_exists():
+            # 懒人对称：功能停用但接管仍在 → 自动尝试恢复
+            result = self.bili_wire.restore()
+            logger.info(f"[烤箱-压缩] 功能停用且存在接管记录，自动恢复：{result['message']}")
         logger.info("[插座烤箱] 启动")
 
     async def terminate(self):
+        if self._bili_task is not None:
+            self._bili_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._bili_task
+            self._bili_task = None
+        # Persist restoration, but do not cut off SDK instances awaiting a host reload.
+        if self.bili_wire.record_exists():
+            result = self.bili_wire.restore()
+            logger.info(f"[烤箱-压缩] 卸载恢复：{result['message']}")
+        proxy_url = self.bili_proxy.url.rstrip("/") + "/bili/"
+        keep_process = self.bili_proxy.owned_process and any(
+            url.startswith(proxy_url) for url in self._chat_provider_view().values()
+        )
+        await self.bili_proxy.stop(keep_process=keep_process)
+        if keep_process:
+            logger.warning(
+                "[烤箱-压缩] 运行中的 Provider 尚在使用代理，保留进程；请重启 AstrBot 完成恢复。"
+            )
         if self.file_reader:
             await self.file_reader.stop()
         await self.jev_scenes.close()
@@ -251,6 +303,12 @@ class OvenMultiPlugin(Star):
                 if self.file_reader
                 else "在插件配置中开启文件读取",
             ),
+            (
+                FEATURE_BILI,
+                "上下文压缩",
+                feature_enabled(self.config, FEATURE_BILI, False),
+                self._bili_status_detail(),
+            ),
         ]
         return [
             {"id": key, "name": name, "enabled": bool(enabled), "detail": detail}
@@ -265,15 +323,12 @@ class OvenMultiPlugin(Star):
         """
         jev = feature_cfg(self.config, FEATURE_JEV)
         notices = []
-        if feature_cfg(self.config, "active_reply").get("enable", False):
-            notices.append(
-                "主动回复已移除，请改用烤箱之心的群聊参与："
-                f"{ACTIVE_REPLY_SUCCESSOR_URL}"
-            )
         if jev.get("enabled") and not str(jev.get("api_key") or "").strip():
             notices.append("Jev 已开启但未配置 API Key，请在插件配置中填写后使用判读。")
         if feature_enabled(self.config, FEATURE_FILE_READER, False) and not self.file_reader:
             notices.append("文件读取已配置开启，但尚未初始化成功，请检查 AstrBot 日志。")
+        if self.bili_wire.record_exists():
+            notices.extend(self._bili_doctor())
         return {
             "success": True,
             "data": {
@@ -327,10 +382,24 @@ class OvenMultiPlugin(Star):
                 raise ValueError("请求不是有效的 JSON。") from exc
             if not isinstance(body, dict) or not isinstance(body.get("values"), dict):
                 raise ValueError("请提交要保存的设置。")
+            if self.bili_proxy.owned_process or self.bili_wire.record_exists():
+                current = feature_cfg(self.config, FEATURE_BILI)
+                for field in ("host", "port", "mode", "executable", "session_header"):
+                    key = f"bili.{field}"
+                    if key in body["values"] and body["values"][key] != current.get(field):
+                        raise ValueError(
+                            "代理使用期间不能更换地址或运行方式；请恢复并重启 AstrBot 后修改。"
+                        )
             revision = await self.panel_settings.save(
                 self.config, body["values"], body.get("revision")
             )
             logger.info(f"[烤箱-面板] 已保存 {len(body['values'])} 项设置")
+            if any(str(key).startswith("bili.") for key in body["values"]):
+                if self._bili_task is not None:
+                    self._bili_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await self._bili_task
+                self._bili_task = asyncio.create_task(self._bili_revaluate())
             return {
                 "success": True,
                 "data": {
@@ -348,6 +417,235 @@ class OvenMultiPlugin(Star):
                 "success": False,
                 "message": "保存失败，请确认插件数据目录可写后重试。",
             }
+
+    # ── 上下文压缩（billion-context）─────────────────────────────────────
+
+    def _host_config(self):
+        """默认 profile 的宿主配置（AstrBotConfig）。"""
+        return self.context.get_config()
+
+    def _chat_provider_view(self) -> dict[str, str]:
+        """运行中对话 provider 视图 {id: api_base}；异常环境（离线测试）返回空。"""
+        try:
+            insts = getattr(self.context.provider_manager, "provider_insts", None) or []
+            view = {}
+            for provider in insts:
+                pcfg = getattr(provider, "provider_config", None)
+                if isinstance(pcfg, dict):
+                    pid = str(pcfg.get("id") or "")
+                    if pid:
+                        client = getattr(provider, "client", None)
+                        view[pid] = str(
+                            getattr(client, "base_url", None) or pcfg.get("api_base") or ""
+                        )
+            return view
+        except Exception:  # noqa: BLE001
+            return {}
+
+    async def _using_chat_provider_id(self, umo: str | None = None) -> str | None:
+        """当前生效的对话 provider ID（umo 存在时按会话解析，同 AstrBot 原生规则）。"""
+        with contextlib.suppress(Exception):
+            from astrbot.core.provider.entities import ProviderType
+
+            provider = await self.context.provider_manager.get_using_provider_async(
+                ProviderType.CHAT_COMPLETION, umo
+            )
+            pcfg = getattr(provider, "provider_config", None)
+            if isinstance(pcfg, dict):
+                return str(pcfg.get("id") or "") or None
+        return None
+
+    def _fallback_provider_ids(self) -> list[str]:
+        try:
+            model = ((self._host_config().get("agent_runner") or {}).get("config") or {}).get(
+                "model"
+            )
+            return [str(x) for x in (model or {}).get("fallback_provider_ids") or []]
+        except Exception:  # noqa: BLE001
+            return []
+
+    def _bili_endpoint(self) -> tuple[str, int]:
+        cfg = feature_cfg(self.config, FEATURE_BILI)
+        host = str(cfg.get("host") or "127.0.0.1")
+        port = int(cfg.get("port") or 8787)
+        return host, port
+
+    def _bili_doctor(self) -> list[str]:
+        return self.bili_wire.doctor(
+            proxy_healthy=self.bili_proxy.healthy,
+            runtime_client_api=self._chat_provider_view(),
+            fallback_ids=self._fallback_provider_ids(),
+        )
+
+    def _bili_status_detail(self) -> str:
+        if not feature_enabled(self.config, FEATURE_BILI, False):
+            return "未启用"
+        parts = [self.bili_proxy.status()["state"]]
+        summary = self.bili_wire.record_summary()
+        if summary:
+            parts.append(f"已接管 {'、'.join(summary['providers'])}")
+        if self.bili_proxy.session_header_state != "ok":
+            parts.append(f"会话标识{self.bili_proxy.session_header_state}")
+        return "，".join(parts)
+
+    def _bili_header_warning(self) -> str:
+        """Explain why an unverified proxy cannot be wired."""
+        state = self.bili_proxy.session_header_state
+        if state == "ok":
+            return ""
+        detail = self.bili_proxy.session_header_detail or "会话标识未确认"
+        return f"⚠ 会话标识{state}：{detail} 校验通过后才可接管。"
+
+    async def _bili_startup(self) -> None:
+        """懒人链：确保代理可用 → （无接管记录时）检测目标并自动接管。"""
+        cfg = feature_cfg(self.config, FEATURE_BILI)
+        if not cfg.get("enabled", False):
+            return
+        status = await self.bili_proxy.ensure_started()
+        logger.info(f"[烤箱-压缩] 代理状态：{status['state']} {status['detail']}".rstrip())
+        if not status["healthy"]:
+            return
+        if status.get("session_header_state") != "ok":
+            # 会话标识未确认（不匹配或未知）：阻断自动接管，只留告警
+            logger.warning(
+                "[烤箱-压缩] 懒人接管未执行："
+                f"{status.get('session_header_detail') or '会话标识未确认'}"
+            )
+            return
+        if self.bili_wire.record_exists():
+            return
+        host, port = self._bili_endpoint()
+        chat_ids = list(self._chat_provider_view().keys())
+        using_id = self._sync_using_provider_id()
+        explicit = [str(x) for x in (cfg.get("provider_ids") or [])]
+        targets, message = self.bili_wire.detect_targets(explicit, chat_ids, using_id)
+        if not targets:
+            if message:
+                logger.warning(f"[烤箱-压缩] 懒人接管未执行：{message}")
+            return
+        result = self.bili_wire.wire(
+            targets, host, port, health_check=lambda: self.bili_proxy.healthy
+        )
+        log = logger.info if result["ok"] else logger.warning
+        log(f"[烤箱-压缩] {result['message']}")
+
+    async def _bili_revaluate(self) -> None:
+        """面板保存 bili 节后的重评估：关闭→自动恢复；开启→懒人链。
+
+        停用不立即停代理：运行中的 SDK 客户端与管线压缩配置要等重载/重启
+        才切回原地址，卸载时也会检查实际 SDK 是否仍依赖代理再决定是否停进程。
+        """
+        if not feature_enabled(self.config, FEATURE_BILI, False):
+            if self.bili_wire.record_exists():
+                result = self.bili_wire.restore()
+                logger.info(f"[烤箱-压缩] 停用自动恢复：{result['message']}")
+            logger.info(
+                "[烤箱-压缩] 已停用；代理保留运行直至重载/重启（重载后原配置生效），"
+                "插件卸载时停止。"
+            )
+            return
+        await self._bili_startup()
+
+    async def _bili_targets_or_message(self, umo: str | None = None) -> tuple[list[str], str]:
+        """命令/面板共用：解析接管目标（显式列表或懒人检测；带 umo 时按会话解析）。"""
+        cfg = feature_cfg(self.config, FEATURE_BILI)
+        explicit = [str(x) for x in (cfg.get("provider_ids") or [])]
+        using_id = (
+            await self._using_chat_provider_id(umo) if umo else self._sync_using_provider_id()
+        )
+        return self.bili_wire.detect_targets(
+            explicit, list(self._chat_provider_view().keys()), using_id
+        )
+
+    def _sync_using_provider_id(self) -> str | None:
+        """同步版当前 provider 解析（优先原生解析结果，回退首实例）。"""
+        view = self._chat_provider_view()
+        if not view:
+            return None
+        with contextlib.suppress(Exception):
+            model = ((self._host_config().get("agent_runner") or {}).get("config") or {}).get(
+                "model"
+            )
+            pid = str((model or {}).get("provider_id") or "")
+            if pid in view:
+                return pid
+        return next(iter(view)) if len(view) == 1 else None
+
+    async def _api_billion_status(self):
+        """压缩代理与接管状态（含巡检告警），供状态卡展示。"""
+        cfg = feature_cfg(self.config, FEATURE_BILI)
+        record = self.bili_wire.record_summary()
+        doctor = self._bili_doctor() if self.bili_wire.record_exists() else []
+        if cfg.get("enabled", False):
+            warning = self._bili_header_warning()
+            if warning:
+                doctor.insert(0, warning)
+        return {
+            "success": True,
+            "data": {
+                "enabled": bool(cfg.get("enabled", False)),
+                "proxy": self.bili_proxy.status(),
+                "wire": record,
+                "doctor": doctor,
+            },
+        }
+
+    async def _api_billion_wire(self):
+        """接管 provider（需 body.confirm 二次确认；未确认时返回预览）。"""
+        try:
+            raw = await request.body()
+            body = json.loads(raw) if len(raw) <= 65536 else {}
+            if not isinstance(body, dict):
+                body = {}
+        except (ValueError, UnicodeDecodeError):
+            body = {}
+        confirmed = body.get("confirm") is True
+        if confirmed:
+            healthy, _ = await self.bili_proxy.probe_health()
+            await self.bili_proxy.verify_session_header()
+            if not healthy:
+                return {"success": False, "message": "代理健康检查未通过，已拒绝接管。"}
+            if self.bili_proxy.session_header_state != "ok":
+                return {"success": False, "message": "会话标识未验证，已拒绝接管。"}
+        targets, message = await self._bili_targets_or_message()
+        if not targets:
+            return {"success": False, "message": message or "未找到可接管的对话 provider。"}
+        host, port = self._bili_endpoint()
+        if not confirmed:
+            data = {
+                "preview": self.bili_wire.preview(targets, host, port),
+                "message": "预览已生成，请带 confirm: true 再次提交以执行接管。",
+            }
+            warning = self._bili_header_warning()
+            if warning:
+                data["warning"] = warning
+            return {"success": True, "data": data}
+        result = self.bili_wire.wire(
+            targets, host, port, health_check=lambda: self.bili_proxy.healthy
+        )
+        if not result["ok"]:
+            return {"success": False, "message": result["message"]}
+        return {"success": True, "data": {"message": result["message"]}}
+
+    async def _api_billion_restore(self):
+        """恢复被接管的配置（需 body.confirm 二次确认）。"""
+        try:
+            raw = await request.body()
+            body = json.loads(raw) if len(raw) <= 65536 else {}
+            if not isinstance(body, dict):
+                body = {}
+        except (ValueError, UnicodeDecodeError):
+            body = {}
+        record = self.bili_wire.record_summary()
+        if not record:
+            return {"success": False, "message": "没有接管记录，无需恢复。"}
+        if body.get("confirm") is not True:
+            return {
+                "success": True,
+                "data": {"wire": record, "message": "请带 confirm: true 再次提交以执行恢复。"},
+            }
+        result = self.bili_wire.restore()
+        return {"success": bool(result["ok"]), "data": {"message": result["message"]}}
 
     # ── 工具方法 ─────────────────────────────────────────────────────────
 
@@ -368,6 +666,89 @@ class OvenMultiPlugin(Star):
             lines.append(line)
 
         yield event.plain_result("\n".join(lines))
+
+    # ── Handler：上下文压缩（billion-context）───────────────────────────
+
+    @filter.command("烤箱压缩状态")
+    async def bili_status(self, event: AstrMessageEvent):
+        cfg = feature_cfg(self.config, FEATURE_BILI)
+        lines = ["🗜 上下文压缩 (billion-context)", ""]
+        if not cfg.get("enabled", False) and not self.bili_wire.record_exists():
+            lines.append("未启用。开启「状态总览 → 设置 → 上下文压缩」即进入懒人模式。")
+            yield event.plain_result("\n".join(lines))
+            return
+        status = self.bili_proxy.status()
+        lines.append(f"代理：{status['state']}（{status['mode']} · {status['url']}）")
+        if status["detail"]:
+            lines.append(f"  {status['detail']}")
+        summary = self.bili_wire.record_summary()
+        if summary:
+            lines.append(
+                f"接管：{'、'.join(summary['providers'])}"
+                f"（{summary['wired_at']} → {summary['proxy_url']}）"
+            )
+        else:
+            lines.append("接管：未接管任何 provider")
+        doctor = self._bili_doctor()
+        if doctor:
+            lines.append("")
+            lines.extend(f"⚠ {notice}" for notice in doctor)
+        yield event.plain_result("\n".join(lines))
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("烤箱压缩接管")
+    async def bili_wire_cmd(self, event: AstrMessageEvent):
+        confirmed = "确认" in (event.message_str or "").split()
+        if confirmed:
+            healthy, _ = await self.bili_proxy.probe_health()
+            await self.bili_proxy.verify_session_header()
+            if not healthy:
+                yield event.plain_result("代理健康检查未通过，已拒绝接管。")
+                return
+            if self.bili_proxy.session_header_state != "ok":
+                yield event.plain_result("会话标识未验证，已拒绝接管。")
+                return
+        targets, message = await self._bili_targets_or_message(event.unified_msg_origin)
+        if not targets:
+            yield event.plain_result(f"未执行接管：{message}")
+            return
+        host, port = self._bili_endpoint()
+        if not confirmed:
+            preview = self.bili_wire.preview(targets, host, port)
+            lines = ["接管预览（未做任何修改）："]
+            lines.extend(
+                f"  · {row['target']}.{row['field']}: {row['old']!r} → {row['new']!r}"
+                for row in preview["changes"]
+            )
+            lines.extend(f"  · 跳过 {item['id']}：{item['reason']}" for item in preview["skipped"])
+            warning = self._bili_header_warning()
+            if warning:
+                lines.append(warning)
+            lines.append("")
+            lines.append("确认无误请回复「烤箱压缩接管 确认」。")
+            yield event.plain_result("\n".join(lines))
+            return
+        result = self.bili_wire.wire(
+            targets, host, port, health_check=lambda: self.bili_proxy.healthy
+        )
+        yield event.plain_result(result["message"])
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("烤箱压缩恢复")
+    async def bili_restore_cmd(self, event: AstrMessageEvent):
+        confirmed = "确认" in (event.message_str or "").split()
+        summary = self.bili_wire.record_summary()
+        if not summary:
+            yield event.plain_result("没有接管记录，无需恢复。")
+            return
+        if not confirmed:
+            yield event.plain_result(
+                f"当前接管：{'、'.join(summary['providers'])}（{summary['wired_at']}）。\n"
+                "恢复将还原 api_base 与压缩配置并删除记录，确认请回复「烤箱压缩恢复 确认」。"
+            )
+            return
+        result = self.bili_wire.restore()
+        yield event.plain_result(result["message"])
 
     # ── Handler：群消息预处理（最高优先级）────────────────────────────────
 
@@ -503,9 +884,10 @@ class OvenMultiPlugin(Star):
         ):
             return
         # 非 LLM 输出（插件指令、命令返回等）默认不分段
-        if not bool(
-            cfg_value(self.config, FEATURE_SEGMENT, "process_non_llm", False)
-        ) and not result.is_llm_result():
+        if (
+            not bool(cfg_value(self.config, FEATURE_SEGMENT, "process_non_llm", False))
+            and not result.is_llm_result()
+        ):
             return
         # 仅处理纯文本链：带图片 / At / 转发等组件的消息不做拆分
         if not all(isinstance(comp, components.Plain) for comp in result.chain):

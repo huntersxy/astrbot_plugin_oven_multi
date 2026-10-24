@@ -12,6 +12,7 @@ const state = {
   settingsBusy: false,
   settingsDirty: false,
   settingsRevision: null,
+  biliBusy: false,
 };
 const TAB_ORDER = ["overview", "balances", "settings"];
 
@@ -179,6 +180,7 @@ async function loadSettings() {
     $("settings-empty").hidden = data.groups.some((group) => group.fields.length > 0);
     state.settingsLoaded = true;
     setError("settings-error", "");
+    loadBiliCard();
   } catch (error) {
     setError("settings-error", "暂时无法读取设置。请确认插件已启用，稍后重试。");
   } finally {
@@ -187,6 +189,91 @@ async function loadSettings() {
     $("save-settings").disabled = !state.settingsDirty;
     updateSettingsFooter();
   }
+}
+
+const BILI_STATE_TEXT = {
+  disabled: "未启用",
+  reused: "复用已有代理",
+  external_ok: "外部代理正常",
+  external_down: "外部代理不可达",
+  spawned: "代理运行中",
+  degraded: "守护降级（重启失败）",
+  no_node: "缺少 Node.js（需 ≥20）",
+  install_failed: "自动安装失败",
+  spawn_failed: "启动失败",
+  stopped: "已停止",
+};
+
+function renderBiliCard(data) {
+  const card = $("bili-card");
+  card.hidden = false;
+  const proxy = data.proxy || {};
+  const wire = data.wire;
+  const stateText = BILI_STATE_TEXT[proxy.state] || proxy.state || "未知";
+  let detail = `${proxy.mode === "external" ? "外部" : "托管"} · ${proxy.url || ""}`;
+  if (proxy.detail) detail += ` · ${proxy.detail}`;
+  if (wire) detail += ` · 已接管 ${wire.providers.join("、")}`;
+  else if (data.enabled) detail += " · 未接管";
+  $("bili-state").textContent = `上下文压缩：${stateText}`;
+  $("bili-detail").textContent = detail;
+  $("bili-wire").hidden = !(data.enabled && !wire);
+  $("bili-restore").hidden = !wire;
+  const doctor = $("bili-doctor");
+  doctor.replaceChildren(
+    ...(data.doctor || []).map((notice) => {
+      const li = node("li", "bili-notice", notice);
+      return li;
+    }),
+  );
+}
+
+async function loadBiliCard() {
+  try {
+    const data = unwrap(await window.AstrBotPluginPage.apiGet("billion/status"));
+    if (!data || typeof data !== "object") throw new Error("Invalid bili response");
+    renderBiliCard(data);
+  } catch (error) {
+    console.warn("Oven Multi bili status request failed", error?.name);
+  }
+}
+
+async function biliAction(kind) {
+  if (state.biliBusy) return;
+  state.biliBusy = true;
+  const label = kind === "wire" ? "接管" : "恢复";
+  const button = $(kind === "wire" ? "bili-wire" : "bili-restore");
+  button.disabled = true;
+  try {
+    const data = unwrap(
+      await window.AstrBotPluginPage.apiPost(`billion/${kind}`, { confirm: true }),
+    );
+    $("announcer").textContent = data.message || "操作完成";
+    await loadBiliCard();
+    loadStatus();
+  } catch (error) {
+    setError("settings-error", error.message || "操作失败，请稍后重试。");
+  } finally {
+    state.biliBusy = false;
+    button.disabled = false;
+    button.textContent = label;
+    button.dataset.armed = "";
+  }
+}
+
+function armBiliButton(kind) {
+  const button = $(kind === "wire" ? "bili-wire" : "bili-restore");
+  if (button.dataset.armed === "1") {
+    biliAction(kind);
+    return;
+  }
+  button.dataset.armed = "1";
+  button.textContent = "再次点击确认";
+  setTimeout(() => {
+    if (button.dataset.armed === "1") {
+      button.dataset.armed = "";
+      button.textContent = kind === "wire" ? "接管" : "恢复";
+    }
+  }, 5000);
 }
 
 function settingInput(field) {
@@ -225,6 +312,15 @@ function settingInput(field) {
     });
     return wrap;
   }
+  if (field.type === "list") {
+    const area = node("textarea");
+    const items = Array.isArray(field.value) ? field.value : [];
+    area.value = items.map((item) => String(item ?? "")).join("\n");
+    area.dataset.key = field.key;
+    area.rows = 3;
+    area.spellcheck = false;
+    return area;
+  }
   const input = node("input");
   input.value = field.value ?? "";
   input.dataset.key = field.key;
@@ -258,6 +354,7 @@ function renderSettings(groups) {
   for (const group of groups) {
     const section = node("section", "feature-section settings-group");
     section.append(node("h3", "", group.name));
+    if (group.note) section.append(node("p", "group-note", group.note));
     const list = node("ul");
     for (const field of group.fields) list.append(settingRow(field));
     section.append(list);
@@ -276,6 +373,12 @@ function collectSettings() {
     if (input.type === "checkbox") values[input.dataset.key] = input.checked;
     else if (input.type === "number") values[input.dataset.key] = input.value === "" ? null : Number(input.value);
     else values[input.dataset.key] = input.value;
+  }
+  for (const area of container.querySelectorAll("textarea[data-key]")) {
+    values[area.dataset.key] = area.value
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "");
   }
   const pairs = {};
   for (const input of container.querySelectorAll("input[data-pair]")) {
@@ -326,6 +429,8 @@ $("settings-groups").addEventListener("input", () => {
   }
   $("save-settings").disabled = state.settingsBusy;
 });
+$("bili-wire").addEventListener("click", () => armBiliButton("wire"));
+$("bili-restore").addEventListener("click", () => armBiliButton("restore"));
 $("save-settings").addEventListener("click", saveSettings);
 window.addEventListener("beforeunload", (event) => {
   if (state.settingsDirty) event.preventDefault();
