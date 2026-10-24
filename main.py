@@ -61,6 +61,7 @@ from .features.file_reader import FileParseError, FileReaderManager
 from .features.jev_scenes import JevScenes
 from .features.mention_parser import ActiveSpeakersTracker, transform_mention_in_chain
 from .features.mention_preserve import restore_bot_mention, should_backfill_native
+from .features.ovenheart_link import OvenHeartLink
 from .features.panel_settings import PanelSettingsManager, StaleSettingsError
 from .features.repeater import Repeater
 from .features.segment_reply import SegmentReply
@@ -105,8 +106,11 @@ SEGMENT_SKIP_PLATFORMS = {"qq_official_webhook", "weixin_official_account", "din
 class OvenMultiPlugin(Star):
     """插座的多功能烤箱 - 主插件类"""
 
+    ovenheart_protocol = 1
+
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
+        self.closing = False
         self.config = config if config is not None else AstrBotConfig({})
         self.data_dir = StarTools.get_data_dir(PLUGIN_NAME)
 
@@ -118,6 +122,7 @@ class OvenMultiPlugin(Star):
 
         # Jev 判读场景接入（上下文记录 + 被@判读）
         self.jev_scenes = JevScenes(context=self.context)
+        self.ovenheart = OvenHeartLink(self)
 
         # 面板快捷设置（revision 防陈旧 + 校验写回）
         self.panel_settings = PanelSettingsManager()
@@ -204,6 +209,7 @@ class OvenMultiPlugin(Star):
         logger.info("[插座烤箱] 启动")
 
     async def terminate(self):
+        self.closing = True
         if self._bili_task is not None:
             self._bili_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -310,10 +316,28 @@ class OvenMultiPlugin(Star):
                 self._bili_status_detail(),
             ),
         ]
-        return [
+        features = [
             {"id": key, "name": name, "enabled": bool(enabled), "detail": detail}
             for key, name, enabled, detail in rows
         ]
+        if self.ovenheart.core() is not None:
+            for feature in features:
+                if feature["id"] == FEATURE_MENTION_PARSER:
+                    feature.update(
+                        configured_enabled=feature["enabled"],
+                        enabled=False,
+                        managed_by="ovenheart",
+                        detail="烤箱之心已接管；独立运行时恢复原设置",
+                    )
+                if feature["id"] == FEATURE_JEV:
+                    feature["detail"] = "向烤箱之心提供目标与上下文一致的结构化判读"
+        return features
+
+    def ovenheart_jev_signature(self):
+        return self.ovenheart.signature()
+
+    async def analyze_for_ovenheart(self, event, payload):
+        return await self.ovenheart.analyze(event, payload)
 
     async def _api_status(self):
         """Return fast, credential-free Panel state without querying providers.
@@ -363,7 +387,17 @@ class OvenMultiPlugin(Star):
         Returns:
             Native Panel response with grouped fields and stale-guard revision.
         """
-        return {"success": True, "data": self.panel_settings.describe(self.config)}
+        data = self.panel_settings.describe(self.config)
+        if self.ovenheart.core() is not None:
+            for group in data["groups"]:
+                for field in group["fields"]:
+                    if field["key"] == "mention_parser.enabled":
+                        field.update(
+                            readonly=True,
+                            effective_value=False,
+                            hint="已由烤箱之心接管，当前自动关闭；保存值保留，独立运行时恢复。",
+                        )
+        return {"success": True, "data": data}
 
     async def _api_settings_save(self):
         """Validate and persist panel settings submitted from the Panel.
@@ -778,6 +812,9 @@ class OvenMultiPlugin(Star):
         if blocked:
             return
 
+        if await self.ovenheart.owned(event):
+            return  # The core owns mentions and the single contextual snapshot.
+
         # 1. 保留 @机器人（改 message_str，不动消息链，不影响原生记录）
         restored = restore_bot_mention(event)
         if restored:
@@ -831,7 +868,9 @@ class OvenMultiPlugin(Star):
         content = event.message_obj.message_str
 
         # 追踪活跃发言人（用于 @ 功能）
-        if feature_enabled(self.config, FEATURE_MENTION_PARSER):
+        if feature_enabled(self.config, FEATURE_MENTION_PARSER) and not await self.ovenheart.owned(
+            event
+        ):
             user_id = event.get_sender_id()
             nickname = event.message_obj.sender.nickname
             if user_id and nickname:
@@ -948,7 +987,9 @@ class OvenMultiPlugin(Star):
     @filter.on_decorating_result(priority=-50)
     async def parse_mention_tags(self, event: AstrMessageEvent):
         """将 LLM 输出中的 <mention> 标签转换为平台 At 组件。"""
-        if not feature_enabled(self.config, FEATURE_MENTION_PARSER):
+        if not feature_enabled(self.config, FEATURE_MENTION_PARSER) or await self.ovenheart.owned(
+            event
+        ):
             return
         result = event.get_result()
         if not result or not result.chain:
@@ -1000,14 +1041,20 @@ class OvenMultiPlugin(Star):
     async def on_llm_request(self, event: AstrMessageEvent, req):
         from astrbot.core.agent.message import TextPart
 
+        owned = await self.ovenheart.owned(event)
+
         # 被@/唤醒触发的一次 Jev 判读注入：重点是意向与情绪（临时内容，不持久化）
-        if feature_enabled(self.config, FEATURE_JEV, False) and not self._blocked(event):
+        if (
+            not owned
+            and feature_enabled(self.config, FEATURE_JEV, False)
+            and not self._blocked(event)
+        ):
             block = await self.jev_scenes.mention_reading(event, self.config)
             if block:
                 req.extra_user_content_parts.append(TextPart(text=str(block)).mark_as_temp())
 
         # 活跃发言人列表注入（@ 功能）
-        if feature_enabled(self.config, FEATURE_MENTION_PARSER):
+        if not owned and feature_enabled(self.config, FEATURE_MENTION_PARSER):
             from astrbot.api.platform import MessageType
 
             if event.get_message_type() == MessageType.GROUP_MESSAGE:

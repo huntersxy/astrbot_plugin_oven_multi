@@ -280,7 +280,8 @@ function settingInput(field) {
   if (field.type === "bool") {
     const input = node("input");
     input.type = "checkbox";
-    input.checked = Boolean(field.value);
+    input.checked = Boolean(field.effective_value ?? field.value);
+    input.disabled = Boolean(field.readonly);
     input.dataset.key = field.key;
     return input;
   }
@@ -370,6 +371,7 @@ function collectSettings() {
   const container = $("settings-groups");
   const values = {};
   for (const input of container.querySelectorAll("input[data-key]:not([data-pair]), select[data-key]")) {
+    if (input.disabled) continue;
     if (input.type === "checkbox") values[input.dataset.key] = input.checked;
     else if (input.type === "number") values[input.dataset.key] = input.value === "" ? null : Number(input.value);
     else values[input.dataset.key] = input.value;

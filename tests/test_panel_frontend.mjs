@@ -98,6 +98,7 @@ assert.equal(get('panel-balances').hidden,true);assert.equal(get('panel-settings
 assert.deepEqual(calls[calls.length-1],'settings'); // 首次进入才拉取
 const groupsPayload={revision:'rev-1',groups:[
   {name:'分段回复',note:'分组指引文本',fields:[
+    {key:'mention_parser.enabled',label:'成员提及',type:'bool',value:true,effective_value:false,readonly:true},
     {key:'segment_reply.enabled',label:'启用分段回复',type:'bool',value:false},
     {key:'segment_reply.exclude_keywords',label:'无需分段的关键词列表',type:'list',value:['帮助','菜单']},
     {key:'segment_reply.delay_type',label:'发送间隔类型',type:'enum',value:'random',options:['fixed','random','smart']},
@@ -111,6 +112,9 @@ assert.equal(get('settings-groups').children.length,1);
 const settingsSection=get('settings-groups').children[0];
 assert.equal(settingsSection.children[1].textContent,'分组指引文本'); // 组指引行
 const settingsRows=settingsSection.children.find((child)=>child.tagName==='ul').children;
+const managedInput=settingsRows[0].querySelectorAll('input')[0];
+assert.equal(managedInput.disabled,true);
+assert.equal(managedInput.checked,false);
 const listArea=settingsRows.map((row)=>row.children.find((child)=>child.tagName==='textarea')).find(Boolean);
 assert.equal(listArea.value,'帮助\n菜单'); // 列表项按行渲染
 listArea.value=' 帮助 \n\n菜单\n'; // 保存时去空白、丢空行
