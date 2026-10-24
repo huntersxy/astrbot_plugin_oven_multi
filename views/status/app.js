@@ -375,7 +375,7 @@ async function loadCompression() {
   $("panel-compression").setAttribute("aria-busy", "true");
   setError("compression-error", "");
   try {
-    const data = unwrap(await window.AstrBotPluginPage.apiGet(`billion/dashboard?page=${page}&q=${encodeURIComponent(query)}`));
+    const data = unwrap(await window.AstrBotPluginPage.apiGet("billion/dashboard", {page, q:query}));
     if (page !== state.compressionPage || query !== state.compressionQuery) return;
     if (!data || typeof data.available !== "boolean") throw new Error("Invalid compression response");
     if (!data.available) {
@@ -409,7 +409,7 @@ async function loadCompressionDetail(id, refresh = false) {
     $("compression-detail").scrollIntoView?.({ behavior: "instant", block: "nearest" });
   }
   try {
-    const data = unwrap(await window.AstrBotPluginPage.apiGet("billion/dashboard?session=" + encodeURIComponent(id)));
+    const data = unwrap(await window.AstrBotPluginPage.apiGet("billion/dashboard", {session:id}));
     if (ticket !== state.compressionDetail) return;
     if (!data.available || !data.session) throw new Error(data.reason || "会话详情不可用，请刷新后重试。");
     const s = data.session;

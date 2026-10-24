@@ -45,7 +45,19 @@ const elements=new Map();
 const get=(id)=>{ if(!elements.has(id))elements.set(id,new Element());return elements.get(id); };
 const tabs=['overview','compression','balances','settings'].map(name=>{const e=get('tab-'+name);e.dataset.tab=name;return e;});
 const calls=[];const waiting=[];
-const apiGet=(name)=>{calls.push(name);return new Promise((resolve,reject)=>waiting.push({name,resolve,reject}));};
+// Use the native host's actual endpoint validator, not a permissive API stub.
+const hostSource=fs.readFileSync('../AstrBot/dashboard/src/views/PluginViewPage.vue','utf8');
+const normalizeSource=hostSource.slice(hostSource.indexOf('const normalizePluginEndpoint ='),hostSource.indexOf('const buildPluginApiPath ='));
+const normalizeEndpoint=vm.runInNewContext(normalizeSource+'\nnormalizePluginEndpoint;');
+const gets=[];
+const apiGet=(endpoint,params)=>{
+  try { normalizeEndpoint(endpoint); } catch(error) { return Promise.reject(error); }
+  gets.push({endpoint,params});
+  const query=new URLSearchParams(params||{}).toString();
+  const name=endpoint+(query?'?'+query:'');
+  calls.push(name);
+  return new Promise((resolve,reject)=>waiting.push({name,resolve,reject}));
+};
 const posts=[];
 const apiPost=(name,body)=>{calls.push(name);posts.push(body);return new Promise((resolve,reject)=>waiting.push({name,resolve,reject}));};
 const sandbox={document:{getElementById:get,createElement:tag=>new Element(tag),createElementNS:(_,tag)=>new Element(tag),querySelectorAll:()=>tabs},window:{AstrBotPluginPage:{ready:async()=>{},apiGet,apiPost},addEventListener(){}},console:{warn(){}},Date,Set,setTimeout:()=>0};
@@ -165,6 +177,7 @@ console.log('Panel behavior passed: manual queries, XSS-safe text, duplicate sup
 sandbox.api.selectTab('compression');
 const compressionCall=shiftNamed('billion/dashboard?page=1&q=');
 assert.ok(compressionCall);
+assert.deepEqual(JSON.parse(JSON.stringify(gets.at(-1))),{endpoint:'billion/dashboard',params:{page:1,q:''}});
 const compressionData={available:true,stale:false,checked_at:100,page:1,page_size:30,total:1,runtime:{version:'0.1.206',diskVersion:'0.1.206',inFlight:0},overview:{sessions:1,live:1,requests:3,hitPct:0,inputTokens:1000,cachedTokens:0,hasFoldData:true,netSavedTotal:-12,grossSavedTotal:500,repayTotal:500,summaryCostTotal:12,byProtocol:[]},sessions:[{id:'<unsafe/id>',title:'<img onerror=bad()>',live:true,inputTokens:1000,cachedTokens:0,cacheHitPct:0,contextBest:{tokens:333,kind:'usage'},netSaved:-12}]};
 compressionCall.resolve(compressionData);await tick();
 assert.equal(get('compression-content').hidden,false);
@@ -181,6 +194,7 @@ const failingCompression=sandbox.api.loadCompression();shiftNamed('billion/dashb
 assert.equal(get('compression-content').hidden,false);
 assert.match(get('compression-error').textContent,/保留上次/);
 const detail=sandbox.api.loadCompressionDetail('<unsafe/id>');
+assert.deepEqual(JSON.parse(JSON.stringify(gets.at(-1))),{endpoint:'billion/dashboard',params:{session:'<unsafe/id>'}});
 shiftNamed('billion/dashboard?session=%3Cunsafe%2Fid%3E').resolve({available:true,session:compressionData.sessions[0]});await detail;
 assert.equal(get('compression-detail-title').textContent,'<img onerror=bad()>');
 assert.equal(get('compression-detail-metrics').children.length,14);
@@ -197,3 +211,29 @@ shiftNamed('billion/dashboard?session=late').resolve({available:true,session:{ti
 assert.equal(get('compression-detail').hidden,true);
 assert.notEqual(get('compression-detail-title').textContent,'stale');
 console.log('Compression dashboard behavior passed.');
+
+// Real native bridge SDK + host endpoint validator, including query transport.
+const nativeBridgeSource=fs.readFileSync('../AstrBot/astrbot/dashboard/plugin_page_bridge.js','utf8');
+let receiveNativeMessage;
+const nativeWindow={location:{origin:'http://panel.test'},addEventListener(type,listener){if(type==='message')receiveNativeMessage=listener;}};
+nativeWindow.parent={postMessage(message){
+  if(message.kind!=='request')return;
+  const response=(ok,data)=>receiveNativeMessage({source:nativeWindow.parent,origin:'http://panel.test',data:{channel:'astrbot-plugin-page',kind:'response',requestId:message.requestId,ok,...(ok?{data}:{error:data})}});
+  apiGet(message.endpoint,message.params).then(data=>response(true,data),error=>response(false,error.message));
+}};
+vm.runInNewContext(nativeBridgeSource,{window:nativeWindow,document:{documentElement:{setAttribute(){}}},console,Map,Set,Promise});
+sandbox.window.AstrBotPluginPage=nativeWindow.AstrBotPluginPage;
+sandbox.api.state.compressionPage=2;
+sandbox.api.state.compressionQuery='中文 & /';
+const nativeOverview=sandbox.api.loadCompression();
+const nativeOverviewCall=shiftNamed('billion/dashboard?page=2&q=%E4%B8%AD%E6%96%87+%26+%2F');
+assert.ok(nativeOverviewCall);
+nativeOverviewCall.resolve({...compressionData,page:2});await nativeOverview;
+assert.equal(get('compression-error').hidden,true);
+const nativeDetail=sandbox.api.loadCompressionDetail('group/session?x=1&y=中');
+const nativeDetailCall=shiftNamed('billion/dashboard?session=group%2Fsession%3Fx%3D1%26y%3D%E4%B8%AD');
+assert.ok(nativeDetailCall);
+nativeDetailCall.resolve({available:true,checked_at:200,session:{...compressionData.sessions[0],title:'native bridge detail'}});await nativeDetail;
+assert.equal(get('compression-detail-title').textContent,'native bridge detail');
+await assert.rejects(nativeWindow.AstrBotPluginPage.apiGet('billion/dashboard?page=1'),/endpoint is invalid/);
+console.log('Actual AstrBot bridge SDK and host query validation passed.');
