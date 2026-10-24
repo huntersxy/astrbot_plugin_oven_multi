@@ -55,6 +55,7 @@ from .constants import (
 )
 from .features.balance_checker import BalanceChecker
 from .features.bili_proxy import BiliProxyManager
+from .features.bili_requests import BiliRequestBridge
 from .features.bili_wire import BiliWireManager
 from .features.bracket_matcher import BracketMatcher
 from .features.file_reader import FileParseError, FileReaderManager
@@ -133,6 +134,7 @@ class OvenMultiPlugin(Star):
         )
         self.bili_wire = BiliWireManager(lambda: self._host_config(), self.data_dir)
         self._bili_task = None
+        self.bili_requests = BiliRequestBridge(self)
 
         # 余额查询
         self.balance_checker = BalanceChecker(self.config)
@@ -198,6 +200,7 @@ class OvenMultiPlugin(Star):
     # ── 生命周期 ─────────────────────────────────────────────────────────
 
     async def initialize(self):
+        self.bili_requests.install()
         if self.file_reader:
             await self.file_reader.start()
         if feature_enabled(self.config, FEATURE_BILI, False):
@@ -210,6 +213,7 @@ class OvenMultiPlugin(Star):
 
     async def terminate(self):
         self.closing = True
+        self.bili_requests.disconnect()
         if self._bili_task is not None:
             self._bili_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -621,6 +625,7 @@ class OvenMultiPlugin(Star):
                 "proxy": self.bili_proxy.status(),
                 "wire": record,
                 "doctor": doctor,
+                "requests": self.bili_requests.status(),
             },
         }
 
@@ -1041,6 +1046,7 @@ class OvenMultiPlugin(Star):
     async def on_llm_request(self, event: AstrMessageEvent, req):
         from astrbot.core.agent.message import TextPart
 
+        self.bili_requests.install()
         owned = await self.ovenheart.owned(event)
 
         # 被@/唤醒触发的一次 Jev 判读注入：重点是意向与情绪（临时内容，不持久化）
