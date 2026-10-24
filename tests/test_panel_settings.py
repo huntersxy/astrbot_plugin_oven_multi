@@ -614,6 +614,28 @@ def async_marker(calls: list, name: str):
     return stub
 
 
+
+def test_merge_failure_rolls_back_top_level_lists():
+    class RejectOnce(dict):
+        reject = True
+
+        def __setitem__(self, key, value):
+            if key == 'blacklist_users' and self.reject:
+                self.reject = False
+                raise RuntimeError('merge failed')
+            return super().__setitem__(key, value)
+
+    config = RejectOnce({'blacklist_groups': ['old'], 'jev': {'api_key': 'keep'}})
+    before = json.loads(json.dumps(config))
+    try:
+        panel_settings.apply_values(config, {'blacklist_groups': ['new'], 'blacklist_users': ['new']})
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError('Merge should fail')
+    assert config == before
+
+
 if __name__ == "__main__":
     fns = [value for key, value in sorted(globals().items()) if key.startswith("test_")]
     for fn in fns:

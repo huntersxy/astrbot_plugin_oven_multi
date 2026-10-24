@@ -29,7 +29,9 @@ import asyncio
 import contextlib
 import json
 import re
+from pathlib import Path
 from sys import maxsize
+from traceback import extract_tb
 
 import astrbot.api.message_components as components
 from astrbot.api import AstrBotConfig, logger
@@ -71,6 +73,15 @@ from .features.segment_reply import SegmentReply
 from .features.thinking_manager import ThinkingManager
 
 # ── 配置访问辅助 ─────────────────────────────────────────────────────────
+
+
+def log_settings_error(message: str, exc: Exception) -> None:
+    """Keep failure locations without serializing config values into diagnostics."""
+    locations = " > ".join(
+        f"{Path(frame.filename).name}:{frame.lineno}/{frame.name}"
+        for frame in extract_tb(exc.__traceback__)[-6:]
+    )
+    logger.error(f"[烤箱-面板] {message}: {type(exc).__name__} ({locations})")
 
 
 def feature_cfg(config, name: str) -> dict:
@@ -461,11 +472,23 @@ class OvenMultiPlugin(Star):
             return {"success": False, "stale": True, "message": str(exc)}
         except ValueError as exc:
             return {"success": False, "message": str(exc)}
-        except Exception as exc:
-            logger.error(f"[烤箱-面板] 设置保存失败: {type(exc).__name__}")
+        except PermissionError as exc:
+            log_settings_error("宿主插件配置文件写入被拒绝", exc)
             return {
                 "success": False,
-                "message": "保存失败，请确认插件数据目录可写后重试。",
+                "message": "配置文件写入被拒绝，请检查 AstrBot 插件配置目录的写入权限。",
+            }
+        except OSError as exc:
+            log_settings_error("宿主插件配置写盘失败", exc)
+            return {
+                "success": False,
+                "message": "配置写盘失败，请检查磁盘空间与插件配置目录，再重试。",
+            }
+        except Exception as exc:
+            log_settings_error("设置保存流程异常", exc)
+            return {
+                "success": False,
+                "message": "设置保存流程发生异常，请刷新确认配置，并查看插件日志中的具体原因。",
             }
 
     # ── 上下文压缩（billion-context）─────────────────────────────────────
@@ -636,7 +659,8 @@ class OvenMultiPlugin(Star):
         except (ValueError, TypeError):
             return {"success": False, "message": "页码必须是整数。"}
         data = await self.bili_dashboard.get(
-            page=page, query=request.query.get("q", ""),
+            page=page,
+            query=request.query.get("q", ""),
             session_id=request.query.get("session", ""),
         )
         return {"success": True, "data": data}

@@ -1,6 +1,7 @@
 """Plugin lifecycle and real local HTTP contracts; never call an LLM provider."""
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -9,6 +10,98 @@ from aiohttp import web
 from test_panel_retirement import plugin_module
 
 pytest_plugins = ["test_panel_retirement"]
+
+
+@pytest.mark.asyncio
+async def test_full_panel_save_with_native_request_and_disk_config(plugin, tmp_path, monkeypatch):
+    from starlette.requests import Request
+
+    from astrbot.api.web import PluginRequest, bind_request_context, request
+    from astrbot.core.config.astrbot_config import AstrBotConfig
+
+    path = tmp_path / "plugin.json"
+    schema = json.loads((Path(__file__).parents[1] / "_conf_schema.json").read_text("utf-8"))
+    cfg = AstrBotConfig(str(path), schema=schema)
+    cfg["jev"]["api_key"] = "keep-native-key"
+    cfg["file_reader"]["rag"]["embedding_provider_id"] = "keep-embedding"
+    cfg.save_config()
+    plugin.config = cfg
+    plugin._bili_revaluate = AsyncMock()
+    monkeypatch.setattr(plugin_module, "request", request)
+    form = (await plugin._api_settings())["data"]
+    values = {f["key"]: f["value"] for g in form["groups"] for f in g["fields"]}
+    assert len(values) == 77
+    values.update(blacklist_groups=["1001", "1002"], blacklist_users=["2001"])
+    body = json.dumps({"revision": form["revision"], "values": values}).encode()
+
+    async def receive():
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    raw_request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/settings/save",
+            "headers": [],
+            "query_string": b"",
+        },
+        receive,
+    )
+    with bind_request_context(PluginRequest(raw_request)):
+        result = await plugin._api_settings_save()
+    assert result["success"], result
+    await plugin._bili_task
+    reloaded = AstrBotConfig(str(path), schema=schema)
+    assert reloaded["blacklist_groups"] == ["1001", "1002"]
+    assert reloaded["blacklist_users"] == ["2001"]
+    assert reloaded["jev"]["api_key"] == "keep-native-key"
+    assert reloaded["file_reader"]["rag"]["embedding_provider_id"] == "keep-embedding"
+    assert plugin.panel_settings.revision != form["revision"]
+
+
+@pytest.mark.asyncio
+async def test_native_config_write_failure_restores_lists_and_revision(
+    plugin, tmp_path, monkeypatch
+):
+    from astrbot.core.config.astrbot_config import AstrBotConfig
+
+    path = tmp_path / "plugin.json"
+    cfg = AstrBotConfig(
+        str(path),
+        default_config={"blacklist_groups": ["old"], "jev": {"enabled": False, "api_key": "keep"}},
+    )
+    plugin.config = cfg
+    form = plugin.panel_settings.describe(cfg)
+    before = json.loads(json.dumps(dict(cfg)))
+    disk_before = path.read_bytes()
+
+    def rejected(*args, **kwargs):
+        raise PermissionError("read only")
+
+    monkeypatch.setattr(AstrBotConfig, "_write_config_snapshot", rejected)
+    monkeypatch.setattr(
+        plugin_module,
+        "request",
+        SimpleNamespace(
+            body=AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "revision": form["revision"],
+                        "values": {
+                            "jev.enabled": True,
+                            "blacklist_groups": ["new"],
+                            "blacklist_users": ["added"],
+                        },
+                    }
+                ).encode()
+            )
+        ),
+    )
+    result = await plugin._api_settings_save()
+    assert not result["success"] and "配置目录" in result["message"]
+    assert dict(cfg) == before
+    assert path.read_bytes() == disk_before
+    assert plugin.panel_settings.revision == form["revision"]
 
 
 @pytest.mark.asyncio

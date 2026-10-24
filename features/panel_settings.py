@@ -477,18 +477,13 @@ def apply_values(config: dict, nested: dict) -> None:
     替换，会把同节未提交的字段（如 ``jev.api_key``）一并抹掉。
     """
     previous = {
-        section: (
-            deepcopy(config[section]) if section in config else _MISSING
-        )
+        section: (deepcopy(config[section]) if section in config else _MISSING)
         for section in nested
     }
-    for section, patch in nested.items():
-        node = config.get(section)
-        if not isinstance(node, dict):
-            node = {}
-            config[section] = node
-        _merge_patch(node, patch)
     try:
+        # Merge from the root: top-level lists are leaves, not object sections.
+        # Include merging in the rollback guard as well as persistence.
+        _merge_patch(config, nested)
         if callable(getattr(config, "save_config", None)):
             config.save_config()
         # 纯 dict 宿主：值已就地合并，无需额外持久化
