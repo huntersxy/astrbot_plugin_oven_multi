@@ -243,12 +243,12 @@ def make_reading(answers=None, error=None, calls=None) -> JevScenes:
     """构造 JevScenes 并把 JevJudge.judge 换成假实现（记录调用、不联网）。"""
     scenes = JevScenes()
 
-    async def fake_judge(cfg, state, with_decision=False):
+    async def fake_judge(cfg, state, with_decision=False, *, dimensions=None):
         if calls is not None:
             calls.append({"state": state, "with_decision": with_decision, "cfg": cfg})
         if error is not None:
             return {"ok": False, "error": error}
-        return parse_answers(answers if answers is not None else ANSWERS, with_decision)
+        return parse_answers(answers if answers is not None else ANSWERS, with_decision, dimensions)
 
     scenes.jev.judge = fake_judge
     return scenes
@@ -399,7 +399,7 @@ def test_build_state():
     # 当前消息（最后一条）放最前，历史放 [Context]；脱敏生效
     assert "[Current]" in state
     assert state.index("[Current]") < state.index("[Context]")
-    assert "13812345678" not in state and "[手机号]" in state
+    assert "13812345678" not in state and "[phone]" in state
     assert "今天下雨了" in state
 
     # 历史裁剪：rounds=0 时只留当前消息

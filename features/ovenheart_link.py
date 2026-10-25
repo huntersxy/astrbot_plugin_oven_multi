@@ -9,7 +9,7 @@ import re
 from astrbot.api import logger
 from astrbot.api.platform import MessageType
 
-from .jev_judge import DIMENSIONS, build_advice, build_state
+from .jev_judge import build_advice, build_state
 
 
 class OvenHeartLink:
@@ -164,14 +164,14 @@ class OvenHeartLink:
         # a hard total deadline and continues without optional judgment on failure.
         cfg["retries"] = 0
         result = await self.plugin.jev_scenes.jev.judge(
-            cfg, self.state(payload, cfg), with_decision=False
+            cfg, self.state(payload, cfg), with_decision=False, dimensions=("intent", "emotion")
         )
         if not result.get("ok"):
             logger.warning("Jev 联动判读未完成，烤箱之心继续原流程")
             return {"status": "error"}
         # A bounded, explicit contract: no raw API data, credentials or independent
         # reply decisions cross into the core. Keep user presentation preferences.
-        fields = {key: str(result.get(key) or "")[:80] for key, *_ in DIMENSIONS}
+        fields = {key: str(result.get(key) or "")[:80] for key in ("intent", "emotion")}
         advice = build_advice(result)[:4] if cfg.get("enable_advice", True) else []
         reading = {"fields": fields, "advice": advice}
         budget = max(100, int(cfg.get("max_injection_chars", 600)))
@@ -182,7 +182,7 @@ class OvenHeartLink:
         while advice and not fits():
             advice.pop()
         if cfg.get("show_confidence", True):
-            for key, *_ in DIMENSIONS:
+            for key in ("intent", "emotion"):
                 confidence = result.get(f"{key}_confidence")
                 if isinstance(confidence, (float, int)) and 0 <= confidence <= 1:
                     fields[f"{key}_confidence"] = round(confidence, 3)

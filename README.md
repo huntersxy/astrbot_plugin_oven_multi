@@ -322,3 +322,10 @@ GNU Affero General Public License v3.0
 另参考：astrbot_plugin_jev_intent_boost (MIT) by 汐兮雨 — Jev 多维判读的维度体系与注入思路；astrbot_plugin_qq_group_enhance (MIT) by rytte — @保留与纯@补记思路（本插件按最新 AstrBot 源码独立实现）。
 
 上下文压缩基于 [billion-context](https://github.com/ranxianglei/billion-context) 与 [acp-kernel](https://github.com/ranxianglei/acp-kernel)（MIT + 署名条款）by ranxianglei —— 依其许可条款在此及 Panel 页面署名。
+
+
+### Jev 独立判断（1.57）
+
+原生配置填写 TypeSafe API Key、接口地址和模型名。面板 Jev 分类分别启用「主动回复判断」与「意图与情绪判断」，两者独立，均受 Jev 总开关约束。主动判断默认关闭，仅在非直接唤醒、原生访问规则允许时判断是否接话；故障时保持旁观。意图／情绪作为临时回复参考，不自行触发回复。
+
+烤箱之心接管的群聊由核心独占自主回复，本插件自动跳过主动判断，原设置保留；意图／情绪仍可向核心提供冻结目标一致的参考。停用或移除核心后恢复独立判断。外发固定模板使用英文，聊天原文保留原语言。

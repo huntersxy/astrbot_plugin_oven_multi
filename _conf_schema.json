@@ -143,8 +143,8 @@
     }
   },
   "jev": {
-    "description": "Jev 多维判读",
-    "hint": "用 TypeSafe SystemOne（Jev）做多维判读并按场景注入提示词。本节仅保留 API Key，场景开关与判读参数请在插件「状态总览 → 设置」中管理。",
+    "description": "Jev 独立判断",
+    "hint": "原生页填写 API Key、接口地址和模型名。面板分别管理主动回复判断与意图／情绪判断；烤箱之心接管时仅停用本插件主动回复判断。",
     "type": "object",
     "items": {
       "enabled": {
@@ -155,8 +155,8 @@
         "default": false
       },
       "inject_on_mention": {
-        "description": "被@回复判读注入",
-        "hint": "被 @机器人 / 唤醒前缀 / 引用唤醒时注入一次多维判读（重点：意图与情绪）。关闭则该场景不调用 Jev。裸@第一条仍走 AstrBot 原生空@流程。",
+        "description": "意图与情绪判断",
+        "hint": "独立判断意图和情绪，为原生唤醒或烤箱之心回复提供临时参考；不决定是否主动回复。",
         "type": "bool",
         "invisible": true,
         "default": true
@@ -178,14 +178,12 @@
         "description": "TypeSafe 接口地址",
         "hint": "实际请求 POST {base_url}/v1/systemone。",
         "type": "string",
-        "invisible": true,
         "default": "https://api.typesafe.ai"
       },
       "model": {
         "description": "Jev 模型名",
         "hint": "默认 jev-latest；另有 jev-preview。",
         "type": "string",
-        "invisible": true,
         "default": "jev-latest"
       },
       "timeout_sec": {
@@ -250,6 +248,34 @@
         "type": "int",
         "invisible": true,
         "default": 600
+      },
+      "active_reply_enabled": {
+        "description": "主动回复判断",
+        "type": "bool",
+        "default": false,
+        "invisible": true
+      },
+      "active_reply_threshold": {
+        "description": "主动回复门槛",
+        "type": "float",
+        "default": 0.6,
+        "invisible": true,
+        "slider": {
+          "min": 0.1,
+          "max": 1,
+          "step": 0.05
+        }
+      },
+      "active_interval_sec": {
+        "description": "主动判断间隔（秒）",
+        "type": "int",
+        "default": 60,
+        "invisible": true,
+        "slider": {
+          "min": 5,
+          "max": 3600,
+          "step": 1
+        }
       }
     }
   },

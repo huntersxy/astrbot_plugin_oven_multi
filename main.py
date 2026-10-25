@@ -63,6 +63,7 @@ from .features.bili_requests import BiliRequestBridge
 from .features.bili_wire import BiliWireManager
 from .features.bracket_matcher import BracketMatcher
 from .features.file_reader import FileParseError, FileReaderManager
+from .features.jev_active import JevActive
 from .features.jev_scenes import JevScenes
 from .features.mention_parser import ActiveSpeakersTracker, transform_mention_in_chain
 from .features.mention_preserve import restore_bot_mention, should_backfill_native
@@ -137,6 +138,7 @@ class OvenMultiPlugin(Star):
         # Jev 判读场景接入（上下文记录 + 被@判读）
         self.jev_scenes = JevScenes(context=self.context)
         self.ovenheart = OvenHeartLink(self)
+        self.jev_active = JevActive(self)
 
         # 面板快捷设置（revision 防陈旧 + 校验写回）
         self.panel_settings = PanelSettingsManager()
@@ -258,6 +260,7 @@ class OvenMultiPlugin(Star):
         if self.file_reader:
             await self.file_reader.stop()
         await self.jev_scenes.close()
+        await self.jev_active.close()
         await self.balance_checker.terminate()
         registrations = getattr(self.context, "registered_web_apis", [])
         registrations[:] = [
@@ -423,6 +426,12 @@ class OvenMultiPlugin(Star):
                             readonly=True,
                             effective_value=False,
                             hint="已由烤箱之心接管，当前自动关闭；保存值保留，独立运行时恢复。",
+                        )
+                    if field["key"] == "jev.active_reply_enabled":
+                        field.update(
+                            readonly=True,
+                            effective_value=False,
+                            hint="烤箱之心独占主动回复；本插件的意图与情绪判断仍可独立开启。",
                         )
         return {"success": True, "data": data}
 
@@ -869,6 +878,7 @@ class OvenMultiPlugin(Star):
         3. 记录 Jev 判读上下文（含@消息）。
         """
         blocked = self._blocked(event)
+        self.jev_active.notice(event, await self.ovenheart.owned(event))
 
         # debug_mode 开启时，每条群消息打一行待命状态：开关一开、下一条消息即可
         # 看到当前 enabled/api_key/场景开关/唤醒状态，静默不再是黑盒
@@ -1110,6 +1120,10 @@ class OvenMultiPlugin(Star):
         event.set_extra("thinking_done", True)
 
     # Native system prompts and histories remain unchanged.
+
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE, priority=-40000)
+    async def jev_autonomous_reply(self, event: AstrMessageEvent):
+        await self.jev_active.consider(event)
 
     @filter.on_llm_request(priority=17)
     async def on_llm_request(self, event: AstrMessageEvent, req):

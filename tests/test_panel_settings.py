@@ -212,7 +212,7 @@ def test_describe_groups_and_defaults():
     assert all_fields["blacklist_groups"]["item_type"] == "str"
     assert all_fields["file_reader.rag.retrieve_top_k"]["value"] == 5
     assert all_fields["iam_thinking.thinking_emoji_ids"]["item_type"] == "int"
-    assert all_fields["jev.base_url"]["max_chars"] == 200
+    assert "jev.base_url" not in all_fields and "jev.model" not in all_fields
     notes = {group["name"]: group.get("note") for group in data["groups"]}
     assert "API Key" in notes["Jev 判读"]
     assert "Provider" in notes["文件读取"]
@@ -259,7 +259,7 @@ def test_validate_patch_types_and_bounds():
         "file_reader": {"rag": {"retrieve_top_k": 8}},
     }
     # base_url 等长字符串字段按覆盖元数据放宽长度
-    panel_settings.validate_patch({"jev.base_url": "https://" + "a" * 180})
+    panel_settings.validate_patch({"bili.executable": "a" * 180})
 
     def rejects(values, keyword):
         try:

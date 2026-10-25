@@ -227,11 +227,11 @@ _SCENE = (
 # 不使用 \b：Python 的 \w 是 Unicode 感知的，中文紧贴数字会让 \b 失配漏脱敏；
 # 统一用 (?<!\d)...(?!\d) 的纯数字边界判定。
 _REDACT_PATTERNS: list[tuple[str, re.Pattern]] = [
-    ("[邮箱]", re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")),
-    ("[身份证]", re.compile(r"(?<!\d)\d{17}[\dXx](?!\d)")),
-    ("[银行卡]", re.compile(r"(?<!\d)\d{16,19}(?!\d)")),
-    ("[手机号]", re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")),
-    ("[长数字]", re.compile(r"(?<!\d)\d{11,}(?!\d)")),
+    ("[email]", re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")),
+    ("[identity_number]", re.compile(r"(?<!\d)\d{17}[\dXx](?!\d)")),
+    ("[bank_account]", re.compile(r"(?<!\d)\d{16,19}(?!\d)")),
+    ("[phone]", re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")),
+    ("[long_number]", re.compile(r"(?<!\d)\d{11,}(?!\d)")),
 ]
 
 
@@ -251,7 +251,7 @@ def trim_text(text: str, max_chars: int) -> str:
     """超长裁剪，避免把超长文本整段发往第三方。"""
     text = text or ""
     if max_chars and max_chars > 0 and len(text) > max_chars:
-        return text[:max_chars] + "…[已截断]"
+        return text[:max_chars] + "...[truncated]"
     return text
 
 
@@ -296,10 +296,12 @@ def build_state(
 # ---------------------------------------------------------------------------
 
 
-def build_questions(with_decision: bool = False) -> dict[str, Any]:
+def build_questions(with_decision: bool = False, dimensions=None) -> dict[str, Any]:
     """构造六维判读问题（题型按维度自动选择）；``with_decision`` 时附带 Noul 判定。"""
     questions: dict[str, Any] = {}
     for key, _label, qtype, instructions, criteria, _display in DIMENSIONS:
+        if dimensions is not None and key not in dimensions:
+            continue
         question: dict[str, Any] = {"type": qtype, "instructions": instructions}
         if criteria:
             question["criteria"] = criteria
@@ -356,13 +358,16 @@ def _pick_noul(node: Any) -> float | None:
     return value
 
 
-def parse_answers(answers: dict[str, Any] | None, with_decision: bool = False) -> dict[str, Any]:
+def parse_answers(
+    answers: dict[str, Any] | None, with_decision: bool = False, dimensions=None
+) -> dict[str, Any]:
     """把 Jev 原始 answers 解析为统一结构（不抛异常）。"""
     answers = answers or {}
     out: dict[str, Any] = {}
     ok = False
     risk_level = -1
-    for key, _label, qtype, _instructions, criteria, display in DIMENSIONS:
+    selected = [d for d in DIMENSIONS if dimensions is None or d[0] in dimensions]
+    for key, _label, qtype, _instructions, criteria, display in selected:
         if qtype == "score":
             # score 线上就是英文等级、按序号返回；展示用中文标签列表
             levels = list(display or criteria or [])
@@ -384,7 +389,7 @@ def parse_answers(answers: dict[str, Any] | None, with_decision: bool = False) -
 
     out["risk_level"] = risk_level if risk_level >= 0 else RISK_LEVEL.get(out.get("risk", ""), 0)
 
-    confs = [out[f"{key}_confidence"] for key, *_ in DIMENSIONS]
+    confs = [out[f"{key}_confidence"] for key, *_ in selected]
     out["confidence"] = round(sum(confs) / len(confs), 4) if confs else 0.0
 
     if with_decision:
@@ -397,6 +402,8 @@ def parse_answers(answers: dict[str, Any] | None, with_decision: bool = False) -
         out["should_reply_confidence"] = probability if probability is not None else 0.0
         ok = ok and probability is not None
     out["ok"] = ok
+    if dimensions is not None:
+        out["_dimensions"] = list(dimensions)
     return out
 
 
@@ -517,6 +524,8 @@ def format_block(
         lines.append("重点 · " + "｜".join(focus))
 
     for key, label, *_ in DIMENSIONS:
+        if result.get("_dimensions") is not None and key not in result["_dimensions"]:
+            continue
         if mention and key in MENTION_FOCUS:
             continue
         choice = result.get(key) or "未知"
@@ -579,7 +588,9 @@ class JevJudge:
             self._session_sig = sig
         return self._session
 
-    async def judge(self, cfg: dict, state: str, with_decision: bool = False) -> dict[str, Any]:
+    async def judge(
+        self, cfg: dict, state: str, with_decision: bool = False, *, dimensions=None
+    ) -> dict[str, Any]:
         """执行一次判定请求。"""
         debug = bool(cfg.get("debug_mode"))
         api_key = str(cfg.get("api_key") or "").strip()
@@ -605,7 +616,7 @@ class JevJudge:
         except (TypeError, ValueError):
             retries = 1
 
-        questions = build_questions(with_decision)
+        questions = build_questions(with_decision, dimensions)
         payload = {
             "state": state,
             "model": model,
@@ -639,7 +650,7 @@ class JevJudge:
                             data = json.loads(raw)
                         except json.JSONDecodeError as e:
                             return {"ok": False, "error": f"响应非合法 JSON：{e}"}
-                        result = parse_answers(data.get("answers") or {}, with_decision)
+                        result = parse_answers(data.get("answers") or {}, with_decision, dimensions)
                         if not result.get("ok"):
                             result["error"] = "Jev 未返回有效判定"
                         return result

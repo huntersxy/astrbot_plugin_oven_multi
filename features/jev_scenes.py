@@ -99,6 +99,7 @@ class JevScenes:
 
         origin = event.unified_msg_origin
         line = self._line(event, text)
+        event.set_extra("oven_multi_jev_history_line", line)
         history = self.histories[origin]
         history.append(line)
         rounds = _int(jev.get("history_rounds", 6), 6)
@@ -270,7 +271,9 @@ class JevScenes:
             f"被@判读调用 Jev | origin={origin} 上下文来源={source} "
             f"共{len(lines)}条 state({len(state)}字)",
         )
-        result = await self.jev.judge(jev, state, with_decision=False)
+        result = await self.jev.judge(
+            jev, state, with_decision=False, dimensions=("intent", "emotion")
+        )
         if not result.get("ok"):
             logger.warning(f"[烤箱-被@回复] Jev 判读失败：{result.get('error')}")
             return None

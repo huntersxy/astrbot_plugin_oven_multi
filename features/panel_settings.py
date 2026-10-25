@@ -15,8 +15,8 @@
 """原生 Panel 快捷设置：面板是除密钥/选择器外全部配置项的管理入口。
 
 配置双入口分工（1.52.0 起）：
-- AstrBot 插件配置页只保留 5 个字段（见 ``NATIVE_ONLY_PATHS``）——密钥、
-  余额 YAML 编辑器与两个 Provider 选择器，其余字段在 schema 中以
+- AstrBot 插件配置页保留 7 个字段（见 ``NATIVE_ONLY_PATHS``）——密钥、
+  余额 YAML 编辑器与两个 Provider 选择器及 Jev 连接地址、模型名，其余字段在 schema 中以
   ``invisible: true`` 隐藏（字段必须留在 schema：AstrBot 加载时会剔除
   schema 之外的 key，删掉即丢值）；
 - 本模块覆盖其余全部叶子路径，标签/默认值/边界/选项直接取自
@@ -91,10 +91,11 @@ GROUP_PATHS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "Jev 判读",
         (
             "jev.enabled",
+            "jev.active_reply_enabled",
+            "jev.active_reply_threshold",
+            "jev.active_interval_sec",
             "jev.inject_on_mention",
             "jev.debug_mode",
-            "jev.base_url",
-            "jev.model",
             "jev.timeout_sec",
             "jev.retries",
             "jev.history_rounds",
@@ -149,6 +150,8 @@ GROUP_PATHS: tuple[tuple[str, tuple[str, ...]], ...] = (
 NATIVE_ONLY_PATHS: frozenset[str] = frozenset(
     {
         "jev.api_key",
+        "jev.base_url",
+        "jev.model",
         "balance.config_content",
         "balance.config_mode",
         "file_reader.rag.embedding_provider_id",
@@ -158,7 +161,10 @@ NATIVE_ONLY_PATHS: frozenset[str] = frozenset(
 
 # 分组顶部的一行指引（指向留在插件配置页的字段）。
 GROUP_NOTES: dict[str, str] = {
-    "Jev 判读": "API Key 请在 AstrBot 插件配置页填写。",
+    "Jev 判读": (
+        "API Key、TypeSafe 接口地址和模型名在 AstrBot 原生插件配置页填写；"
+        "主动回复与意图／情绪两个开关独立。"
+    ),
     "文件读取": "Embedding / Rerank Provider 请在 AstrBot 插件配置页选择。",
     "上下文压缩": (
         "开启即懒人模式（自动确保代理并接管当前对话 provider）；"

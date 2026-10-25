@@ -173,7 +173,7 @@ async def test_service_uses_target_thread_quote_and_own_media_without_ids_or_raw
     )
     assert all(term not in state for term in ["12345", "54321", "98765", "PRIVATE_IMAGE_PATH"])
     assert "LEAK" not in json.dumps(output) and "should_reply" not in output["fields"]
-    assert plugin.jev_scenes.jev.judge.await_args.kwargs == {"with_decision": False}
+    assert plugin.jev_scenes.jev.judge.await_args.kwargs == {"with_decision": False, "dimensions": ("intent", "emotion")}
     assert plugin.jev_scenes.jev.judge.await_args.args[0]["retries"] == 0
     assert plugin.config["jev"]["api_key"] == "synthetic-key"
 
