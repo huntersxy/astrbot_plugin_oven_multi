@@ -18,6 +18,36 @@ ACK = (
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_orphan_acp_ids_removed_before_native_history_and_chunks(plugin, streaming):
+    text = "m01199\n正文正常\n```text\nm01173\n```\n用户提到的编号\nm01234\n"
+    expected = "正文正常\n```text\nm01173\n```\n用户提到的编号\nm01234\n"
+
+    async def source(**kwargs):
+        for char in text:
+            yield LLMResponse("assistant", is_chunk=True, completion_text=char)
+        yield LLMResponse("assistant", completion_text=text)
+
+    async with httpx.AsyncClient() as client:
+        prov = SimpleNamespace(
+            client=SimpleNamespace(
+                base_url="http://127.0.0.1:8787/bili/https://upstream.invalid/v1", _client=client
+            ),
+            text_chat=AsyncMock(return_value=LLMResponse("assistant", completion_text=text)),
+            text_chat_stream=source,
+        )
+        plugin.bili_requests.attach(prov)
+        kwargs = {"conversation_id": "dialog-a", "prompt": "请解释 m01234"}
+        if streaming:
+            responses = [r async for r in prov.text_chat_stream(**kwargs)]
+            assert "".join(r.completion_text for r in responses if r.is_chunk) == expected
+            assert responses[-1].completion_text == expected
+        else:
+            assert (await prov.text_chat(**kwargs)).completion_text == expected
+        await plugin.terminate()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["maintenance", "mixed", "tool", "bounded", "auxiliary"])
 async def test_receipt_continuation_is_bounded_and_never_replays_tools(plugin, mode):
     async with httpx.AsyncClient() as client:

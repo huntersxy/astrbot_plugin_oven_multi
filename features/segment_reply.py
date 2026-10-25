@@ -129,7 +129,7 @@ class SegmentReply:
         return segments
 
     def should_skip(self, text: str, cfg: dict) -> bool:
-        """包含排除关键词或超过超长阈值时整段跳过。"""
+        """Default menu labels need menu structure; custom exclusions stay literal."""
         skip_longer = self._int(cfg, "skip_longer_than", 0)
         if skip_longer > 0 and len(text) > skip_longer:
             return True
@@ -138,9 +138,16 @@ class SegmentReply:
         if not keywords:
             return False
         text_lower = text.lower()
-        return any(
-            isinstance(kw, str) and kw and kw.lower() in text_lower for kw in keywords
-        )
+        lines = [line.strip().strip("#* ：:") for line in text.splitlines() if line.strip()]
+        command_menu = sum(bool(re.match(r"^[!/][\w-]+(?:\s|$)", line)) for line in lines) >= 2
+        for keyword in keywords:
+            if not isinstance(keyword, str) or not keyword or keyword.lower() not in text_lower:
+                continue
+            if keyword not in DEFAULT_EXCLUDE_KEYWORDS:
+                return True
+            if (lines and lines[0].casefold() == keyword.casefold()) or command_menu:
+                return True
+        return False
 
     # ── 强制分隔符 ───────────────────────────────────────────────────────
 

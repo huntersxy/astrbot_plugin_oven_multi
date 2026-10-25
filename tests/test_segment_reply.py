@@ -218,8 +218,8 @@ def test_merge_short_tail():
 
 
 def test_should_skip_keywords_and_length():
-    assert engine.should_skip("这里是菜单", cfg()) is True
-    assert engine.should_skip("Normal HELP text", cfg()) is True  # 不区分大小写
+    assert engine.should_skip("菜单\n/ping 测试\n/status 状态", cfg()) is True
+    assert engine.should_skip("HELP\n/ping Test\n/status Status", cfg()) is True  # 不区分大小写
     assert engine.should_skip("普通回复内容", cfg()) is False
     assert engine.should_skip("很短", cfg(skip_longer_than=2)) is False
     assert engine.should_skip("超长的内容", cfg(skip_longer_than=2)) is True
@@ -270,3 +270,11 @@ if __name__ == "__main__":
     for fn in fns:
         fn()
     print(f"\n全部通过：{len(fns)} 项")
+
+
+def test_help_in_ordinary_reply_does_not_disable_segmentation():
+    text = "help 是问我能干什么吧\n\n我能帮你查群成员和群资料\n其他的直接把想要的说出来就行"
+    assert not engine.should_skip(text, cfg())
+    assert len(engine.segment(text, cfg())) >= 3
+    assert not engine.should_skip("需要帮助的话可以说，我把菜单说明一下", cfg())
+    assert engine.should_skip("普通回复CUSTOM内容", cfg(exclude_keywords=["CUSTOM"]))

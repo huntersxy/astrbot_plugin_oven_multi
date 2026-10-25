@@ -3,10 +3,86 @@
 from __future__ import annotations
 
 import copy
+import json
+import re
 from functools import wraps
 
 PREFIXES = ("[Compressed ", "[Compression FAILED:", "[Compression refused:")
 MAX_RECEIPT = 8192
+
+
+class ReferenceFilter:
+    """Remove orphan ACP reference lines only on the adapted proxy route.
+
+    Preserve code fences and any reference explicitly present in the original
+    native input. Hold at most a possible short reference, not whole replies.
+    """
+
+    def __init__(self, protected=()):
+        self.protected = set(protected)
+        self.pending = ""
+        self.passing = False
+        self.fenced = False
+
+    def feed(self, text, *, final=False):
+        output = []
+        for char in text:
+            if self.passing:
+                output.append(char)
+                if char == "\n":
+                    self.passing = False
+                continue
+            self.pending += char
+            if self.pending.lstrip().startswith(("```", "~~~")):
+                self.fenced = not self.fenced
+                output.append(self.pending)
+                self.pending = ""
+                self.passing = True
+            elif char == "\n":
+                output.append(self._line())
+            elif not (
+                re.fullmatch(r"[ \t]{0,8}(?:m[0-9]{0,10})?[ \t]{0,8}\r?", self.pending)
+                or self.pending.lstrip() in ("`", "``", "~", "~~")
+            ):
+                output.append(self.pending)
+                self.pending = ""
+                self.passing = True
+        if final:
+            output.append(self._line())
+        return "".join(output)
+
+    def _line(self):
+        line, self.pending = self.pending, ""
+        ref = line.strip()
+        return (
+            ""
+            if not self.fenced and re.fullmatch(r"m\d{5,10}", ref) and ref not in self.protected
+            else line
+        )
+
+
+def protected_refs(args, kwargs):
+    # Protect the current literal input, not old assistant echoes in contexts.
+    current = kwargs.get("prompt", args[0] if args else "")
+    return re.findall(r"\bm\d{5,10}\b", json.dumps(current, ensure_ascii=False, default=str))
+
+
+def clean_refs(response, protected):
+    response = copy.copy(response)
+    response.completion_text = ReferenceFilter(protected).feed(
+        response.completion_text or "", final=True
+    )
+    chain = getattr(response, "result_chain", None)
+    if chain and getattr(chain, "chain", None):
+        from astrbot.core.message.components import Plain
+
+        response.result_chain = copy.copy(chain)
+        response.result_chain.chain = [copy.copy(c) for c in chain.chain]
+        parser = ReferenceFilter(protected)
+        for item in response.result_chain.chain:
+            if isinstance(item, Plain):
+                item.text = parser.feed(item.text, final=True)
+    return response
 
 
 def receipt(text):
@@ -113,7 +189,7 @@ def install_reply(bridge, provider):
                         response.usage = (
                             previous_usage + response.usage if response.usage else previous_usage
                         )
-                return response
+                return clean_refs(response, protected_refs(args, kwargs))
 
         bridge._replace(provider, "text_chat", chat)
 
@@ -126,6 +202,7 @@ def install_reply(bridge, provider):
             for attempt in range(2):
                 filtering = bool(active(kwargs))
                 parser = ReceiptFilter()
+                refs = ReferenceFilter(protected_refs(args, kwargs))
                 final_response = None
                 iterator = original_stream(*args, **kwargs)
                 try:
@@ -133,7 +210,7 @@ def install_reply(bridge, provider):
                         if not filtering:
                             yield response
                         elif response.is_chunk:
-                            visible = parser.feed(response.completion_text)
+                            visible = refs.feed(parser.feed(response.completion_text))
                             response = copy.copy(response)
                             response.completion_text = visible
                             yield response
@@ -144,7 +221,7 @@ def install_reply(bridge, provider):
                 if not filtering or final_response is None:
                     return
                 # Any incomplete bracket was ordinary text, not a verified receipt.
-                tail = parser.feed("", final=True)
+                tail = refs.feed(parser.feed("", final=True), final=True)
                 if tail:
                     chunk = copy.copy(final_response)
                     chunk.is_chunk = True
@@ -167,7 +244,7 @@ def install_reply(bridge, provider):
                         if final_response.usage
                         else previous_usage
                     )
-                yield final_response
+                yield clean_refs(final_response, protected_refs(args, kwargs))
                 return
 
         bridge._replace(provider, "text_chat_stream", stream)

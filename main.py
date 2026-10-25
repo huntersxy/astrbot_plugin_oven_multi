@@ -1014,10 +1014,17 @@ class OvenMultiPlugin(Star):
             and not result.is_llm_result()
         ):
             return
-        # 仅处理纯文本链：带图片 / At / 转发等组件的消息不做拆分
-        if not all(isinstance(comp, components.Plain) for comp in result.chain):
+        # Keep native quote/@ on the first segment and trailing stickers after
+        # the last. Never reorder interleaved media, forwards or tool results.
+        chain = list(result.chain)
+        prefix, suffix = [], []
+        while chain and isinstance(chain[0], (components.At, components.Reply)):
+            prefix.append(chain.pop(0))
+        while chain and isinstance(chain[-1], components.Image):
+            suffix.insert(0, chain.pop())
+        if not chain or not all(isinstance(comp, components.Plain) for comp in chain):
             return
-        text = "".join(comp.text for comp in result.chain).strip()
+        text = "".join(comp.text for comp in chain).strip()
         if not text:
             return
         seg_cfg = feature_cfg(self.config, FEATURE_SEGMENT)
@@ -1031,7 +1038,8 @@ class OvenMultiPlugin(Star):
         if len(segments) <= 1:
             return
         event.set_extra("oven_segment_pending", segments)
-        result.chain[:] = [components.Plain(segments[0])]
+        event.set_extra("oven_segment_suffix", suffix)
+        result.chain[:] = prefix + [components.Plain(segments[0])]
         logger.info(f"[烤箱-分段] 已拆分为 {len(segments)} 段，首段随原生装饰发送")
 
     @filter.after_message_sent()
@@ -1041,12 +1049,17 @@ class OvenMultiPlugin(Star):
         if not segments:
             return
         event.set_extra("oven_segment_pending", None)
+        suffix = event.get_extra("oven_segment_suffix") or []
+        event.set_extra("oven_segment_suffix", None)
         seg_cfg = feature_cfg(self.config, FEATURE_SEGMENT)
         prev = segments[0]
-        for seg in segments[1:]:
+        for index, seg in enumerate(segments[1:], 1):
             try:
                 await asyncio.sleep(self.segment.delay(prev, seg, seg_cfg))
-                await event.send(event.plain_result(seg))
+                outgoing = event.plain_result(seg)
+                if index == len(segments) - 1:
+                    outgoing.chain.extend(suffix)
+                await event.send(outgoing)
             except Exception as e:  # noqa: BLE001
                 logger.error(f"[烤箱-分段] 补发失败，停止后续分段：{e}")
                 return
