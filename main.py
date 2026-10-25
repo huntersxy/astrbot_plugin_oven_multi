@@ -139,6 +139,7 @@ class OvenMultiPlugin(Star):
         self.jev_scenes = JevScenes(context=self.context)
         self.ovenheart = OvenHeartLink(self)
         self.jev_active = JevActive(self)
+        self.jev_scenes.jev.transport = self.jev_active.client
 
         # 面板快捷设置（revision 防陈旧 + 校验写回）
         self.panel_settings = PanelSettingsManager()
@@ -389,6 +390,7 @@ class OvenMultiPlugin(Star):
                 "plugin": {"name": PLUGIN_NAME, "version": PLUGIN_VERSION},
                 "features": self._feature_status(),
                 "notices": notices,
+                "jev_usage": self.jev_active.client.status(),
                 "balance_configured": bool(
                     str(feature_cfg(self.config, "balance").get("config_content") or "").strip()
                 ),

@@ -23,16 +23,15 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from typing import Any
-
-import aiohttp
 
 from astrbot.api import logger
 
+from .jev_transport import SystemOne
+
 # 限流 / 过载类状态码（仅这类错误重试）
 _RETRYABLE_STATUS = {429, 503, 529}
-_DEFAULT_BASE_URL = "https://api.typesafe.ai"
-_SYSTEMONE_PATH = "/v1/systemone"
 
 # 注入块标记（header/footer 成对，便于阅读与定位）
 INJECT_HEADER = "【Jev 判读】"
@@ -558,122 +557,65 @@ def format_block(
 
 
 class JevJudge:
-    """按配置签名复用 HTTP 会话的异步判定客户端。
-
-    ``judge`` 永不抛异常：成功返回 parse_answers 结果（ok=True），
-    失败返回 ``{"ok": False, "error": "<原因>"}``，由调用方决定降级方式。
-    """
+    """Parse typed answers over the bounded, cached shared Jev transport."""
 
     def __init__(self) -> None:
-        self._session: aiohttp.ClientSession | None = None
-        self._session_sig: tuple = ()
+        self.transport = SystemOne()
 
     async def close(self) -> None:
-        """关闭底层会话；重复调用安全。"""
-        if self._session is not None and not self._session.closed:
-            try:
-                await self._session.close()
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("Could not close Jev session (%s)", type(exc).__name__)
-        self._session = None
-        self._session_sig = ()
-
-    async def _get_session(self, timeout: int) -> aiohttp.ClientSession:
-        """惰性创建共享会话；超时配置变化时重建。"""
-        sig = (timeout,)
-        if self._session is None or self._session.closed or self._session_sig != sig:
-            if self._session is not None and not self._session.closed:
-                await self._session.close()
-            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout))
-            self._session_sig = sig
-        return self._session
+        await self.transport.close()
 
     async def judge(
         self, cfg: dict, state: str, with_decision: bool = False, *, dimensions=None
     ) -> dict[str, Any]:
-        """执行一次判定请求。"""
-        debug = bool(cfg.get("debug_mode"))
-        api_key = str(cfg.get("api_key") or "").strip()
-        if debug:
-            # 入口状态：api_key 缺失也照样打印，避免“静默失败”
-            logger.info(
-                f"[Jev-DEBUG] ▶ 进入判定 | model={cfg.get('model') or 'jev-latest'} "
-                f"api_key={'已配置' if api_key else '未配置'} "
-                f"base_url={cfg.get('base_url') or _DEFAULT_BASE_URL} "
-                f"decision={with_decision}"
-            )
-        if not api_key:
+        if not str(cfg.get("api_key") or "").strip():
             return {"ok": False, "error": "未配置 api_key（jev.api_key）"}
-        base_url = str(cfg.get("base_url") or _DEFAULT_BASE_URL).rstrip("/")
-        model = str(cfg.get("model") or "jev-latest")
         try:
-            timeout = int(cfg.get("timeout_sec") or 8)
+            timeout = max(1, min(20, float(cfg.get("timeout_sec") or 8)))
+            retries = max(0, min(2, int(cfg.get("retries", 1))))
         except (TypeError, ValueError):
-            timeout = 8
-        raw_retries = cfg.get("retries", 1)
-        try:
-            retries = max(0, int(raw_retries if raw_retries is not None else 1))
-        except (TypeError, ValueError):
-            retries = 1
-
+            return {"ok": False, "error": "Jev 超时或重试配置无效"}
         questions = build_questions(with_decision, dimensions)
-        payload = {
-            "state": state,
-            "model": model,
-            "questions": questions,
-        }
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-
-        if debug:
-            # 完整输入（state 原文 + 全部问题），便于核对上下文是否真的进来了
+        if cfg.get("debug_mode"):
             logger.info(
-                f"[Jev-DEBUG] ▶ 输入 | model={model} | state({len(state)}字):\n"
-                f"{state}\n"
-                f"[Jev-DEBUG] ▶ 问题:\n{json.dumps(questions, ensure_ascii=False, indent=1)}"
+                "[Jev-DEBUG] 输入 state=%s questions=%s",
+                state,
+                json.dumps(questions, ensure_ascii=False),
             )
-
-        last_error = "未知调用失败"
+        deadline = time.monotonic() + timeout
+        result = {"status": "error"}
         for attempt in range(retries + 1):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
             try:
-                session = await self._get_session(timeout)
-                async with session.post(
-                    base_url + _SYSTEMONE_PATH, json=payload, headers=headers
-                ) as resp:
-                    raw = await resp.text()
-                    if debug:
-                        logger.info(f"[Jev-DEBUG] ◀ 输出 | HTTP {resp.status}:\n{raw}")
-                    if resp.status == 200:
-                        try:
-                            data = json.loads(raw)
-                        except json.JSONDecodeError as e:
-                            return {"ok": False, "error": f"响应非合法 JSON：{e}"}
-                        result = parse_answers(data.get("answers") or {}, with_decision, dimensions)
-                        if not result.get("ok"):
-                            result["error"] = "Jev 未返回有效判定"
-                        return result
-                    if resp.status == 401:
-                        return {"ok": False, "error": "鉴权失败(401)：api_key 无效或已过期"}
-                    if resp.status in _RETRYABLE_STATUS:
-                        last_error = f"限流/过载({resp.status})"
-                        if attempt < retries:
-                            await asyncio.sleep(1.5 * (attempt + 1))
-                            continue
-                        return {"ok": False, "error": last_error}
-                    return {"ok": False, "error": f"请求失败({resp.status})：{raw[:200]}"}
+                result = await asyncio.wait_for(
+                    self.transport.evaluate(dict(cfg, timeout_sec=timeout), state, questions),
+                    timeout=remaining,
+                )
             except asyncio.CancelledError:
                 raise
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                last_error = f"网络错误：{type(e).__name__}"
-                if attempt < retries:
-                    await asyncio.sleep(1.0)
-                    continue
-                return {"ok": False, "error": last_error}
-            except Exception as e:  # noqa: BLE001
-                return {"ok": False, "error": f"未预期错误：{type(e).__name__}: {e}"}
-        return {"ok": False, "error": last_error}
+            except TimeoutError:
+                return {"ok": False, "error": "Jev 本轮总预算超时"}
+            if result["status"] == "ready":
+                parsed = parse_answers(result["answers"], with_decision, dimensions)
+                parsed.update(
+                    cache_hit=result.get("cache_hit", False), usage=result.get("usage", {})
+                )
+                return parsed
+            if (
+                result["status"] != "error"
+                or result.get("http_status", 503) not in _RETRYABLE_STATUS
+            ):
+                break
+            if attempt < retries:
+                # A retry shares this turn's total budget; Retry-After/backoff
+                # is enforced by the transport without sleeping on the reply.
+                await asyncio.sleep(min(0.1, max(0, deadline - time.monotonic())))
+        return {
+            "ok": False,
+            "error": f"Jev {result['status']} (HTTP {result.get('http_status', 0)})",
+        }
 
 
 __all__ = [
