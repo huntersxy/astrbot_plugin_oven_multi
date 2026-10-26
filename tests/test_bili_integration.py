@@ -13,6 +13,67 @@ pytest_plugins = ["test_panel_retirement"]
 
 
 @pytest.mark.asyncio
+async def test_install_api_queues_once_and_honors_managed_mode(plugin):
+    import asyncio
+
+    plugin.config["bili"] = {"enabled": False, "auto_install": False}
+    assert not (await plugin._api_billion_install())["success"]
+    plugin.config["bili"].update(enabled=True, mode="external")
+    assert not (await plugin._api_billion_install())["success"]
+    plugin.config["bili"]["mode"] = "managed"
+    finish = asyncio.Event()
+    calls = []
+
+    async def startup(*, install=False):
+        calls.append(install)
+        await finish.wait()
+
+    plugin._bili_startup = startup
+    assert (await plugin._api_billion_install())["success"]
+    task = plugin._bili_task
+    assert (await plugin._api_billion_install())["success"]
+    assert plugin._bili_task is task
+    assert (await plugin._api_billion_status())["data"]["busy"]
+    await asyncio.sleep(0)
+    assert calls == [True]
+    assert plugin.config["bili"]["auto_install"] is False
+    finish.set()
+    await task
+    assert not (await plugin._api_billion_status())["data"]["busy"]
+
+
+@pytest.mark.asyncio
+async def test_unrelated_full_form_save_does_not_cancel_installation(plugin, monkeypatch):
+    import asyncio
+
+    finish = asyncio.Event()
+    plugin._bili_task = asyncio.create_task(finish.wait())
+    task = plugin._bili_task
+    try:
+        form = (await plugin._api_settings())["data"]
+        values = {f["key"]: f["value"] for g in form["groups"] for f in g["fields"]}
+        assert values["bili.auto_install"] is True
+        values["blacklist_groups"] = ["1001"]
+        # Normalize the existing persisted form as AstrBot does at load time.
+        plugin.config["bili"] = {
+            key.split(".", 1)[1]: value for key, value in values.items()
+            if key.startswith("bili.")
+        }
+        monkeypatch.setattr(
+            plugin_module, "request",
+            SimpleNamespace(body=AsyncMock(return_value=json.dumps({
+                "revision": form["revision"], "values": values,
+            }).encode())),
+        )
+        result = await plugin._api_settings_save()
+        assert result["success"], result
+        assert plugin._bili_task is task and not task.done()
+    finally:
+        finish.set()
+        await task
+
+
+@pytest.mark.asyncio
 async def test_full_panel_save_with_native_request_and_disk_config(plugin, tmp_path, monkeypatch):
     from starlette.requests import Request
 
@@ -32,6 +93,7 @@ async def test_full_panel_save_with_native_request_and_disk_config(plugin, tmp_p
     values = {f["key"]: f["value"] for g in form["groups"] for f in g["fields"]}
     assert len(values) == 78
     values.update(blacklist_groups=["1001", "1002"], blacklist_users=["2001"])
+    values["bili.auto_install"] = False
     body = json.dumps({"revision": form["revision"], "values": values}).encode()
 
     async def receive():

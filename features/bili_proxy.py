@@ -38,6 +38,8 @@ ST_SPAWNED = "spawned"  # managed：已拉起自有进程且健康
 ST_DEGRADED = "degraded"  # managed：守护重启连续失败
 ST_NO_NODE = "no_node"  # 宿主机缺 Node 或版本 < 20
 ST_INSTALL_FAILED = "install_failed"  # 自动安装失败
+ST_INSTALLING = "installing"
+ST_STARTING = "starting"
 ST_SPAWN_FAILED = "spawn_failed"  # 拉起后健康检查超时
 ST_STOPPED = "stopped"  # 已停止（未启用/卸载）
 
@@ -77,6 +79,7 @@ class BiliProxyManager:
         self._cfg_get = cfg_get
         self.data_dir = Path(data_dir)
         self.bili_config_path = self.data_dir / "billion-context.json"
+        self.runtime_dir = self.data_dir / "billion-runtime"
         self.state = ST_STOPPED
         self.detail = ""
         # 会话标识一致性：ok=已验证一致；mismatch=明确不一致；unknown=无法确认
@@ -112,6 +115,7 @@ class BiliProxyManager:
             "healthy": self.healthy,
             "url": self.url,
             "detail": self.detail,
+            "busy": self._acquiring,
             "mode": str(self._cfg_get().get("mode") or "managed"),
             "session_header_state": self.session_header_state,
             "session_header_detail": self.session_header_detail,
@@ -248,6 +252,10 @@ class BiliProxyManager:
     def _find_executable(self) -> str | None:
         cfg = self._cfg_get()
         name = str(cfg.get("executable") or "bili").strip() or "bili"
+        if name == "bili":
+            entry = self.runtime_dir / "node_modules" / _NPM_PACKAGE / "dist" / "index.js"
+            if entry.is_file():
+                return str(entry)
         return _which(name) or (name if Path(name).exists() else None)
 
     async def _node_major(self) -> int:
@@ -268,15 +276,29 @@ class BiliProxyManager:
         proc = None
         try:
             proc = await _exec_async(
-                [npm, "install", "-g", _NPM_PACKAGE],
+                [
+                    npm, "install", "--prefix", str(self.runtime_dir),
+                    "--no-audit", "--no-fund", "--no-package-lock", _NPM_PACKAGE,
+                ],
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
             out, _ = await asyncio.wait_for(proc.communicate(), timeout=600)
             if proc.returncode == 0:
                 return True, ""
-            tail = out.decode(errors="ignore").strip().splitlines()[-1:] or ["(无输出)"]
-            return False, f"npm 安装失败（{tail[0][:200]}）"
+            output = out.decode(errors="ignore")
+            for code, reason in (
+                ("EACCES", "插件数据目录没有写入权限"),
+                ("ENOSPC", "磁盘空间不足"),
+                ("ENOTFOUND", "无法解析 npm 仓库域名"),
+                ("ETIMEDOUT", "连接 npm 仓库超时"),
+                ("ECONNRESET", "连接 npm 仓库被重置"),
+            ):
+                if code in output:
+                    return False, f"npm 安装失败：{reason}（{code}），修复后点击安装／重试。"
+            return False, (
+                f"npm 安装失败（退出码 {proc.returncode}），请检查 npm 仓库连接和目录权限。"
+            )
         except asyncio.CancelledError:
             if proc is not None and proc.returncode is None:
                 proc.kill()
@@ -286,6 +308,8 @@ class BiliProxyManager:
             if proc is not None and proc.returncode is None:
                 proc.kill()
                 await proc.wait()
+            if isinstance(exc, asyncio.TimeoutError):
+                return False, "npm 安装超过 10 分钟，请检查 npm 仓库连接后重试。"
             return False, f"npm 安装异常：{type(exc).__name__}"
 
     async def _spawn(self, exe: str) -> None:
@@ -293,6 +317,8 @@ class BiliProxyManager:
         host = str(cfg.get("host") or "127.0.0.1")
         port = str(int(cfg.get("port") or 8787))
         command = [exe]
+        if Path(exe).suffix == ".js":
+            command = [_which("node") or "node", exe]
         # Own Node itself on Windows, rather than a cmd.exe wrapper that leaves Node running.
         entry = Path(exe).parent / "node_modules" / _NPM_PACKAGE / "dist" / "index.js"
         if sys.platform == "win32" and exe.lower().endswith((".cmd", ".bat")) and entry.is_file():
@@ -313,15 +339,16 @@ class BiliProxyManager:
             env={**os.environ, "ACP_SESSION_HEADER": self._expected_session_header},
         )
 
-    async def ensure_started(self) -> dict:
+    async def ensure_started(self, *, install: bool = False) -> dict:
         """懒人获取链入口：目标端口先探活，managed 缺失时查找/安装/拉起。"""
         if self._acquiring:  # 避免守护与面板重评估并发重入
             return self.status()
         self._acquiring = True
         try:
-            return await self._ensure_started_inner()
+            await self._ensure_started_inner(install=install)
         finally:
             self._acquiring = False
+        return self.status()
 
     async def _mark_healthy(self, state: str) -> dict:
         """健康路径统一收口：清计数、验会话标识、启动守护（复用/外部也持续探活）。"""
@@ -332,7 +359,7 @@ class BiliProxyManager:
         self._start_monitor()
         return self.status()
 
-    async def _ensure_started_inner(self) -> dict:
+    async def _ensure_started_inner(self, *, install: bool = False) -> dict:
         cfg = self._cfg_get()
         mode = str(cfg.get("mode") or "managed")
 
@@ -352,9 +379,11 @@ class BiliProxyManager:
 
         exe = self._find_executable()
         if not exe:
-            if not bool(cfg.get("auto_install", True)):
+            if not install and not bool(cfg.get("auto_install", True)):
                 self.state = ST_NO_NODE if not _which("node") else ST_INSTALL_FAILED
-                self.detail = "未找到 bili 且未开启自动安装，请安装后重试。"
+                self.detail = (
+                    "未找到 bili，自动安装已关闭；可点击安装／重试，或开启自动安装并保存。"
+                )
                 return self.status()
             major = await self._node_major()
             if major == 0:
@@ -365,6 +394,8 @@ class BiliProxyManager:
                 self.state = ST_NO_NODE
                 self.detail = f"Node 版本过低（v{major}，需 ≥{_MIN_NODE_MAJOR}），请升级。"
                 return self.status()
+            self.state = ST_INSTALLING
+            self.detail = "正在下载 billion-context 到插件数据目录，首次安装可能需要几分钟。"
             ok, install_detail = await self._npm_install()
             if not ok:
                 self.state = ST_INSTALL_FAILED
@@ -373,12 +404,19 @@ class BiliProxyManager:
             exe = self._find_executable()
             if not exe:
                 self.state = ST_INSTALL_FAILED
-                self.detail = "npm 安装成功但未找到 bili，请检查 PATH 或在配置中填写完整路径。"
+                self.detail = "npm 安装完成但缺少程序入口；请检查包完整性或配置的自定义 bili 路径。"
                 return self.status()
 
         self.seed_or_validate_config()  # 播种缺失文件；不一致在 verify 阶段判定
 
-        await self._spawn(exe)
+        self.state = ST_STARTING
+        self.detail = "正在启动 billion-context 并检查健康端点。"
+        try:
+            await self._spawn(exe)
+        except OSError as exc:
+            self.state = ST_SPAWN_FAILED
+            self.detail = f"无法启动 bili（{type(exc).__name__}），请检查 Node 和程序路径。"
+            return self.status()
         deadline = asyncio.get_event_loop().time() + _STARTUP_WAIT_SEC
         while asyncio.get_event_loop().time() < deadline:
             await asyncio.sleep(0.5)

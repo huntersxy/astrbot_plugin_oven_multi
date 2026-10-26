@@ -207,6 +207,8 @@ const BILI_STATE_TEXT = {
   degraded: "守护降级（重启失败）",
   no_node: "缺少 Node.js（需 ≥20）",
   install_failed: "自动安装失败",
+  installing: "正在安装",
+  starting: "正在启动",
   spawn_failed: "启动失败",
   stopped: "已停止",
 };
@@ -223,7 +225,12 @@ function renderBiliCard(data) {
   else if (data.enabled) detail += " · 未接管";
   $("bili-state").textContent = `上下文压缩：${stateText}`;
   $("bili-detail").textContent = detail;
+  const busy = Boolean(data.busy || proxy.busy);
+  $("bili-install").hidden = !(data.enabled && proxy.mode !== "external" && !proxy.healthy);
+  $("bili-install").disabled = busy;
+  $("bili-install").textContent = busy ? "安装／启动中…" : "安装／重试";
   $("bili-wire").hidden = !(data.enabled && !wire);
+  $("bili-wire").disabled = busy || !proxy.healthy;
   $("bili-restore").hidden = !wire;
   const doctor = $("bili-doctor");
   doctor.replaceChildren(
@@ -247,15 +254,14 @@ async function loadBiliCard() {
 async function biliAction(kind) {
   if (state.biliBusy) return;
   state.biliBusy = true;
-  const label = kind === "wire" ? "接管" : "恢复";
-  const button = $(kind === "wire" ? "bili-wire" : "bili-restore");
+  const label = { wire: "接管", restore: "恢复", install: "安装／重试" }[kind];
+  const button = $(`bili-${kind}`);
   button.disabled = true;
   try {
     const data = unwrap(
       await window.AstrBotPluginPage.apiPost(`billion/${kind}`, { confirm: true }),
     );
     $("announcer").textContent = data.message || "操作完成";
-    await loadBiliCard();
     loadStatus();
   } catch (error) {
     setError("settings-error", error.message || "操作失败，请稍后重试。");
@@ -264,6 +270,7 @@ async function biliAction(kind) {
     button.disabled = false;
     button.textContent = label;
     button.dataset.armed = "";
+    await loadBiliCard();
   }
 }
 
@@ -658,6 +665,7 @@ $("settings-groups").addEventListener("input", () => {
   $("save-settings").disabled = state.settingsBusy;
 });
 $("bili-wire").addEventListener("click", () => armBiliButton("wire"));
+$("bili-install").addEventListener("click", () => biliAction("install"));
 $("bili-restore").addEventListener("click", () => armBiliButton("restore"));
 $("save-settings").addEventListener("click", saveSettings);
 window.addEventListener("beforeunload", (event) => {
@@ -694,6 +702,9 @@ $("close-compression-detail").addEventListener("click", () => { state.compressio
 if (typeof setInterval === "function") setInterval(() => {
   if (state.tab === "compression" && document.visibilityState !== "hidden") loadCompression();
 }, 10000);
+if (typeof setInterval === "function") setInterval(() => {
+  if (state.tab === "settings" && state.settingsCategory === "上下文压缩" && document.visibilityState !== "hidden") loadBiliCard();
+}, 3000);
 
 async function start() {
   try {

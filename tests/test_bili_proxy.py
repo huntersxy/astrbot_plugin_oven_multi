@@ -347,6 +347,73 @@ def test_verify_session_header_states():
     print("会话标识验证 ok")
 
 
+def test_manual_install_uses_persistent_entry_outside_path():
+    with tempfile.TemporaryDirectory() as td:
+        cfg = {"mode": "managed", "auto_install": False}
+        manager = bp.BiliProxyManager(lambda: cfg, Path(td))
+        commands = []
+        entry = manager.runtime_dir / "node_modules/billion-context/dist/index.js"
+        original = bp._which, bp._exec_async
+        bp._which = lambda name: {"node": "node-test", "npm": "npm-test"}.get(name)
+
+        async def execute(args, **kwargs):
+            commands.append(args)
+            if "install" in args:
+                entry.parent.mkdir(parents=True)
+                entry.write_text("// installed", encoding="utf-8")
+            return FakeProcess(stdout=b"v24.0.0\n")
+
+        bp._exec_async = execute
+        probes = [(False, "down"), (True, "")]
+        manager.probe_health = lambda: _async_value(probes.pop(0))
+        manager._fetch_admin_config = lambda: _async_value(None)
+        manager._start_monitor = lambda: None
+        try:
+            # Disabled automatic installation does not invoke npm.
+            status = run(manager.ensure_started())
+            assert not status["healthy"] and not commands
+            probes[:] = [(False, "down"), (True, "")]
+            status = run(manager.ensure_started(install=True))
+            assert status["healthy"] and status["session_header_state"] == "ok"
+            install = next(args for args in commands if "install" in args)
+            assert install[install.index("--prefix") + 1] == str(manager.runtime_dir)
+            assert "-g" not in install
+            assert commands[-1][:3] == ["node-test", str(entry), "start"]
+            assert cfg["auto_install"] is False
+            run(manager.stop())
+        finally:
+            bp._which, bp._exec_async = original
+
+
+def test_install_state_is_visible_and_concurrent_retry_does_not_duplicate():
+    async def scenario(tmp):
+        manager = bp.BiliProxyManager(lambda: {"auto_install": True}, tmp)
+        started, finish = asyncio.Event(), asyncio.Event()
+        manager.probe_health = lambda: _async_value((False, "down"))
+        manager._node_major = lambda: _async_value(24)
+        manager._find_executable = lambda: None
+        calls = []
+
+        async def install():
+            calls.append(1)
+            started.set()
+            await finish.wait()
+            return False, "测试仓库不可达"
+
+        manager._npm_install = install
+        task = asyncio.create_task(manager.ensure_started())
+        await started.wait()
+        status = await manager.ensure_started(install=True)
+        assert status["state"] == bp.ST_INSTALLING and status["busy"]
+        assert calls == [1]
+        finish.set()
+        status = await task
+        assert status["state"] == bp.ST_INSTALL_FAILED and not status["busy"]
+
+    with tempfile.TemporaryDirectory() as td:
+        run(scenario(Path(td)))
+
+
 def test_monitor_respawns_owned_unhealthy():
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)

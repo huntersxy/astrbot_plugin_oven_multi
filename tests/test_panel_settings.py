@@ -439,6 +439,7 @@ def test_api_settings_routes_registered():
         ("settings", ["GET"]),
         ("settings/save", ["POST"]),
         ("billion/status", ["GET"]),
+        ("billion/install", ["POST"]),
         ("billion/wire", ["POST"]),
         ("billion/restore", ["POST"]),
     ]

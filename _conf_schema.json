@@ -460,7 +460,7 @@
       },
       "auto_install": {
         "description": "缺失时自动安装",
-        "hint": "managed 模式下 bili 不存在时自动执行 npm install -g billion-context（需 Node≥20）；不会自动安装 Node 本体。",
+        "hint": "managed 模式下 bili 不存在时自动安装到插件持久化数据目录（需 Node≥20 和 npm），不修改全局 npm；关闭后仍可点击「安装／重试」。不会自动安装 Node 本体。",
         "type": "bool",
         "default": true
       },

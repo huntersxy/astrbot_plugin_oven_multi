@@ -144,7 +144,7 @@
 
 > 基于 [billion-context](https://github.com/ranxianglei/billion-context)（本地 HTTP 代理）接管 AstrBot 的上下文压缩：provider 请求改经代理，由**模型自驱**把旧消息段折叠成可逆、增量、前缀缓存友好的摘要（模型调用 `compress`/`decompress` 等工具，代理模式下这些调用在代理内部执行，AstrBot 无感知）。本插件不修改 AstrBot 源码，也不改写插件钩子中的历史；其他插件经同一 Provider 发起的模型请求仍会经过代理。
 >
-> **懒人模式**：在「状态总览 → 设置 → 上下文压缩」只打开启用开关即可——插件自动确保代理可用（端口上已有健康 bili 则直接复用；缺失时自动 `npm install -g billion-context`，要求宿主机 **Node ≥ 20**；不会代装 Node），播种代理配置（以 AstrBot 自带的 `x-astrbot-conversation-id` 请求头作为会话标识，按会话隔离压缩状态），检测当前生效的对话 provider 并自动接管。关闭开关则自动尝试恢复原配置。
+> **懒人模式**：在「状态总览 → 设置 → 上下文压缩」只打开启用开关即可——插件自动确保代理可用（端口上已有健康 bili 则直接复用；缺失时自动安装到插件持久化数据目录 `billion-runtime`，通过 Node 直接运行入口，不依赖全局 PATH 或写权限，要求宿主机 **Node ≥ 20**；不会代装 Node），播种代理配置（以 AstrBot 自带的 `x-astrbot-conversation-id` 请求头作为会话标识，按会话隔离压缩状态），检测当前生效的对话 provider 并自动接管。关闭开关则自动尝试恢复原配置。自动安装默认开启，保留已有关闭值；关闭自动安装后仍可点击状态卡的「安装／重试」。安装在后台执行，状态卡自动显示安装、启动及失败原因，保存其他设置不会打断安装。
 
 接管时会做以下**可恢复**的修改（记录保存在插件数据目录 `bili_wire_record.json`，只记被改字段原值，不含 API Key）：
 
@@ -176,7 +176,7 @@
 | `enabled` | 启用（开启即懒人模式） | `false` |
 | `mode` | `managed`（插件拉起并守护）/ `external`（连接自跑代理） | `"managed"` |
 | `executable` | bili 可执行文件（PATH 名或完整路径） | `"bili"` |
-| `auto_install` | 缺失时自动 `npm install -g billion-context` | `true` |
+| `auto_install` | 缺失时自动安装到插件持久化数据目录 `billion-runtime`，通过 Node 直接运行入口，不依赖全局 PATH 或写权限 | `true` |
 | `host` / `port` | 代理地址与端口 | `"127.0.0.1"` / `8787` |
 | `provider_ids` | 接管的对话 provider，一行一个；**留空=懒人模式自动接管当前生效者** | `[]` |
 | `session_header` | 会话标识请求头 | `"x-astrbot-conversation-id"` |

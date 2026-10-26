@@ -209,6 +209,12 @@ class OvenMultiPlugin(Star):
                 "Oven Multi billion-context compression status",
             ),
             (
+                f"/{PLUGIN_NAME}/billion/install",
+                self._api_billion_install,
+                "POST",
+                "Oven Multi install or retry billion-context",
+            ),
+            (
                 f"/{PLUGIN_NAME}/billion/wire",
                 self._api_billion_wire,
                 "POST",
@@ -462,11 +468,12 @@ class OvenMultiPlugin(Star):
                         raise ValueError(
                             "代理使用期间不能更换地址或运行方式；请恢复并重启 AstrBot 后修改。"
                         )
+            previous_bili = dict(feature_cfg(self.config, FEATURE_BILI))
             revision = await self.panel_settings.save(
                 self.config, body["values"], body.get("revision")
             )
             logger.info(f"[烤箱-面板] 已保存 {len(body['values'])} 项设置")
-            if any(str(key).startswith("bili.") for key in body["values"]):
+            if previous_bili != feature_cfg(self.config, FEATURE_BILI):
                 if self._bili_task is not None:
                     self._bili_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -585,12 +592,12 @@ class OvenMultiPlugin(Star):
         detail = self.bili_proxy.session_header_detail or "会话标识未确认"
         return f"⚠ 会话标识{state}：{detail} 校验通过后才可接管。"
 
-    async def _bili_startup(self) -> None:
+    async def _bili_startup(self, *, install: bool = False) -> None:
         """懒人链：确保代理可用 → （无接管记录时）检测目标并自动接管。"""
         cfg = feature_cfg(self.config, FEATURE_BILI)
         if not cfg.get("enabled", False):
             return
-        status = await self.bili_proxy.ensure_started()
+        status = await self.bili_proxy.ensure_started(install=install)
         logger.info(f"[烤箱-压缩] 代理状态：{status['state']} {status['detail']}".rstrip())
         if not status["healthy"]:
             return
@@ -691,6 +698,7 @@ class OvenMultiPlugin(Star):
             "success": True,
             "data": {
                 "enabled": bool(cfg.get("enabled", False)),
+                "busy": self._bili_task is not None and not self._bili_task.done(),
                 "proxy": self.bili_proxy.status(),
                 "wire": record,
                 "doctor": doctor,
@@ -698,6 +706,24 @@ class OvenMultiPlugin(Star):
                 "auto_follow": feature_cfg(self.config, FEATURE_BILI).get("auto_follow", True),
                 "auto_follow_paused": self.bili_auto.paused,
             },
+        }
+
+    async def _api_billion_install(self):
+        """Queue an explicit install/retry without holding the Panel request open."""
+        cfg = feature_cfg(self.config, FEATURE_BILI)
+        if not cfg.get("enabled", False):
+            return {"success": False, "message": "请先启用上下文压缩并保存，再安装／重试。"}
+        if cfg.get("mode", "managed") != "managed":
+            return {
+                "success": False,
+                "message": "外部模式请在代理所在环境安装；托管模式支持快捷安装。",
+            }
+        if self._bili_task is not None and not self._bili_task.done():
+            return {"success": True, "data": {"message": "安装／启动仍在进行，请查看状态。"}}
+        self._bili_task = asyncio.create_task(self._bili_startup(install=True))
+        return {
+            "success": True,
+            "data": {"message": "已开始安装／重试，完成后会自动启动并尝试接管。"},
         }
 
     async def _api_billion_wire(self):
