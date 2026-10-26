@@ -62,6 +62,7 @@ from .features.bili_proxy import BiliProxyManager
 from .features.bili_requests import BiliRequestBridge
 from .features.bili_wire import BiliWireManager
 from .features.bracket_matcher import BracketMatcher
+from .features.douyin_live import DouyinLiveMonitor
 from .features.file_reader import FileParseError, FileReaderManager
 from .features.jev_active import JevActive
 from .features.jev_scenes import JevScenes
@@ -143,6 +144,7 @@ class OvenMultiPlugin(Star):
 
         # 面板快捷设置（revision 防陈旧 + 校验写回）
         self.panel_settings = PanelSettingsManager()
+        self.douyin = DouyinLiveMonitor(self)
 
         # 上下文压缩（billion-context 代理）：懒人获取链 + 接管/恢复
         self.bili_proxy = BiliProxyManager(
@@ -229,9 +231,50 @@ class OvenMultiPlugin(Star):
         ):
             self.context.register_web_api(route, handler, [method], description)
 
+    @filter.command("抖音监控")
+    async def douyin_help(self, event: AstrMessageEvent):
+        async for result in self.douyin.dispatch("cmd_help", event):
+            yield result
+
+    @filter.command("抖音订阅")
+    async def douyin_subscribe(self, event: AstrMessageEvent):
+        async for result in self.douyin.dispatch("cmd_subscribe", event):
+            yield result
+
+    @filter.command("抖音取关")
+    async def douyin_unsubscribe(self, event: AstrMessageEvent):
+        async for result in self.douyin.dispatch("cmd_unsubscribe", event):
+            yield result
+
+    @filter.command("抖音列表")
+    async def douyin_list(self, event: AstrMessageEvent):
+        async for result in self.douyin.dispatch("cmd_list", event):
+            yield result
+
+    @filter.command("抖音检查")
+    async def douyin_check(self, event: AstrMessageEvent):
+        async for result in self.douyin.dispatch("cmd_check", event):
+            yield result
+
+    @filter.command("抖音Cookie")
+    async def douyin_set_cookie(self, event: AstrMessageEvent):
+        async for result in self.douyin.dispatch("cmd_set_cookie", event):
+            yield result
+
+    @filter.command("抖音CookieFile")
+    async def douyin_cookie_from_file(self, event: AstrMessageEvent):
+        async for result in self.douyin.dispatch("cmd_cookie_from_file", event):
+            yield result
+
+    @filter.command("抖音登录")
+    async def douyin_login_status(self, event: AstrMessageEvent):
+        async for result in self.douyin.dispatch("cmd_login_status", event):
+            yield result
+
     # ── 生命周期 ─────────────────────────────────────────────────────────
 
     async def initialize(self):
+        await self.douyin.configure()
         self.bili_requests.install()
         if self.file_reader:
             await self.file_reader.start()
@@ -245,6 +288,7 @@ class OvenMultiPlugin(Star):
 
     async def terminate(self):
         self.closing = True
+        await self.douyin.stop()
         self.bili_requests.disconnect()
         if self._bili_task is not None:
             self._bili_task.cancel()
@@ -283,6 +327,7 @@ class OvenMultiPlugin(Star):
             Feature identifiers, configuration switches and human-readable details.
         """
         jev = feature_cfg(self.config, FEATURE_JEV)
+        douyin = self.douyin.status()
         files = feature_cfg(self.config, FEATURE_FILE_READER)
         blank_limit = cfg_value(self.config, FEATURE_REMOVE_BLANK, "max_consecutive_newlines", 1)
         seg = feature_cfg(self.config, FEATURE_SEGMENT)
@@ -352,6 +397,15 @@ class OvenMultiPlugin(Star):
                 feature_enabled(self.config, FEATURE_BILI, False),
                 self._bili_status_detail(),
             ),
+            (
+                "douyin",
+                "抖音直播通知",
+                douyin["enabled"],
+                "独立抖音插件仍启用，内置监控暂停以避免重复通知"
+                if douyin["legacy_active"]
+                else f"{douyin['sessions']} 个会话 / {douyin['rooms']} 个账号，"
+                f"每 {douyin['interval']} 秒检查；订阅与取关沿用抖音命令",
+            ),
         ]
         features = [
             {"id": key, "name": name, "enabled": bool(enabled), "detail": detail}
@@ -390,6 +444,9 @@ class OvenMultiPlugin(Star):
             notices.append("文件读取已配置开启，但尚未初始化成功，请检查 AstrBot 日志。")
         if self.bili_wire.record_exists():
             notices.extend(self._bili_doctor())
+        douyin = self.douyin.status()
+        if douyin["enabled"] and douyin["last_error"]:
+            notices.append(f"抖音通知：{douyin['last_error']}；保留上次状态，等待后续轮询。")
         return {
             "success": True,
             "data": {
@@ -397,6 +454,7 @@ class OvenMultiPlugin(Star):
                 "features": self._feature_status(),
                 "notices": notices,
                 "jev_usage": self.jev_active.client.status(),
+                "douyin": douyin,
                 "balance_configured": bool(
                     str(feature_cfg(self.config, "balance").get("config_content") or "").strip()
                 ),
@@ -469,10 +527,13 @@ class OvenMultiPlugin(Star):
                             "代理使用期间不能更换地址或运行方式；请恢复并重启 AstrBot 后修改。"
                         )
             previous_bili = dict(feature_cfg(self.config, FEATURE_BILI))
+            previous_douyin = dict(feature_cfg(self.config, "douyin"))
             revision = await self.panel_settings.save(
                 self.config, body["values"], body.get("revision")
             )
             logger.info(f"[烤箱-面板] 已保存 {len(body['values'])} 项设置")
+            if previous_douyin != feature_cfg(self.config, "douyin"):
+                await self.douyin.configure()
             if previous_bili != feature_cfg(self.config, FEATURE_BILI):
                 if self._bili_task is not None:
                     self._bili_task.cancel()

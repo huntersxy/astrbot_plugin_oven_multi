@@ -37,6 +37,14 @@ from pathlib import Path
 # 面板管理的配置路径（按展示分组）。配置路径支持任意层级（如 file_reader.rag.*）。
 GROUP_PATHS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
+        "抖音通知",
+        (
+            "douyin.enabled", "douyin.check_interval", "douyin.request_timeout",
+            "douyin.notify_on_live", "douyin.notify_on_offline", "douyin.notify_with_cover",
+            "douyin.max_rooms_per_session", "douyin.admin_only",
+        ),
+    ),
+    (
         "黑名单",
         (
             "blacklist_groups",
@@ -161,6 +169,11 @@ NATIVE_ONLY_PATHS: frozenset[str] = frozenset(
 
 # 分组顶部的一行指引（指向留在插件配置页的字段）。
 GROUP_NOTES: dict[str, str] = {
+    "抖音通知": (
+        "使用「抖音订阅 / 抖音取关 / 抖音列表 / 抖音检查」管理当前会话。"
+        "首次读取旧独立插件的订阅和登录态；请停用独立插件后启用这里，避免重复通知。"
+        "登录态由管理员使用「抖音Cookie / 抖音CookieFile」更新，不在面板返回 Cookie 原文。"
+    ),
     "Jev 判读": (
         "API Key、TypeSafe 接口地址和模型名在 AstrBot 原生插件配置页填写；"
         "主动回复与意图／情绪两个开关独立。"

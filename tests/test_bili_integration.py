@@ -91,7 +91,7 @@ async def test_full_panel_save_with_native_request_and_disk_config(plugin, tmp_p
     monkeypatch.setattr(plugin_module, "request", request)
     form = (await plugin._api_settings())["data"]
     values = {f["key"]: f["value"] for g in form["groups"] for f in g["fields"]}
-    assert len(values) == 78
+    assert len(values) == 86
     values.update(blacklist_groups=["1001", "1002"], blacklist_users=["2001"])
     values["bili.auto_install"] = False
     body = json.dumps({"revision": form["revision"], "values": values}).encode()

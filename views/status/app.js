@@ -66,7 +66,7 @@ function selectTab(name, focus = false) {
 function renderFeatures(features) {
   const groups = [
     { name: "消息与回复", ids: ["bracket_matching", "repetition", "remove_blank_lines", "iam_thinking", "mention_parser", "segment_reply"] },
-    { name: "判读与文件", ids: ["jev", "file_reader"] },
+    { name: "判读、文件与通知", ids: ["jev", "file_reader", "douyin"] },
   ];
   const container = $("feature-groups");
   container.replaceChildren();
@@ -529,7 +529,7 @@ function settingRow(field) {
 const SETTINGS_SECTIONS = {
   bracket_matching: "括号补全", repetition: "复读与打断", remove_blank_lines: "空行整理",
   iam_thinking: "思考表情", mention_parser: "成员提及", segment_reply: "分段与节奏",
-  jev: "Jev 判读", file_reader: "文件与检索", bili: "压缩代理", blacklist: "使用范围",
+  jev: "Jev 判读", file_reader: "文件与检索", bili: "压缩代理", blacklist: "使用范围", douyin: "抖音直播通知",
 };
 const COMMON_SETTINGS = new Set([
   "repetition.repeat_threshold", "remove_blank_lines.max_consecutive_newlines",
@@ -537,6 +537,7 @@ const COMMON_SETTINGS = new Set([
   "segment_reply.fixed_delay_seconds", "segment_reply.random_delay_range",
   "jev.active_reply_enabled", "jev.inject_on_mention", "jev.active_reply_threshold", "jev.active_interval_sec", "bili.mode", "bili.auto_follow", "bili.provider_ids",
   "file_reader.preread.enabled", "file_reader.tool.enabled", "file_reader.rag.enabled",
+  "douyin.check_interval", "douyin.notify_on_live", "douyin.notify_on_offline", "douyin.notify_with_cover",
 ]);
 
 function selectSettingsCategory(name, focus = false) {

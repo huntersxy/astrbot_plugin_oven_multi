@@ -725,5 +725,75 @@
         "default": []
       }
     }
+  },
+  "douyin": {
+    "description": "抖音直播通知",
+    "type": "object",
+    "invisible": true,
+    "items": {
+      "enabled": {
+        "description": "启用抖音直播通知",
+        "type": "bool",
+        "default": false,
+        "hint": "轮询订阅账号的开播与下播状态，按会话推送通知；旧独立插件仍启用时暂停内置监控，避免重复推送。"
+      },
+      "check_interval": {
+        "description": "轮询间隔（秒）",
+        "type": "int",
+        "hint": "每隔多少秒检查一轮所有订阅账号的直播状态，最小 30 秒。建议 60 秒以上，过于频繁可能触发抖音风控。",
+        "default": 60,
+        "slider": {
+          "min": 30,
+          "max": 3600,
+          "step": 1
+        }
+      },
+      "request_timeout": {
+        "description": "单次请求超时（秒）",
+        "type": "int",
+        "hint": "访问抖音接口的超时时间，网络较慢时可适当调大。",
+        "default": 10,
+        "slider": {
+          "min": 3,
+          "max": 60,
+          "step": 1
+        }
+      },
+      "notify_on_live": {
+        "description": "开播通知",
+        "type": "bool",
+        "hint": "账号开播时是否推送通知。",
+        "default": true
+      },
+      "notify_on_offline": {
+        "description": "下播通知",
+        "type": "bool",
+        "hint": "账号下播时是否推送通知。仅在检测到「直播中 → 未开播」的变化时推送，不会在首次探测时报「下播」。",
+        "default": true
+      },
+      "notify_with_cover": {
+        "description": "开播通知附带封面图",
+        "type": "bool",
+        "hint": "开播时是否附带直播间封面图，通知更直观。",
+        "default": true
+      },
+      "max_rooms_per_session": {
+        "description": "单会话订阅上限",
+        "type": "int",
+        "hint": "每个会话（群 / 私聊）最多可订阅多少个抖音账号。",
+        "default": 10,
+        "slider": {
+          "min": 1,
+          "max": 100,
+          "step": 1
+        }
+      },
+      "admin_only": {
+        "description": "仅管理员可管理订阅",
+        "type": "bool",
+        "hint": "开启后只有 AstrBot 管理员才能执行订阅 / 取关操作；普通成员仍可查看列表。",
+        "default": false
+      }
+    }
   }
 }

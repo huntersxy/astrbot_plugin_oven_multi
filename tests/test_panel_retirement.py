@@ -123,11 +123,12 @@ async def test_only_native_routes_and_scoped_cleanup(plugin):
         "settings",
         "settings/save",
         "billion/status",
+        "billion/install",
         "billion/wire",
         "billion/restore",
     ]
     assert [row[2] for row in routes] == [
-        ["GET"], ["GET"], ["GET"], ["GET"], ["POST"], ["GET"], ["POST"], ["POST"],
+        ["GET"], ["GET"], ["GET"], ["GET"], ["POST"], ["GET"], ["POST"], ["POST"], ["POST"],
     ]
     unrelated = ("/other", lambda: {}, ["GET"], "other plugin")
     routes.append(unrelated)
