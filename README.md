@@ -161,7 +161,7 @@
 
 设置页按功能分类，常用参数与高级参数分开；所有原有字段仍可编辑，密钥、余额配置与原生 Provider 选择器继续在 AstrBot 插件配置页维护。
 
-> 基于 [billion-context](https://github.com/ranxianglei/billion-context)（本地 HTTP 代理）接管 AstrBot 的上下文压缩：provider 请求改经代理，由**模型自驱**把旧消息段折叠成可逆、增量、前缀缓存友好的摘要（模型调用 `compress`/`decompress` 等工具，代理模式下这些调用在代理内部执行，AstrBot 无感知）。本插件不修改 AstrBot 源码，也不改写插件钩子中的历史；其他插件经同一 Provider 发起的模型请求仍会经过代理。
+> 基于 [billion-context](https://github.com/ranxianglei/billion-context)（本地 HTTP 代理）接管 AstrBot 的上下文压缩。经代理的会话请求会从代理清单注册 `compress`、`decompress`、`search_context`、`acp_status` 和 `acp_cache`，由 AstrBot 工具执行器转发到代理；会话 ID 由当前请求绑定，模型不能指定其他会话，也不开放写文件参数。烤箱之心自主回复会保留这些会话内维护工具，其余工具仍按原权限限制。代理负责压缩与恢复，不改写 AstrBot 本地历史；无会话标识的规划、学习等辅助请求直通上游，不进入持久压缩会话。
 >
 > **懒人模式**：在「状态总览 → 设置 → 上下文压缩」只打开启用开关即可——插件自动确保代理可用（端口上已有健康 bili 则直接复用；缺失时自动安装到插件持久化数据目录 `billion-runtime`，通过 Node 直接运行入口，不依赖全局 PATH 或写权限，要求宿主机 **Node ≥ 20**；不会代装 Node），播种代理配置（以 AstrBot 自带的 `x-astrbot-conversation-id` 请求头作为会话标识，按会话隔离压缩状态），检测当前生效的对话 provider 并自动接管。关闭开关则自动尝试恢复原配置。自动安装默认开启，保留已有关闭值；关闭自动安装后仍可点击状态卡的「安装／重试」。安装在后台执行，状态卡自动显示安装、启动及失败原因，保存其他设置不会打断安装。
 

@@ -2,7 +2,7 @@ name: astrbot_plugin_oven_multi
 display_name: 插座的多功能烤箱
 short_desc: 使用billion-context接管上下文压缩、智能分段、抖音开播通知、Jev 判读与文件读取，一页管理状态和余额
 desc: 使用billion-context接管上下文压缩、群聊消息处理与 Jev 多维判读，提供智能分段回复、结构化提及、文件读取与 RAG、抖音直播订阅通知、服务余额查询及原生 Panel 状态页。
-version: 1.58.1
+version: 1.58.2
 author: 汐兮雨
 repo: https://github.com/huntersxy/astrbot_plugin_oven_multi
 astrbot_version: ">=4.29.1,<5"

@@ -34,7 +34,9 @@ from sys import maxsize
 from traceback import extract_tb
 
 import astrbot.api.message_components as components
-from astrbot.api import AstrBotConfig, logger
+from astrbot.api import AstrBotConfig
+
+from astrbot.api import logger  # isort: skip
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools, register
 from astrbot.api.web import request
@@ -1234,6 +1236,7 @@ class OvenMultiPlugin(Star):
         await self.bili_auto.follow(event)
         self.bili_requests.install()
         owned = await self.ovenheart.owned(event)
+        await self.bili_requests.native_tools.prepare(event, req)
 
         # 被@/唤醒触发的一次 Jev 判读注入：重点是意向与情绪（临时内容，不持久化）
         if (

@@ -11,6 +11,7 @@ from functools import wraps
 from urllib.parse import urlsplit
 
 from .bili_reply import install_reply
+from .bili_tools import BiliNativeTools
 
 CONVERSATION_HEADER = "x-astrbot-conversation-id"
 PASSTHROUGH_HEADER = "x-bili-passthrough"
@@ -23,6 +24,7 @@ class BiliRequestBridge:
         self._hooks = []
         self._clients = {}
         self._providers = {}
+        self.native_tools = BiliNativeTools(self)
 
     def _replace(self, owner, name, wrapper):
         original = getattr(owner, name)
@@ -31,6 +33,7 @@ class BiliRequestBridge:
         self._hooks.append((owner, name, original, wrapper, local))
 
     def disconnect(self):
+        self.native_tools.bound.clear()
         for owner, name, original, wrapper, local in reversed(self._hooks):
             if getattr(owner, name, None) is wrapper:
                 if local:
@@ -81,6 +84,10 @@ class BiliRequestBridge:
         async def send(request, *args, **kwargs):
             # The SDK constructs a separate Request/Headers for each attempt.
             # Applying the header here also covers streaming and SDK client copies.
+            cid = str(request.headers.get(CONVERSATION_HEADER, "")).strip()
+            if cid and cid in self.native_tools.bound and self._route(request.url):
+                request.headers["x-bili-plugin"] = "astrbot"
+                request.headers["x-bili-plugin-conversation"] = cid
             if (
                 not self.plugin.closing
                 and self._route(request.url)
@@ -166,4 +173,6 @@ class BiliRequestBridge:
         return {
             "auxiliary_passthrough": any(not c.is_closed for c in self._clients.values()),
             "adapted_clients": sum(not c.is_closed for c in self._clients.values()),
+            "native_context_tools": len(self.native_tools.schemas),
+            "native_tool_sessions": len(self.native_tools.bound),
         }
