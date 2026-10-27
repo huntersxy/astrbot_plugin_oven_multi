@@ -23,4 +23,9 @@ dist/
 .env.*
 !.env.example
 /data/
+/plugin_data/
+cookies.json
+douyin_cookie.txt
+subscriptions.json
+billion-context.json
 /.zcode

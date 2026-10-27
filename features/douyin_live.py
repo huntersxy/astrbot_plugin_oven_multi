@@ -103,7 +103,7 @@ MAX_RETRY = 2  # 单次查询最多尝试次数（含刷新 ttwid 后的重试�
 # 从用户输入中提取直播间 ID（web_rid）
 #
 # 注意：web_rid 并不总是纯数字。抖音账号的「抖音号」(unique_id) 允许字母 / 数字 /
-# 下划线，且绝大多数账号的 web_rid 就等于它自己的抖音号（例如 xqdm88886666666）。
+# 下划线，且绝大多数账号的 web_rid 就等于它自己的抖音号（例如 example_account）。
 # 旧版本只匹配 \d{5,}，遇到这类地址会解析失败，所以这里放宽为字母数字下划线。
 _RID_PATTERNS = (
     re.compile(r"live\.douyin\.com/(?!user/)([A-Za-z0-9_]{1,64})", re.I),
@@ -124,22 +124,23 @@ HELP_TEXT = """📺 抖音直播监控
 
 /抖音订阅 <直播间链接/抖音号/用户主页> [备注名]
     订阅一个抖音账号的开播提醒，以下写法都支持：
-    /抖音订阅 https://live.douyin.com/151135503018 老王
-    /抖音订阅 https://live.douyin.com/xqdm88886666666
-    /抖音订阅 xqdm88886666666 泉在摸鱼
+    /抖音订阅 https://live.douyin.com/1234567890 示例主播
+    /抖音订阅 https://live.douyin.com/example_account
+    /抖音订阅 example_account 示例备注
     /抖音订阅 https://www.douyin.com/user/MS4wLjABAAAA... （自动解析主页）
 
 /抖音取关 <直播间链接/抖音号/用户主页>  取消订阅
 /抖音列表                    查看本会话的订阅与当前状态
 /抖音检查                    立即检查一次（不等下一轮轮询）
-/抖音Cookie <Cookie串>      配置登录态 Cookie（清空请输入 clear）
-/抖音CookieFile            从插件目录 douyin_cookie.txt 读 Cookie（超长串推荐）
+/抖音Cookie clear          清除登录态 Cookie
+/抖音CookieFile            从服务器插件数据目录 douyin_cookie.txt 导入 Cookie
 /抖音登录                    查看登录态状态
 /抖音监控                    显示本帮助
 
 提示：直播间地址里的 ID 可能是纯数字，也可能是带字母的「抖音号」；
       只知道用户主页链接时，插件会自动解析出对应的直播间。
-      开播 / 下播时会自动推送通知，无需手动查询。Cookie 失效会自动降级为匿名监控。"""
+      开播 / 下播时会自动推送通知，无需手动查询。Cookie 可选，失效会降级为匿名监控。
+      不要在聊天中粘贴 Cookie，以免进入聊天平台和日志；请优先使用文件导入。"""
 
 
 # --------------------------------------------------------------------------
@@ -1158,7 +1159,7 @@ class DouyinLiveMonitor:
         msg = (
             "⚠️ 抖音监控：检测到登录态 Cookie 可能已失效，已自动降级为匿名模式。\n"
             "监控不会中断，但可能触发风控导致状态不准。\n"
-            "请用 /抖音Cookie 重新填入最新 Cookie 恢复登录态。"
+            "请在服务器更新 douyin_cookie.txt，再用 /抖音CookieFile 导入恢复登录态。"
         )
         umos = {umo for subscribers in self.store.all_pairs().values() for umo in subscribers}
         for umo in umos:
@@ -1296,7 +1297,7 @@ class DouyinLiveMonitor:
             return "", "", (
                 "❌ 没能从输入中识别出直播间 ID。\n"
                 "支持这些写法：\n"
-                "· 直播间链接 https://live.douyin.com/xqdm88886666666\n"
+                "· 直播间链接 https://live.douyin.com/example_account\n"
                 "· 抖音号（数字或带字母都行）\n"
                 "· 用户主页链接 https://www.douyin.com/user/MS4wLjABAAAA..."
             )
@@ -1313,7 +1314,7 @@ class DouyinLiveMonitor:
         if not arg:
             yield event.plain_result(
                 "用法：/抖音订阅 <直播间链接/抖音号/用户主页> [备注名]\n"
-                "例如：/抖音订阅 https://live.douyin.com/xqdm88886666666 泉在摸鱼"
+                "例如：/抖音订阅 https://live.douyin.com/example_account 示例备注"
             )
             return
 
@@ -1456,10 +1457,9 @@ class DouyinLiveMonitor:
 
         if not arg or "=" not in arg:
             yield event.plain_result(
-                "用法：/抖音Cookie <完整Cookie串>\n"
-                "或   ：/抖音Cookie clear （清除）\n\n"
-                "如何获取：登录抖音网页版 → F12 开发者工具 → Console 输入 "
-                "`document.cookie` 复制返回值 → 粘贴到这里。"
+                "建议用 /抖音CookieFile 从服务器插件数据目录的 douyin_cookie.txt 导入。\n"
+                "清除登录态：/抖音Cookie clear\n\n"
+                "不要把 Cookie 粘贴进群聊或普通聊天，它可能进入聊天平台和 AstrBot 日志。"
             )
             return
 

@@ -20,3 +20,9 @@
 .trae/ export-ignore
 参考资料/ export-ignore
 tests/ export-ignore
+plugin_data/** export-ignore
+data/** export-ignore
+**/cookies.json export-ignore
+**/douyin_cookie.txt export-ignore
+**/subscriptions.json export-ignore
+**/billion-context.json export-ignore
