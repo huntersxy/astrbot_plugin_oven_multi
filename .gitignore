@@ -29,3 +29,6 @@ douyin_cookie.txt
 subscriptions.json
 billion-context.json
 /.zcode
+
+# Local development materials.
+/agent/

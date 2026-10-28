@@ -8,7 +8,7 @@ license = {text = "AGPL-3.0"}
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-exclude = ["参考资料/*", "__pycache__/*", "views/*"]
+exclude = ["agent", "参考资料/*", "__pycache__/*", "views/*"]
 
 [tool.ruff.lint]
 select = [

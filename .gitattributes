@@ -26,3 +26,5 @@ data/** export-ignore
 **/douyin_cookie.txt export-ignore
 **/subscriptions.json export-ignore
 **/billion-context.json export-ignore
+
+/AGENTS.md export-ignore
