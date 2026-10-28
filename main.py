@@ -73,7 +73,7 @@ from .core.mention_preserve import restore_bot_mention, should_backfill_native
 from .core.ovenheart_link import OvenHeartLink
 from .core.panel_settings import PanelSettingsManager, StaleSettingsError
 from .core.repeater import Repeater
-from .core.segment_reply import SegmentReply
+from .core.segment_reply import SPLITTER_PROMPT, SegmentReply
 from .core.thinking_manager import ThinkingManager
 
 # ── 配置访问辅助 ─────────────────────────────────────────────────────────
@@ -748,8 +748,8 @@ class OvenMultiPlugin(Star):
             data = data | {"sessions": [dict(row) for row in data["sessions"]]}
             try:
                 for row in data["sessions"]:
-                    conversation = await self.context.conversation_manager.db.get_conversation_by_id(
-                        row["id"]
+                    conversation = (
+                        await self.context.conversation_manager.db.get_conversation_by_id(row["id"])
                     )
                     if conversation:
                         row["astrbot_session"] = conversation.user_id
@@ -1100,6 +1100,13 @@ class OvenMultiPlugin(Star):
         """
         if not feature_enabled(self.config, FEATURE_SEGMENT, False):
             return
+        native = (
+            self.context.get_config(event.unified_msg_origin)
+            .get("platform_settings", {})
+            .get("segmented_reply", {})
+        )
+        if native.get("enable"):
+            return
         result = event.get_result()
         if not result or not result.chain:
             return
@@ -1116,6 +1123,11 @@ class OvenMultiPlugin(Star):
             and not result.is_llm_result()
         ):
             return
+        seg_cfg = feature_cfg(self.config, FEATURE_SEGMENT)
+        if all(isinstance(part, components.Image) for part in result.chain):
+            event.set_extra("oven_multi_segmented", True)
+            await asyncio.sleep(min(5.0, max(0.0, self.segment._float(seg_cfg, "typing_speed", 1))))
+            return
         # Keep native quote/@ on the first segment and trailing stickers after
         # the last. Never reorder interleaved media, forwards or tool results.
         chain = list(result.chain)
@@ -1129,11 +1141,33 @@ class OvenMultiPlugin(Star):
         text = "".join(comp.text for comp in chain).strip()
         if not text:
             return
-        seg_cfg = feature_cfg(self.config, FEATURE_SEGMENT)
-        if self.segment.should_skip(text, seg_cfg):
+        event.set_extra("oven_multi_segmented", True)
+        if seg_cfg.get("max_messages") == 1 or self.segment.should_skip(text, seg_cfg):
             return
         try:
             segments = self.segment.segment(text, seg_cfg)
+            if seg_cfg.get("split_mode", "rule") == "llm":
+                try:
+                    provider_id = seg_cfg.get("split_provider_id") or (
+                        await self.context.get_current_chat_provider_id(event.unified_msg_origin)
+                    )
+                    response = await asyncio.wait_for(
+                        self.context.llm_generate(
+                            chat_provider_id=provider_id, prompt=SPLITTER_PROMPT + text
+                        ),
+                        self.segment._float(seg_cfg, "split_timeout", 3),
+                    )
+                    if getattr(response, "role", "") == "err":
+                        raise ValueError("断句模型返回错误。")
+                    segments = self.segment.semantic_segments(
+                        text, response.completion_text, seg_cfg
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning(
+                        "[烤箱-分段] 语义断句未完成，使用本地规则 (%s)", type(exc).__name__
+                    )
         except Exception as e:  # noqa: BLE001
             logger.error(f"[烤箱-分段] 分段失败，按原文发送：{e}")
             return
@@ -1156,8 +1190,12 @@ class OvenMultiPlugin(Star):
         seg_cfg = feature_cfg(self.config, FEATURE_SEGMENT)
         prev = segments[0]
         for index, seg in enumerate(segments[1:], 1):
+            if event.is_stopped():
+                return
             try:
                 await asyncio.sleep(self.segment.delay(prev, seg, seg_cfg))
+                if event.is_stopped():
+                    return
                 outgoing = event.plain_result(seg)
                 if index == len(segments) - 1:
                     outgoing.chain.extend(suffix)

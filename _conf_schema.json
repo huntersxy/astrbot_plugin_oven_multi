@@ -283,55 +283,115 @@
     "description": "分段回复",
     "hint": "把长回复按标点与字数规则切成多条消息依次发送，模拟真人打字节奏。核心实现改写自 astrbot_plugin_custome_segment_reply（MIT）by LinJohn8。建议关闭 WebUI 内置「分段回复」，二选一。设置在状态总览 → 设置中管理。",
     "type": "object",
-    "invisible": true,
     "items": {
       "enabled": {
         "description": "启用分段回复",
         "hint": "开启后对出站文本做智能分段，逐条带延迟发送；失败或只有一段时保持原消息。",
         "type": "bool",
-        "default": false
+        "default": false,
+        "invisible": true
+      },
+      "split_mode": {
+        "description": "断句方式",
+        "hint": "rule 保留本地字数与标点规则；llm 使用模型语义断句，失败或超时回退本地规则。",
+        "type": "string",
+        "options": [
+          "rule",
+          "llm"
+        ],
+        "default": "rule",
+        "invisible": true
+      },
+      "split_provider_id": {
+        "description": "语义断句模型",
+        "hint": "留空使用当前会话聊天模型；仅模型语义断句时调用。",
+        "type": "string",
+        "_special": "select_provider",
+        "default": ""
+      },
+      "split_timeout": {
+        "description": "语义断句等待秒数",
+        "type": "float",
+        "default": 3.0,
+        "slider": {
+          "min": 1,
+          "max": 15,
+          "step": 0.5
+        },
+        "invisible": true
+      },
+      "max_messages": {
+        "description": "每次回复最多段数",
+        "hint": "0 保留原有不限段数行为；达到上限后合并剩余内容，不截断正文。",
+        "type": "int",
+        "default": 0,
+        "slider": {
+          "min": 0,
+          "max": 20,
+          "step": 1
+        },
+        "invisible": true
+      },
+      "typing_speed": {
+        "description": "打字间隔倍率",
+        "hint": "在现有固定、随机或智能间隔上乘以此倍率；1 保留原设置，0 取消等待。",
+        "type": "float",
+        "default": 1.0,
+        "slider": {
+          "min": 0,
+          "max": 3,
+          "step": 0.05
+        },
+        "invisible": true
       },
       "process_non_llm": {
         "description": "处理非 LLM 输出",
         "hint": "开启后插件指令、命令返回等非 LLM 输出也会被分段；默认关闭，只对 LLM 回复分段。配合下方「无需分段的关键词」可排除菜单/帮助类输出。",
         "type": "bool",
-        "default": false
+        "default": false,
+        "invisible": true
       },
       "min_length": {
         "description": "单段最小字数",
         "hint": "触发断句的最小字数。例如设为 20，则 20 字内尽量不断句。",
         "type": "int",
-        "default": 20
+        "default": 20,
+        "invisible": true
       },
       "max_length": {
         "description": "常规最大字数",
         "hint": "单条消息的常规最大长度。程序优先在 [最小字数, 最大字数] 范围内寻找标点断句。",
         "type": "int",
-        "default": 50
+        "default": 50,
+        "invisible": true
       },
       "allow_exceed_max": {
         "description": "允许超出最大字数寻找断点",
         "hint": "开启后在范围内没找到标点时会继续往后找，直到遇到标点或硬性上限；关闭则在最大字数处直接截断。",
         "type": "bool",
-        "default": true
+        "default": true,
+        "invisible": true
       },
       "hard_max_limit": {
         "description": "硬性截断字数",
         "hint": "配合上一项：允许超出时，达到该字数无论如何强制截断。建议 100-200。",
         "type": "int",
-        "default": 100
+        "default": 100,
+        "invisible": true
       },
       "merge_short_tail": {
         "description": "合并过短的尾部残余",
         "hint": "断句到最后只剩几个字（如“好的。”）时并入上一段，避免单独发一段很突兀。",
         "type": "bool",
-        "default": true
+        "default": true,
+        "invisible": true
       },
       "short_tail_threshold": {
         "description": "短尾合并字数阈值",
         "hint": "最后一段剩余字数不超过该值时触发合并。",
         "type": "int",
-        "default": 8
+        "default": 8,
+        "invisible": true
       },
       "force_split_symbols": {
         "description": "强制分隔符列表",
@@ -340,7 +400,8 @@
         "default": [
           "\\n\\n",
           "\\n"
-        ]
+        ],
+        "invisible": true
       },
       "split_symbols": {
         "description": "断句符号列表（按优先级排列）",
@@ -362,25 +423,29 @@
           "、",
           "，",
           ","
-        ]
+        ],
+        "invisible": true
       },
       "keep_symbol": {
         "description": "分段保留标点",
         "hint": "开启则断句后保留该标点（推荐）；关闭则丢弃。",
         "type": "bool",
-        "default": true
+        "default": true,
+        "invisible": true
       },
       "extend_to_trailing_symbols": {
         "description": "分段符后顺延连续符号",
         "hint": "命中分段符时继续吞掉紧随的连续符号（如“？……”）直到遇到文字。",
         "type": "bool",
-        "default": true
+        "default": true,
+        "invisible": true
       },
       "protect_paired_symbols": {
         "description": "成对符号内部不分段",
         "hint": "括号/书名号/引号等配对符号内部不进行常规分段，到闭合符号后再允许断句。",
         "type": "bool",
-        "default": false
+        "default": false,
+        "invisible": true
       },
       "exclude_keywords": {
         "description": "无需分段的关键词列表",
@@ -394,13 +459,15 @@
           "菜单",
           "功能列表",
           "已加载的插件"
-        ]
+        ],
+        "invisible": true
       },
       "skip_longer_than": {
         "description": "超长跳过阈值（字数）",
         "hint": "回复总字数超过该值时原样发送不分段；0 表示禁用。适合代码块等不宜拆分的内容，建议 200-300。",
         "type": "int",
-        "default": 0
+        "default": 0,
+        "invisible": true
       },
       "delay_type": {
         "description": "发送间隔类型",
@@ -411,13 +478,15 @@
           "random",
           "smart"
         ],
-        "default": "random"
+        "default": "random",
+        "invisible": true
       },
       "fixed_delay_seconds": {
         "description": "固定间隔秒数",
         "hint": "仅 delay_type=fixed 时生效。",
         "type": "float",
-        "default": 1.0
+        "default": 1.0,
+        "invisible": true
       },
       "random_delay_range": {
         "description": "随机间隔范围（秒）",
@@ -426,7 +495,8 @@
         "default": [
           1,
           3
-        ]
+        ],
+        "invisible": true
       }
     }
   },

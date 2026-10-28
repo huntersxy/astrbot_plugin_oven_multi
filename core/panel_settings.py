@@ -15,7 +15,7 @@
 """原生 Panel 快捷设置：面板是除密钥/选择器外全部配置项的管理入口。
 
 配置双入口分工（1.52.0 起）：
-- AstrBot 插件配置页保留 7 个字段（见 ``NATIVE_ONLY_PATHS``）——密钥、
+- AstrBot 插件配置页保留 8 个字段（见 ``NATIVE_ONLY_PATHS``）——密钥、
   余额 YAML 编辑器与两个 Provider 选择器及 Jev 连接地址、模型名，其余字段在 schema 中以
   ``invisible: true`` 隐藏（字段必须留在 schema：AstrBot 加载时会剔除
   schema 之外的 key，删掉即丢值）；
@@ -76,6 +76,10 @@ GROUP_PATHS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "分段回复",
         (
             "segment_reply.enabled",
+            "segment_reply.split_mode",
+            "segment_reply.split_timeout",
+            "segment_reply.max_messages",
+            "segment_reply.typing_speed",
             "segment_reply.process_non_llm",
             "segment_reply.min_length",
             "segment_reply.max_length",
@@ -164,11 +168,16 @@ NATIVE_ONLY_PATHS: frozenset[str] = frozenset(
         "balance.config_mode",
         "file_reader.rag.embedding_provider_id",
         "file_reader.rag.rerank_provider_id",
+        "segment_reply.split_provider_id",
     }
 )
 
 # 分组顶部的一行指引（指向留在插件配置页的字段）。
 GROUP_NOTES: dict[str, str] = {
+    "分段回复": (
+        "默认保留本地字数规则；模型语义断句的 Provider 在原生插件配置页选择。"
+        "最大段数为 0 时不限制，打字倍率为 0 时无段间等待。"
+    ),
     "抖音通知": (
         "使用「抖音订阅 / 抖音取关 / 抖音列表 / 抖音检查」管理当前会话。"
         "首次读取旧独立插件的订阅和登录态；请停用独立插件后启用这里，避免重复通知。"

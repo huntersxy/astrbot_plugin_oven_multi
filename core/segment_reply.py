@@ -17,6 +17,7 @@
 # 分段引擎与延迟模型精简改写：去掉主动消息分支、对话历史改写与「正在输入」
 # 状态（历史由 AstrBot 在装饰前已按完整原文持久化，重写会重复入库）。
 
+import json
 import random
 import re
 import unicodedata
@@ -49,6 +50,11 @@ DEFAULT_EXCLUDE_KEYWORDS = [
     "功能列表",
     "已加载的插件",
 ]
+SPLITTER_PROMPT = (
+    "按自然语义把回复拆成适合逐条发送的消息。只返回 JSON 字符串数组，"
+    "无需拆分时返回\"no_split\"。只能选择原文切分位置，不得改写、遗漏或调整顺序。"
+    "不要拆开括号、引号、颜文字、行内代码、列表或代码块。原文：\n"
+)
 
 
 class SegmentReply:
@@ -116,6 +122,8 @@ class SegmentReply:
 
     def segment(self, text: str, cfg: dict) -> list[str]:
         """按强制分隔符预切 → 字数规则细分 → 短尾合并。"""
+        if self.should_skip(text, cfg):
+            return [text]
         pieces = self._split_by_force_symbols(text.strip(), cfg)
         segments: list[str] = []
         for piece in pieces:
@@ -126,10 +134,50 @@ class SegmentReply:
             if self._logical_len(segments[-1]) <= threshold:
                 tail = segments.pop()
                 segments[-1] += tail
+        return self.limit_segments(segments, cfg)
+
+    def semantic_segments(self, text: str, payload: str, cfg: dict) -> list[str]:
+        """Validate model boundaries, then send slices of the unchanged original."""
+        payload = payload.strip()
+        if payload.startswith("```") and payload.endswith("```"):
+            payload = re.sub(r"^```(?:json)?\s*", "", payload)[:-3].strip()
+        if payload.strip('"') == "no_split":
+            return [text]
+        parts = json.loads(payload)
+        if parts == ["no_split"]:
+            return [text]
+        if not isinstance(parts, list) or not parts or not all(
+            isinstance(part, str) and part.strip() for part in parts
+        ):
+            raise ValueError("断句结果必须是非空字符串数组。")
+        if "".join("".join(parts).split()) != "".join(text.split()):
+            raise ValueError("断句模型改写了原文。")
+        protected = self._build_protected_ranges(text)
+        segments, start, position = [], 0, 0
+        for part in parts[:-1]:
+            remaining = len("".join(part.split()))
+            while remaining:
+                remaining -= not text[position].isspace()
+                position += 1
+            if any(left < position <= right for left, right in protected):
+                raise ValueError("语义断句切入了括号、引用或行内代码。")
+            while position < len(text) and text[position].isspace():
+                position += 1
+            segments.append(text[start:position])
+            start = position
+        segments.append(text[start:])
+        return self.limit_segments(segments, cfg)
+
+    def limit_segments(self, segments: list[str], cfg: dict) -> list[str]:
+        maximum = self._int(cfg, "max_messages", 0)
+        if maximum > 0 and len(segments) > maximum:
+            return [*segments[: maximum - 1], "".join(segments[maximum - 1 :])]
         return segments
 
     def should_skip(self, text: str, cfg: dict) -> bool:
         """Default menu labels need menu structure; custom exclusions stay literal."""
+        if re.search(r"```|~~~|\$\$|^[ \t]*(?:[-*+]|\d+[.)、])[ \t]+", text, re.MULTILINE):
+            return True
         skip_longer = self._int(cfg, "skip_longer_than", 0)
         if skip_longer > 0 and len(text) > skip_longer:
             return True
@@ -157,21 +205,21 @@ class SegmentReply:
             cfg.get("force_split_symbols"), DEFAULT_FORCE_SPLIT_SYMBOLS
         )
         keep_symbol = self._bool(cfg, "keep_symbol", True)
-        pieces = [text]
-        # 长符号优先，保证 "\n\n" 不被 "\n" 抢先切碎
-        for symbol in sorted(set(symbols), key=len, reverse=True):
-            pattern = re.compile(f"({re.escape(symbol)}+)")
-            new_pieces: list[str] = []
-            for piece in pieces:
-                parts = pattern.split(piece)
-                for i in range(0, len(parts) - 1, 2):
-                    head = parts[i].strip()
-                    if head:
-                        new_pieces.append(head + parts[i + 1] if keep_symbol else head)
-                tail = parts[-1].strip()
-                if tail:
-                    new_pieces.append(tail)
-            pieces = new_pieces
+        protected = self._build_protected_ranges(text) if cfg.get("protect_paired_symbols") else []
+        pattern = re.compile(
+            "(?:" + "|".join(map(re.escape, sorted(set(symbols), key=len, reverse=True))) + ")+"
+        )
+        pieces, start = [], 0
+        for match in pattern.finditer(text):
+            if self._in_protected_range(match.start(), protected):
+                continue
+            head = text[start:match.start()].strip()
+            if head:
+                pieces.append(head + match.group() if keep_symbol else head)
+            start = match.end()
+        tail = text[start:].strip()
+        if tail:
+            pieces.append(tail)
         return pieces
 
     # ── 字数规则分段 ─────────────────────────────────────────────────────
@@ -222,13 +270,20 @@ class SegmentReply:
             found = self._find_symbol_forward(text, max_length, search_end, protected, cfg)
             if found:
                 return found
-            return search_end, 0
+            return self._unprotected_cut(search_end, protected), 0
 
         # 3) 不允许超出时，在 [0, min_length) 内反向找
         found = self._rfind_symbol(text, 0, min_length, protected, cfg)
         if found:
             return found
-        return max_length, 0
+        return self._unprotected_cut(max_length, protected), 0
+
+    @staticmethod
+    def _unprotected_cut(cut: int, protected: list[tuple]) -> int:
+        for start, end in protected:
+            if start < cut <= end:
+                cut = end + 1
+        return cut
 
     def _split_symbols(self, cfg: dict) -> list[str]:
         return self._symbol_list(cfg.get("split_symbols"), DEFAULT_SPLIT_SYMBOLS)
@@ -292,7 +347,7 @@ class SegmentReply:
         if any(ch.isspace() for ch in symbol):
             return total
         while idx + total < len(text) and self._is_symbol_char(text[idx + total]):
-            if text[idx + total] in self.PAIR_SYMBOLS:
+            if text[idx + total] in self.PAIR_SYMBOLS or text[idx + total] in {'"', "`"}:
                 break  # 开括号属于下一句（如「！（/抱着终端）」）
             total += 1
         return total
@@ -301,12 +356,18 @@ class SegmentReply:
     def _build_protected_ranges(cls, text: str) -> list[tuple]:
         """成对符号的保护区间（开→闭之间不分段）。"""
         ranges, stack = [], []
+        pairs = cls.PAIR_SYMBOLS | {'"': '"', "`": "`"}
+        quotes = {'"', "`", "“", "‘", "「", "『"}
         for idx, ch in enumerate(text):
-            if ch in cls.PAIR_SYMBOLS:
-                stack.append((idx, cls.PAIR_SYMBOLS[ch]))
-            elif stack and ch == stack[-1][1]:
+            if stack and ch == stack[-1][1]:
                 open_idx, _ = stack.pop()
                 ranges.append((open_idx, idx))
+            elif stack and text[stack[-1][0]] in quotes:
+                continue
+            elif ch in pairs:
+                stack.append((idx, pairs[ch]))
+        if stack:
+            ranges.append((stack[0][0], len(text) - 1))
         return ranges
 
     @staticmethod
@@ -326,11 +387,14 @@ class SegmentReply:
 
     def delay(self, prev_seg: str, curr_seg: str, cfg: dict) -> float:
         """当前分段发送前的等待秒数。"""
+        speed = max(0.0, self._float(cfg, "typing_speed", 1.0))
+        if speed == 0:
+            return 0.0
         mode = str(cfg.get("delay_type", "random") or "random").strip().lower()
         if mode == "fixed":
-            return max(0.0, self._float(cfg, "fixed_delay_seconds", 1.0))
+            return max(0.0, self._float(cfg, "fixed_delay_seconds", 1.0)) * speed
         if mode == "smart":
-            return self._smart_delay(prev_seg, curr_seg)
+            return self._smart_delay(prev_seg, curr_seg) * speed
 
         range_ = cfg.get("random_delay_range")
         range_ = range_ if isinstance(range_, list) and len(range_) >= 2 else [1, 3]
@@ -338,7 +402,7 @@ class SegmentReply:
         max_v = self._safe_float(range_[1], 3.0)
         if min_v > max_v:
             min_v, max_v = max_v, min_v
-        return self._gauss_clamped(min_v, max_v)
+        return self._gauss_clamped(min_v, max_v) * speed
 
     @staticmethod
     def _safe_float(value, default: float) -> float:
