@@ -22,7 +22,7 @@
 #   - astrbot_plugin_remove_blank_lines (MIT) by Codex — remove blank lines from LLM output
 #   - astrbot_plugin_custome_segment_reply (MIT) by LinJohn8 — segment reply engine
 #   - astrbot_plugin_file_reader_pro (MIT) by zz6zz666 — file reading, RAG indexing
-#     (original license: see core/features/file_reader/LICENSE)
+#     (original license: see core/file_reader/LICENSE)
 # Date: 2026-06-23
 
 import asyncio
@@ -42,6 +42,13 @@ from astrbot.api.star import Context, Star, StarTools, register
 from astrbot.api.web import request
 from astrbot.core.message.message_event_result import ResultContentType
 
+from .core.balance_checker import BalanceChecker
+from .core.bili_auto import BiliAutoTakeover
+from .core.bili_dashboard import BiliDashboard
+from .core.bili_proxy import BiliProxyManager
+from .core.bili_requests import BiliRequestBridge
+from .core.bili_wire import BiliWireManager
+from .core.bracket_matcher import BracketMatcher
 from .core.constants import (
     FEATURE_BILI,
     FEATURE_BRACKET,
@@ -57,24 +64,17 @@ from .core.constants import (
     PLUGIN_NAME,
     PLUGIN_VERSION,
 )
-from .core.features.balance_checker import BalanceChecker
-from .core.features.bili_auto import BiliAutoTakeover
-from .core.features.bili_dashboard import BiliDashboard
-from .core.features.bili_proxy import BiliProxyManager
-from .core.features.bili_requests import BiliRequestBridge
-from .core.features.bili_wire import BiliWireManager
-from .core.features.bracket_matcher import BracketMatcher
-from .core.features.douyin_live import DouyinLiveMonitor
-from .core.features.file_reader import FileParseError, FileReaderManager
-from .core.features.jev_active import JevActive
-from .core.features.jev_scenes import JevScenes
-from .core.features.mention_parser import ActiveSpeakersTracker, transform_mention_in_chain
-from .core.features.mention_preserve import restore_bot_mention, should_backfill_native
-from .core.features.ovenheart_link import OvenHeartLink
-from .core.features.panel_settings import PanelSettingsManager, StaleSettingsError
-from .core.features.repeater import Repeater
-from .core.features.segment_reply import SegmentReply
-from .core.features.thinking_manager import ThinkingManager
+from .core.douyin_live import DouyinLiveMonitor
+from .core.file_reader import FileParseError, FileReaderManager
+from .core.jev_active import JevActive
+from .core.jev_scenes import JevScenes
+from .core.mention_parser import ActiveSpeakersTracker, transform_mention_in_chain
+from .core.mention_preserve import restore_bot_mention, should_backfill_native
+from .core.ovenheart_link import OvenHeartLink
+from .core.panel_settings import PanelSettingsManager, StaleSettingsError
+from .core.repeater import Repeater
+from .core.segment_reply import SegmentReply
+from .core.thinking_manager import ThinkingManager
 
 # ── 配置访问辅助 ─────────────────────────────────────────────────────────
 

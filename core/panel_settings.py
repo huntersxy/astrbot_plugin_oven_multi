@@ -235,7 +235,7 @@ class StaleSettingsError(ValueError):
 
 def _load_schema() -> dict:
     """读取插件配置 schema；缺失或损坏时返回空表（面板退化为不可编辑）。"""
-    path = Path(__file__).resolve().parents[2] / "_conf_schema.json"
+    path = Path(__file__).resolve().parents[1] / "_conf_schema.json"
     try:
         with open(path, encoding="utf-8-sig") as f:
             data = json.load(f)

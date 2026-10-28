@@ -220,7 +220,7 @@
 
 ### Credits
 
-- 文件读取核心实现改写自 [astrbot_plugin_file_reader_pro](https://github.com/zz6zz666/astrbot_plugin_file_reader_pro)（MIT License，Copyright (c) 2025 xiewoc），许可证文本随模块保存于 `core/features/file_reader/LICENSE`
+- 文件读取核心实现改写自 [astrbot_plugin_file_reader_pro](https://github.com/zz6zz666/astrbot_plugin_file_reader_pro)（MIT License，Copyright (c) 2025 xiewoc），许可证文本随模块保存于 `core/file_reader/LICENSE`
 
 ## v1.45.0 (2026-08-29)
 
