@@ -187,6 +187,10 @@ td { padding: 14px 16px; text-align: right; border-top: 1px solid var(--line); w
 th:first-child, td:first-child { text-align: left; }
 tbody tr:hover { background: var(--surface-2); }
 .session-name { min-width: 240px; max-width: 300px; white-space: normal; }
+.session-group td { background: var(--surface-2); }
+.session-group-toggle { border: 0; padding: 0; background: transparent; color: var(--ink); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.session-group-toggle::before { content: "▾"; display: inline-block; margin-right: 8px; }
+.session-group-toggle[aria-expanded="false"]::before { content: "▸"; }
 .session-link { color: var(--ink); display: block; background: transparent; border: 0; padding: 0; text-align: left; font-weight: 550; font-size: 13px; overflow-wrap: anywhere; }
 .session-link:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 .session-id { display: block; color: var(--muted); font-size: 12px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; }

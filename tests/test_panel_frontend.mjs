@@ -67,7 +67,7 @@ const bridge = sandbox.window.AstrBotPluginPage;
 delete sandbox.window.AstrBotPluginPage;
 let resolveReady;
 bridge.ready = () => new Promise(resolve => { resolveReady = resolve; });
-const source = fs.readFileSync('views/status/app.js','utf8')+'\nthis.api={state,loadStatus,loadBalances,selectTab,loadSettings,saveSettings,loadCompression,loadCompressionDetail,quantity,renderBiliCard};';
+const source = fs.readFileSync('views/status/app.js','utf8')+'\nthis.api={state,loadStatus,loadBalances,selectTab,loadSettings,saveSettings,loadCompression,loadCompressionDetail,renderCompression,quantity,renderBiliCard};';
 const html = fs.readFileSync('views/status/index.html','utf8');
 const scripts = [...html.matchAll(/<script\b([^>]*)>\s*<\/script>/g)];
 assert.equal(scripts.length, 1, 'Let the host inject exactly one bridge SDK');
@@ -200,8 +200,21 @@ assert.equal(get('compression-content').hidden,false);
 assert.equal(get('compression-metrics').children.length,8);
 assert.equal(get('compression-metrics').children[4].children[1].textContent,'0.0%');
 assert.equal(get('compression-metrics').children[7].children[1].textContent,'—');
-assert.equal(get('compression-sessions').children[0].children[0].children[0].textContent,'<img onerror=bad()>');
-assert.equal(get('compression-sessions').children[0].children[2].textContent,'333');
+assert.match(get('compression-sessions').children[0].children[0].children[0].textContent,/未匹配 AstrBot 会话/);
+assert.equal(get('compression-sessions').children[1].children[0].children[0].textContent,'<img onerror=bad()>');
+assert.equal(get('compression-sessions').children[1].children[2].textContent,'333');
+get('compression-sessions').children[0].children[0].children[0].click();
+assert.equal(get('compression-sessions').children.length,1);
+get('compression-sessions').children[0].children[0].children[0].click();
+assert.equal(get('compression-sessions').children.length,2);
+sandbox.api.renderCompression({...compressionData,sessions:[
+  {...compressionData.sessions[0],astrbot_session:'qq:GroupMessage:123',astrbot_title:'群内对话'},
+  {id:'second',title:'另一条',astrbot_session:'qq:GroupMessage:123'},
+  {id:'third',title:'私聊',astrbot_session:'qq:FriendMessage:456'},
+]});
+assert.match(get('compression-sessions').children[0].children[0].children[0].textContent,/群聊 123 · qq（本页 2 个对话）/);
+assert.equal(get('compression-sessions').children[1].children[0].children[0].textContent,'群内对话');
+assert.match(get('compression-sessions').children[3].children[0].children[0].textContent,/私聊 456/);
 assert.equal(get('compression-next').disabled,true);
 assert.equal(sandbox.api.quantity(null),'—');
 assert.equal(sandbox.api.quantity(0),'0');

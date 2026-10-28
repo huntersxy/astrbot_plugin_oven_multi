@@ -744,6 +744,19 @@ class OvenMultiPlugin(Star):
             query=request.query.get("q", ""),
             session_id=request.query.get("session", ""),
         )
+        if data.get("available") and "sessions" in data:
+            data = data | {"sessions": [dict(row) for row in data["sessions"]]}
+            try:
+                for row in data["sessions"]:
+                    conversation = await self.context.conversation_manager.db.get_conversation_by_id(
+                        row["id"]
+                    )
+                    if conversation:
+                        row["astrbot_session"] = conversation.user_id
+                        row["astrbot_title"] = conversation.title or ""
+            except Exception as exc:
+                logger.warning(f"[烤箱-压缩] 无法读取 AstrBot 会话归属: {exc}")
+                data["session_lookup_failed"] = True
         return {"success": True, "data": data}
 
     async def _api_billion_status(self):

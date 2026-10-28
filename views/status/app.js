@@ -19,6 +19,7 @@ const state = {
   compressionPage: 1,
   compressionQuery: "",
   compressionDetail: 0,
+  collapsedCompressionGroups: new Set(),
 };
 const TAB_ORDER = ["overview", "compression", "balances", "settings"];
 
@@ -349,10 +350,40 @@ function renderCompression(data) {
   const protocolRows = (o.byProtocol || []).map(p => cells([p.protocol, quantity(p.sessions), quantity(p.requests), quantity(p.inputTokens), quantity(p.cachedTokens), percentage(p.hitPct), quantity(p.savedNet), quantity(p.folds)]));
   if (!protocolRows.length) protocolRows.push(cells(["暂无协议记录"]));
   $("compression-protocols").replaceChildren(...protocolRows);
-  const rows = (data.sessions || []).map(s => {
+  const groups = new Map();
+  for (const session of data.sessions || []) {
+    const key = session.astrbot_session || "";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(session);
+  }
+  $("compression-session-warning").hidden = !data.session_lookup_failed;
+  $("compression-session-warning").textContent = data.session_lookup_failed ? "读取 AstrBot 会话归属失败，部分对话暂列为未匹配；请刷新重试。" : "";
+  const rows = [];
+  for (const [key, sessions] of groups) {
+    const parts = key.split(":");
+    const type = ["GroupMessage", "group"].includes(parts[1]) ? "群聊" : ["FriendMessage", "friend", "private"].includes(parts[1]) ? "私聊" : "会话";
+    const label = key ? `${type} ${parts.slice(2).join(":") || key} · ${parts[0]}` : "未匹配 AstrBot 会话";
+    const header = node("tr", "session-group");
+    const cell = node("td");
+    cell.colSpan = 10;
+    const toggle = node("button", "session-group-toggle", `${label}（本页 ${sessions.length} 个对话）`);
+    const position = rows.length;
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", String(!state.collapsedCompressionGroups.has(key)));
+    toggle.addEventListener("click", () => {
+      if (state.collapsedCompressionGroups.has(key)) state.collapsedCompressionGroups.delete(key);
+      else state.collapsedCompressionGroups.add(key);
+      renderCompression(data);
+      $("compression-sessions").children[position]?.children[0]?.children[0]?.focus();
+    });
+    cell.append(toggle);
+    header.append(cell);
+    rows.push(header);
+    if (state.collapsedCompressionGroups.has(key)) continue;
+    rows.push(...sessions.map(s => {
     const row = node("tr");
     const first = node("td", "session-name");
-    const button = node("button", "session-link", s.title || "未命名会话");
+    const button = node("button", "session-link", s.astrbot_title || s.title || "未命名对话");
     button.type = "button";
     button.addEventListener("click", () => loadCompressionDetail(s.id));
     first.append(button, node("span", "session-id", s.id), node("span", "setting-hint", `${s.live && !s.restored ? "运行中" : "历史"}　${s.protocol || "未知协议"}　${s.clientHint || ""}　${s.upstream || ""}`));
@@ -364,7 +395,8 @@ function renderCompression(data) {
     row.children[5].title = s.netSaved == null ? "历史本地估算；暂无净节省账本" : "已扣除回填与摘要成本";
     row.children[7].title = `模型变更相关未命中 ${quantity(s.switchMissedTokens)}；密钥变更 ${quantity(s.keySwitchMissedTokens)}；提示词变更 ${quantity(s.promptSwitches)} 次`;
     return row;
-  });
+    }));
+  }
   if (!rows.length) rows.push(cells([state.compressionQuery ? "没有匹配的会话，请更换关键词。" : "暂无会话记录，真实请求经过代理后会显示在这里。"]));
   $("compression-sessions").replaceChildren(...rows);
   const pages = Math.max(1, Math.ceil((data.total || 0) / (data.page_size || 30)));
