@@ -17,6 +17,7 @@
 *.zip binary
 *.db binary
 *.otf binary
+assets/fonts/LICENSE-NotoSansCJK.txt -text
 
 # Exclude from release zip (git archive)
 .trae/ export-ignore
