@@ -15,6 +15,8 @@
 *.gif binary
 *.ico binary
 *.zip binary
+*.db binary
+*.otf binary
 
 # Exclude from release zip (git archive)
 .trae/ export-ignore

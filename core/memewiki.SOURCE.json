@@ -1,0 +1,28 @@
+{
+  "project": "astrbot_plugin_memewiki",
+  "version": "1.7.0",
+  "author": "in1t1a1",
+  "license": "MIT",
+  "archive_sha256": "0c1a0ee27fd3fc2aaec18effcb4f62936213f260a5cd5f6bb3a79443d24a59ab",
+  "sources": {
+    "main.py": "441f9a6f2bb2215baf6fee3d838713452b530333d1c0952fc68a18cff4f08bb6",
+    "scripts/sync_memes.py": "5ef09db9700da1ede291e406af895095e44760d91da1189a9c3e44dc80ebdd7c",
+    "scripts/pack_data.py": "824ebe60e33803bc626d1b947e9014a80dc4cc95b808bdb883ded3879e5de019"
+  },
+  "assets": {
+    "assets/memewiki/memes.db": "05d902ff642dbb894fe2fa61b7623ca9c094cc2e6d26d2f818986296cdacdef3",
+    "assets/fonts/NotoSansSC-Regular.otf": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9",
+    "assets/fonts/LICENSE-NotoSansCJK.txt": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
+  },
+  "adaptations": [
+    "Integrated as an Oven Multi service with existing configuration, lifecycle, blacklist and native Panel APIs.",
+    "Namespaced the model tool, coordinated OvenHeart target selection, and bounded automatic prefetch with cancellation cleanup.",
+    "Preserved standalone data by copying missing files and taking SQLite backups; pause integrated handlers while standalone is active.",
+    "Closed archive SQLite connections and invalidated command-deletion caches; retained bundled database, font and licenses."
+  ],
+  "ported_sources_sha256_lf": {
+    "core/memewiki.py": "9d291319994ba7f9f183bd5efd3dc68050c9efa69d3f94fa64d426bda67bc311",
+    "core/memewiki_sync.py": "e79d27978d0a5e31b69cb19a370d3390924c71a224fd6694f162daf635137c60",
+    "core/memewiki_pack.py": "22519a391cfd217c262ec6007ba3bd1b3b0e1c29ddea38958fbfdb96d5e69427"
+  }
+}

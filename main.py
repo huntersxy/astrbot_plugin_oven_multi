@@ -29,6 +29,7 @@ import asyncio
 import contextlib
 import json
 import re
+from copy import copy
 from pathlib import Path
 from sys import maxsize
 from traceback import extract_tb
@@ -54,6 +55,7 @@ from .core.constants import (
     FEATURE_BRACKET,
     FEATURE_FILE_READER,
     FEATURE_JEV,
+    FEATURE_MEMEWIKI,
     FEATURE_MENTION_PARSER,
     FEATURE_REMOVE_BLANK,
     FEATURE_REPETITION,
@@ -68,6 +70,7 @@ from .core.douyin_live import DouyinLiveMonitor
 from .core.file_reader import FileParseError, FileReaderManager
 from .core.jev_active import JevActive
 from .core.jev_scenes import JevScenes
+from .core.memewiki import MemeWiki
 from .core.mention_parser import ActiveSpeakersTracker, transform_mention_in_chain
 from .core.mention_preserve import restore_bot_mention, should_backfill_native
 from .core.ovenheart_link import OvenHeartLink
@@ -147,6 +150,7 @@ class OvenMultiPlugin(Star):
         # 面板快捷设置（revision 防陈旧 + 校验写回）
         self.panel_settings = PanelSettingsManager()
         self.douyin = DouyinLiveMonitor(self)
+        self.memewiki = MemeWiki(self)
 
         # 上下文压缩（billion-context 代理）：懒人获取链 + 接管/恢复
         self.bili_proxy = BiliProxyManager(
@@ -191,6 +195,24 @@ class OvenMultiPlugin(Star):
 
         # Register only native Panel APIs.
         for route, handler, method, description in (
+            (
+                f"/{PLUGIN_NAME}/memewiki/terms",
+                self.memewiki._api_terms_list,
+                "GET",
+                "Oven Multi slang entries",
+            ),
+            (
+                f"/{PLUGIN_NAME}/memewiki/terms/save",
+                self.memewiki._api_terms_save,
+                "POST",
+                "Oven Multi save slang",
+            ),
+            (
+                f"/{PLUGIN_NAME}/memewiki/terms/delete",
+                self.memewiki._api_terms_delete,
+                "POST",
+                "Oven Multi delete slang",
+            ),
             (
                 f"/{PLUGIN_NAME}/billion/dashboard",
                 self._api_billion_dashboard,
@@ -273,10 +295,75 @@ class OvenMultiPlugin(Star):
         async for result in self.douyin.dispatch("cmd_login_status", event):
             yield result
 
+    @filter.command("梗")
+    async def meme_lookup(self, event: AstrMessageEvent):
+        if not self._blocked(event):
+            async for result in self.memewiki.dispatch("meme_cmd", event):
+                yield result
+
+    @filter.command("黑话")
+    async def meme_slang(self, event: AstrMessageEvent):
+        if not self._blocked(event):
+            async for result in self.memewiki.dispatch("slang_cmd", event):
+                yield result
+
+    @filter.command("梗档案")
+    async def meme_archive(self, event: AstrMessageEvent):
+        if not self._blocked(event):
+            async for result in self.memewiki.dispatch("archive_cmd", event):
+                yield result
+
+    @filter.command("网搜")
+    async def meme_search_mode(self, event: AstrMessageEvent):
+        if not self._blocked(event):
+            async for result in self.memewiki.dispatch("cmd_web_search", event):
+                yield result
+
+    @filter.llm_tool("oven_meme_search")
+    async def oven_meme_search(self, event: AstrMessageEvent, query: str) -> str:
+        """查询网络梗、缩写、流行语和自定义黑话的含义、用法与出处；不确定时先查再回答。
+
+        Args:
+            query(string): 要查询的词或短语，不要传整段对话。
+        """
+        if self._blocked(event) or not self.memewiki.enabled():
+            return "梗百科当前未启用或本会话禁止使用，请依据已有资料回答，不编造释义。"
+        return await self.memewiki.oven_meme_search(event, query)
+
+    @filter.on_llm_request(priority=100000)
+    async def prepare_meme_tool(self, event: AstrMessageEvent, req):
+        if req.func_tool is None:
+            return
+        tool = req.func_tool.get_tool("oven_meme_search")
+        if tool is None:
+            return
+        enabled = self.memewiki.enabled() and not self._blocked(event)
+        tools = copy(req.func_tool)
+        tools.tools = [item for item in tools.tools if item is not tool]
+        if enabled:
+            local = copy(tool)
+            local.oven_multi_context_tool = True
+            tools.tools.append(local)
+        req.func_tool = tools
+
+    @filter.on_llm_request(priority=-100001)
+    async def prefetch_meme(self, event: AstrMessageEvent, req):
+        if event.is_stopped() or self._blocked(event) or not self.memewiki.enabled():
+            return
+        timeout = self.memewiki._inject_deadline()
+        try:
+            if timeout:
+                await asyncio.wait_for(self.memewiki.prefetch_meme(event, req), timeout)
+            else:
+                await self.memewiki.prefetch_meme(event, req)
+        except asyncio.TimeoutError:
+            logger.info("[烤箱-梗百科] 预查预算已用完，继续正常回复")
+
     # ── 生命周期 ─────────────────────────────────────────────────────────
 
     async def initialize(self):
         await self.douyin.configure()
+        await self.memewiki.configure()
         self.bili_requests.install()
         if self.file_reader:
             await self.file_reader.start()
@@ -291,6 +378,7 @@ class OvenMultiPlugin(Star):
     async def terminate(self):
         self.closing = True
         await self.douyin.stop()
+        await self.memewiki.terminate()
         self.bili_requests.disconnect()
         if self._bili_task is not None:
             self._bili_task.cancel()
@@ -317,7 +405,9 @@ class OvenMultiPlugin(Star):
         await self.balance_checker.terminate()
         registrations = getattr(self.context, "registered_web_apis", [])
         registrations[:] = [
-            item for item in registrations if getattr(item[1], "__self__", None) is not self
+            item
+            for item in registrations
+            if getattr(item[1], "__self__", None) not in (self, self.memewiki)
         ]
 
     # ── Web API ──────────────────────────────────────────────────────────
@@ -339,6 +429,14 @@ class OvenMultiPlugin(Star):
             delay_mode = seg.get("delay_type", "random")
             seg_detail = f"单段 {min_length}-{max_length} 字，间隔「{delay_mode}」"
         rows = [
+            (
+                FEATURE_MEMEWIKI,
+                "梗百科",
+                self.memewiki.enabled(),
+                "独立梗百科仍启用，内置功能暂停，避免重复查梗"
+                if self.memewiki.legacy_active()
+                else "内置离线词库、查梗卡片与自定义黑话；在「梗百科」页管理词条",
+            ),
             (
                 FEATURE_BRACKET,
                 "括号匹配",
@@ -530,12 +628,15 @@ class OvenMultiPlugin(Star):
                         )
             previous_bili = dict(feature_cfg(self.config, FEATURE_BILI))
             previous_douyin = dict(feature_cfg(self.config, "douyin"))
+            previous_memewiki = dict(feature_cfg(self.config, FEATURE_MEMEWIKI))
             revision = await self.panel_settings.save(
                 self.config, body["values"], body.get("revision")
             )
             logger.info(f"[烤箱-面板] 已保存 {len(body['values'])} 项设置")
             if previous_douyin != feature_cfg(self.config, "douyin"):
                 await self.douyin.configure()
+            if previous_memewiki != feature_cfg(self.config, FEATURE_MEMEWIKI):
+                await self.memewiki.configure()
             if previous_bili != feature_cfg(self.config, FEATURE_BILI):
                 if self._bili_task is not None:
                     self._bili_task.cancel()

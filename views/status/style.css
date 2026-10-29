@@ -271,3 +271,23 @@ tbody tr:hover { background: var(--surface-2); }
   .migration > div { flex-basis: calc(100% - 40px); }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+.meme-note { margin: 0 26px 22px; color: var(--muted); font-size: 13px; }
+.meme-workspace { display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); gap: 30px; padding: 0 26px 28px; }
+.meme-editor fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
+.meme-editor h3, .meme-library h3 { margin: 0 0 18px; font-size: 15px; }
+.meme-editor label { display: flex; align-items: baseline; justify-content: space-between; margin: 15px 0 7px; font-size: 13px; font-weight: 550; }
+.meme-editor label span { color: var(--muted); font-size: 12px; font-weight: 400; }
+.meme-editor input, .meme-editor textarea, .meme-search { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 7px; padding: 9px 11px; color: var(--ink); background: var(--surface); font: inherit; font-size: 14px; }
+.meme-editor textarea { resize: vertical; min-height: 132px; }
+.meme-help { color: var(--muted); font-size: 12px; line-height: 1.7; margin: 8px 0 0; }
+.meme-actions { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 20px; }
+.meme-list-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.meme-list-heading button, .meme-row-actions button { border: 0; background: transparent; padding: 5px 0; }
+.meme-search { margin-bottom: 10px; }
+.meme-term { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 17px 0; border-bottom: 1px solid var(--line); }
+.meme-term:last-child { border-bottom: 0; }
+.meme-term-content { min-width: 0; overflow-wrap: anywhere; }
+.meme-term h4 { margin: 0 0 5px; font-size: 14px; font-weight: 600; }
+.meme-definition { margin: 0; white-space: pre-wrap; line-height: 1.7; font-size: 13px; }
+.meme-row-actions { display: flex; flex-shrink: 0; gap: 12px; font-size: 12px; }
+@media (max-width: 720px) { .meme-workspace { grid-template-columns: minmax(0, 1fr); gap: 32px; padding: 0 18px 22px; } .meme-note { margin-inline: 18px; } .meme-editor textarea { min-height: 110px; } }

@@ -37,11 +37,38 @@ from pathlib import Path
 # 面板管理的配置路径（按展示分组）。配置路径支持任意层级（如 file_reader.rag.*）。
 GROUP_PATHS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
+        "梗百科",
+        (
+            "memewiki.enabled",
+            "memewiki.reply_mode",
+            "memewiki.auto_sync_enable",
+            "memewiki.auto_sync_hour",
+            "memewiki.sync_detail_limit",
+            "memewiki.inject_guidance",
+            "memewiki.guidance_text",
+            "memewiki.search_mode",
+            "memewiki.search_max_chars",
+            "memewiki.gate_mode",
+            "memewiki.gate_timeout",
+            "memewiki.gate_cache_ttl",
+            "memewiki.search_timeout",
+            "memewiki.archive_enable",
+            "memewiki.archive_ttl_days",
+            "memewiki.archive_miss_ttl_days",
+            "memewiki.inject_deadline",
+        ),
+    ),
+    (
         "抖音通知",
         (
-            "douyin.enabled", "douyin.check_interval", "douyin.request_timeout",
-            "douyin.notify_on_live", "douyin.notify_on_offline", "douyin.notify_with_cover",
-            "douyin.max_rooms_per_session", "douyin.admin_only",
+            "douyin.enabled",
+            "douyin.check_interval",
+            "douyin.request_timeout",
+            "douyin.notify_on_live",
+            "douyin.notify_on_offline",
+            "douyin.notify_with_cover",
+            "douyin.max_rooms_per_session",
+            "douyin.admin_only",
         ),
     ),
     (
@@ -162,6 +189,7 @@ GROUP_PATHS: tuple[tuple[str, tuple[str, ...]], ...] = (
 NATIVE_ONLY_PATHS: frozenset[str] = frozenset(
     {
         "jev.api_key",
+        "memewiki.gate_provider_id",
         "jev.base_url",
         "jev.model",
         "balance.config_content",
@@ -174,6 +202,10 @@ NATIVE_ONLY_PATHS: frozenset[str] = frozenset(
 
 # 分组顶部的一行指引（指向留在插件配置页的字段）。
 GROUP_NOTES: dict[str, str] = {
+    "梗百科": (
+        "自定义词条在「梗百科」页编辑。模型闸门的 Provider 在原生插件配置页选择；"
+        "默认关闭总开关和自动同步。"
+    ),
     "分段回复": (
         "默认保留本地字数规则；模型语义断句的 Provider 在原生插件配置页选择。"
         "最大段数为 0 时不限制，打字倍率为 0 时无段间等待。"
@@ -197,6 +229,7 @@ GROUP_NOTES: dict[str, str] = {
 
 # 覆盖元数据：schema 未表达或需要面板特殊化的字段（渲染类型与边界）。
 FIELD_OVERRIDES: dict[str, dict] = {
+    "memewiki.guidance_text": {"max_chars": 4000, "allow_empty": True},
     "segment_reply.random_delay_range": {
         "render": "pair",
         "min": 0,
@@ -314,8 +347,14 @@ def _describe_field(path: str) -> dict:
             field[bound] = slider[bound]
     if options:
         field["options"] = list(options)
+        if meta.get("labels"):
+            field["labels"] = list(meta["labels"])
     if render == "string":
         field["max_chars"] = override.get("max_chars", _STRING_MAX_CHARS)
+        if meta.get("type") == "text":
+            field["multiline"] = True
+        if override.get("allow_empty"):
+            field["allow_empty"] = True
     if render == "list":
         field["item_type"] = override.get("item_type", "str")
     return field
@@ -470,7 +509,7 @@ def validate_patch(values: dict) -> dict:
                 _reject(path, "必须是列表。")
             value = _clean_list_items(path, value, field)
         else:  # string
-            if not isinstance(value, str) or not value.strip():
+            if not isinstance(value, str) or (not value.strip() and not field.get("allow_empty")):
                 _reject(path, "不能为空。")
             elif len(value) > field.get("max_chars", _STRING_MAX_CHARS):
                 _reject(path, f"长度不能超过 {field.get('max_chars', _STRING_MAX_CHARS)} 字。")

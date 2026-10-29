@@ -21,6 +21,7 @@
       <div class="tabs" role="tablist" aria-label="总览页面">
         <button id="tab-overview" type="button" role="tab" aria-selected="true" aria-controls="panel-overview" data-tab="overview">运行概览</button>
         <button id="tab-compression" type="button" role="tab" aria-selected="false" aria-controls="panel-compression" tabindex="-1" data-tab="compression">上下文压缩</button>
+        <button id="tab-memewiki" type="button" role="tab" aria-selected="false" aria-controls="panel-memewiki" tabindex="-1" data-tab="memewiki">梗百科</button>
         <button id="tab-balances" type="button" role="tab" aria-selected="false" aria-controls="panel-balances" tabindex="-1" data-tab="balances">服务余额</button>
         <button id="tab-settings" type="button" role="tab" aria-selected="false" aria-controls="panel-settings" tabindex="-1" data-tab="settings">设置</button>
       </div>
@@ -37,6 +38,30 @@
       <div id="feature-groups" class="feature-groups"></div>
       <p id="feature-empty" class="empty" hidden>暂时没有功能状态。请确认插件已启用，再点击「刷新状态」。</p>
       <footer class="sheet-footer"><span id="status-time">尚未更新</span><span>常用开关可在「设置」页直接调整。</span></footer>
+    </section>
+
+    <section class="sheet" id="panel-memewiki" role="tabpanel" aria-labelledby="tab-memewiki" hidden>
+      <div class="sheet-heading"><div><h2>梗百科</h2><p>离线查梗，手动记下群里的新说法。聊天中也可使用 /梗、/黑话 和 /梗档案。</p></div><button id="meme-settings" class="button secondary" type="button">功能设置</button></div>
+      <p id="meme-library-state" class="meme-note" role="status">正在读取词库状态…</p>
+      <div id="meme-error" class="message error" role="alert" hidden></div>
+      <div class="meme-workspace">
+        <form id="meme-form" class="meme-editor">
+          <h3 id="meme-editor-title">添加黑话</h3>
+          <fieldset id="meme-fields">
+            <label for="meme-name">名称 <span>2–16 字</span></label><input id="meme-name" name="name" minlength="2" maxlength="16" required autocomplete="off">
+            <label for="meme-meaning">含义 <span>最多 300 字</span></label><textarea id="meme-meaning" name="meaning" maxlength="300" rows="6" required></textarea>
+            <p class="meme-help">自定义词条优先于内置词库，保存后即可用于查梗。</p>
+            <div class="meme-actions"><button id="meme-save" class="button primary" type="submit">保存词条</button><button id="meme-reset" class="button secondary" type="button">清空表单</button></div>
+          </fieldset>
+          <p id="meme-save-state" class="meme-help" role="status"></p>
+        </form>
+        <section class="meme-library" aria-labelledby="meme-list-title">
+          <div class="meme-list-heading"><h3 id="meme-list-title">自定义黑话 <span id="meme-count" class="summary"></span></h3><button id="meme-refresh" class="text-link" type="button">刷新</button></div>
+          <label for="meme-search" class="sr-only">搜索自定义黑话的名称或含义</label><input id="meme-search" class="meme-search" type="search" placeholder="搜索名称或含义" autocomplete="off">
+          <div id="meme-list" class="meme-list" aria-live="polite"></div>
+          <p id="meme-empty" class="empty" hidden>还没有自定义黑话。左侧添加一条，或在聊天中使用 /黑话 名称 含义。</p>
+        </section>
+      </div>
     </section>
 
     <section class="sheet" id="panel-balances" role="tabpanel" aria-labelledby="tab-balances" hidden>

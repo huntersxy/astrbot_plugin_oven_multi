@@ -20,8 +20,12 @@ const state = {
   compressionQuery: "",
   compressionDetail: 0,
   collapsedCompressionGroups: new Set(),
+  memeLoaded: false,
+  memeBusy: false,
+  memeItems: [],
+  memeDirty: false,
 };
-const TAB_ORDER = ["overview", "compression", "balances", "settings"];
+const TAB_ORDER = ["overview", "compression", "memewiki", "balances", "settings"];
 
 function unwrap(payload) {
   if (payload?.success === false || payload?.status === "error") {
@@ -62,12 +66,13 @@ function selectTab(name, focus = false) {
   }
   if (name === "settings" && !state.settingsLoaded) loadSettings();
   if (name === "compression" && !state.compressionLoaded) loadCompression();
+  if (name === "memewiki" && !state.memeLoaded) loadMemeTerms();
 }
 
 function renderFeatures(features) {
   const groups = [
     { name: "消息与回复", ids: ["bracket_matching", "repetition", "remove_blank_lines", "iam_thinking", "mention_parser", "segment_reply"] },
-    { name: "判读、文件与通知", ids: ["jev", "file_reader", "douyin"] },
+    { name: "判读、文件与通知", ids: ["jev", "file_reader", "douyin", "memewiki"] },
   ];
   const container = $("feature-groups");
   container.replaceChildren();
@@ -98,6 +103,121 @@ function setError(id, message) {
   $(id).textContent = message || "";
   $(id).hidden = !message;
 }
+
+function clearMemeEditor() {
+  $("meme-form").reset();
+  state.memeDirty = false;
+  $("meme-editor-title").textContent = "添加黑话";
+}
+
+function renderMemeTerms() {
+  const query = $("meme-search").value.trim().toLocaleLowerCase();
+  const items = state.memeItems.filter(item => `${item.name}\n${item.meaning}`.toLocaleLowerCase().includes(query));
+  $("meme-list").replaceChildren();
+  $("meme-count").textContent = query ? `${items.length} / ${state.memeItems.length}` : `${items.length} 条`;
+  $("meme-empty").hidden = items.length > 0;
+  $("meme-empty").textContent = query ? "没有匹配的黑话，换个词试试。" : "还没有自定义黑话。添加一条，或在聊天中使用 /黑话 名称 含义。";
+  for (const item of items) {
+    const row = node("article", "meme-term");
+    const content = node("div", "meme-term-content");
+    content.append(node("h4", "", item.name), node("p", "meme-definition", item.meaning));
+    content.append(node("p", "meme-help", [item.author_name, item.ts].filter(Boolean).join(" · ")));
+    const actions = node("div", "meme-row-actions");
+    const edit = node("button", "text-link", "编辑");
+    edit.type = "button";
+    edit.setAttribute("aria-label", `编辑黑话 ${item.name}`);
+    edit.addEventListener("click", () => {
+      if (state.memeDirty && !window.confirm("放弃当前尚未保存的修改，编辑这条黑话？")) return;
+      $("meme-name").value = item.name;
+      $("meme-meaning").value = item.meaning;
+      state.memeDirty = false;
+      $("meme-editor-title").textContent = "编辑黑话";
+      $("meme-save-state").textContent = "修改名称会保存为新词条。";
+      $("meme-name").focus();
+    });
+    const remove = node("button", "text-link meme-remove", "删除");
+    remove.type = "button";
+    remove.setAttribute("aria-label", `删除黑话 ${item.name}`);
+    remove.addEventListener("click", () => deleteMemeTerm(item.name));
+    actions.append(edit, remove);
+    row.append(content, actions);
+    $("meme-list").append(row);
+  }
+}
+
+async function loadMemeTerms() {
+  if (state.memeBusy) return;
+  state.memeBusy = true;
+  $("meme-refresh").disabled = true;
+  $("panel-memewiki").setAttribute("aria-busy", "true");
+  setError("meme-error", "");
+  try {
+    const data = unwrap(await window.AstrBotPluginPage.apiGet("memewiki/terms"));
+    if (!Array.isArray(data?.items)) throw new Error("词条列表格式不正确，请刷新重试。");
+    state.memeItems = data.items;
+    state.memeLoaded = true;
+    $("meme-library-state").textContent = data.legacy_active
+      ? "独立梗百科仍启用，内置查梗暂停，避免重复处理。"
+      : `离线词库 ${data.entries} 条 · 梗百科 ${data.enabled ? "已开启" : "未开启，可在功能设置中启用"}`;
+    renderMemeTerms();
+    return true;
+  } catch (error) {
+    setError("meme-error", error.message || "读取词条失败，请点击刷新重试。");
+    return false;
+  } finally {
+    state.memeBusy = false;
+    $("meme-refresh").disabled = false;
+    $("panel-memewiki").setAttribute("aria-busy", "false");
+  }
+}
+
+async function saveMemeTerm(event) {
+  event.preventDefault();
+  if (state.memeBusy) return;
+  state.memeBusy = true;
+  $("meme-fields").disabled = true;
+  $("meme-list").inert = true;
+  $("meme-save").textContent = "正在保存…";
+  setError("meme-error", "");
+  try {
+    unwrap(await window.AstrBotPluginPage.apiPost("memewiki/terms/save", {name: $("meme-name").value.trim(), meaning: $("meme-meaning").value.trim()}));
+    clearMemeEditor();
+    $("meme-save-state").textContent = "词条已保存。";
+    state.memeBusy = false;
+    await loadMemeTerms();
+  } catch (error) {
+    setError("meme-error", error.message || "保存失败，修改已保留，请稍后重试。");
+  } finally {
+    state.memeBusy = false;
+    $("meme-fields").disabled = false;
+    $("meme-list").inert = false;
+    $("meme-save").textContent = "保存词条";
+  }
+}
+
+async function deleteMemeTerm(name) {
+  if (state.memeBusy || !window.confirm(`删除「${name}」这条自定义黑话？`)) return;
+  state.memeBusy = true;
+  $("meme-list").inert = true;
+  setError("meme-error", "");
+  try {
+    unwrap(await window.AstrBotPluginPage.apiPost("memewiki/terms/delete", {name}));
+    state.memeBusy = false;
+    await loadMemeTerms();
+  } catch (error) {
+    setError("meme-error", error.message || "删除失败，请稍后重试。");
+  } finally {
+    state.memeBusy = false;
+    $("meme-list").inert = false;
+  }
+}
+
+$("meme-form").addEventListener("submit", saveMemeTerm);
+$("meme-form").addEventListener("input", () => { state.memeDirty = true; $("meme-save-state").textContent = "有尚未保存的修改。"; });
+$("meme-reset").addEventListener("click", () => { if (!state.memeDirty || window.confirm("清空尚未保存的修改？")) { clearMemeEditor(); $("meme-save-state").textContent = ""; } });
+$("meme-search").addEventListener("input", renderMemeTerms);
+$("meme-refresh").addEventListener("click", loadMemeTerms);
+$("meme-settings").addEventListener("click", () => { state.settingsCategory = "梗百科"; selectTab("settings"); if (state.settingsLoaded) selectSettingsCategory("梗百科"); });
 
 async function loadStatus() {
   if (state.statusBusy) return;
@@ -488,8 +608,8 @@ function settingInput(field) {
   if (field.type === "enum") {
     const select = node("select");
     select.dataset.key = field.key;
-    for (const option of field.options || []) {
-      const item = node("option", "", option);
+    for (const [index, option] of (field.options || []).entries()) {
+      const item = node("option", "", field.labels?.[index] || option);
       item.value = option;
       if (option === field.value) item.selected = true;
       select.append(item);
@@ -520,6 +640,15 @@ function settingInput(field) {
     area.dataset.key = field.key;
     area.rows = 3;
     area.spellcheck = false;
+    return area;
+  }
+  if (field.multiline) {
+    const area = node("textarea");
+    area.value = field.value ?? "";
+    area.dataset.key = field.key;
+    area.dataset.valueType = "string";
+    area.maxLength = field.max_chars || 4000;
+    area.rows = 4;
     return area;
   }
   const input = node("input");
@@ -561,7 +690,7 @@ function settingRow(field) {
 const SETTINGS_SECTIONS = {
   bracket_matching: "括号补全", repetition: "复读与打断", remove_blank_lines: "空行整理",
   iam_thinking: "思考表情", mention_parser: "成员提及", segment_reply: "分段与节奏",
-  jev: "Jev 判读", file_reader: "文件与检索", bili: "压缩代理", blacklist: "使用范围", douyin: "抖音直播通知",
+  jev: "Jev 判读", file_reader: "文件与检索", bili: "压缩代理", blacklist: "使用范围", douyin: "抖音直播通知", memewiki: "梗百科",
 };
 const COMMON_SETTINGS = new Set([
   "repetition.repeat_threshold", "remove_blank_lines.max_consecutive_newlines",
@@ -570,6 +699,7 @@ const COMMON_SETTINGS = new Set([
   "jev.active_reply_enabled", "jev.inject_on_mention", "jev.active_reply_threshold", "jev.active_interval_sec", "bili.mode", "bili.auto_follow", "bili.provider_ids",
   "file_reader.preread.enabled", "file_reader.tool.enabled", "file_reader.rag.enabled",
   "douyin.check_interval", "douyin.notify_on_live", "douyin.notify_on_offline", "douyin.notify_with_cover",
+  "memewiki.reply_mode", "memewiki.search_mode", "memewiki.gate_mode", "memewiki.inject_guidance", "memewiki.auto_sync_enable",
 ]);
 
 function selectSettingsCategory(name, focus = false) {
@@ -641,7 +771,7 @@ function collectSettings() {
     else values[input.dataset.key] = input.value;
   }
   for (const area of container.querySelectorAll("textarea[data-key]")) {
-    values[area.dataset.key] = area.value
+    values[area.dataset.key] = area.dataset.valueType === "string" ? area.value : area.value
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line !== "");
@@ -702,7 +832,7 @@ $("bili-install").addEventListener("click", () => biliAction("install"));
 $("bili-restore").addEventListener("click", () => armBiliButton("restore"));
 $("save-settings").addEventListener("click", saveSettings);
 window.addEventListener("beforeunload", (event) => {
-  if (state.settingsDirty) event.preventDefault();
+  if (state.settingsDirty || state.memeDirty) event.preventDefault();
 });
 
 for (const button of document.querySelectorAll("[data-tab]")) {

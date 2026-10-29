@@ -865,5 +865,213 @@
         "default": false
       }
     }
+  },
+  "memewiki": {
+    "description": "梗百科",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用梗百科",
+        "type": "bool",
+        "default": false,
+        "hint": "集成梗百科 1.7.0：离线词库、自定义黑话、查梗卡片、可选联网与同步。独立梗百科仍启用时自动让路。",
+        "invisible": true
+      },
+      "reply_mode": {
+        "description": "/梗 指令的回复形式",
+        "type": "string",
+        "options": [
+          "image",
+          "text"
+        ],
+        "labels": [
+          "图片卡片（推荐）",
+          "纯文字"
+        ],
+        "hint": "图片卡片 = 渲染成一张带用法/出处的梗卡；纯文字 = 直接刷一段文字。默认图片卡片。",
+        "default": "image",
+        "invisible": true
+      },
+      "auto_sync_enable": {
+        "description": "每天自动同步词库",
+        "type": "bool",
+        "hint": "开启后在指定时刻增量同步词库；结果保存在 Oven Multi 数据目录的 memewiki/，同步在后台执行。时刻以运行环境时区为准。",
+        "default": false,
+        "invisible": true
+      },
+      "auto_sync_hour": {
+        "description": "同步时刻（0-23 点）",
+        "type": "int",
+        "hint": "默认 4，即每天凌晨 4 点开始。",
+        "default": 4,
+        "invisible": true,
+        "slider": {
+          "min": 0,
+          "max": 23,
+          "step": 1
+        }
+      },
+      "sync_detail_limit": {
+        "description": "每次同步最多抓多少条详情",
+        "type": "int",
+        "hint": "默认 1000。同步是增量的：列表只翻到「整页没有新词条」为止，详情只抓新增和更新过的词条，已缓存的直接复用。这个上限只用来控制单次运行时长（约 1 秒/条），排队没抓完的第二天继续。填 0 = 不限制。",
+        "default": 1000,
+        "invisible": true,
+        "slider": {
+          "min": 0,
+          "max": 10000,
+          "step": 100
+        }
+      },
+      "inject_guidance": {
+        "description": "自动注入「用法说明」",
+        "type": "bool",
+        "hint": "为本轮添加查梗与使用资料的说明，保留当前人格和明确要求；已有可用释义时直接复用。",
+        "default": true,
+        "invisible": true
+      },
+      "guidance_text": {
+        "description": "自定义用法说明",
+        "type": "text",
+        "hint": "留空使用内置文案；填了就用你的内容替换整段（会额外占用 prompt）。",
+        "default": "",
+        "invisible": true
+      },
+      "search_mode": {
+        "description": "网页搜索回退",
+        "type": "string",
+        "options": [
+          "auto",
+          "plugin",
+          "model",
+          "off"
+        ],
+        "labels": [
+          "自动回退（推荐）",
+          "插件代搜",
+          "提示模型自搜",
+          "关闭网页搜索"
+        ],
+        "hint": "离线词库和 cnmeme.wiki 公开词库均未命中后，是否调用宿主已配置的网页搜索。聊天中 /网搜 的选择优先；关闭网页搜索不关闭公开词库接口。",
+        "default": "auto",
+        "invisible": true
+      },
+      "search_max_chars": {
+        "description": "触发联网的最大字数",
+        "type": "int",
+        "hint": "不是明确在问梗时，只有不超过这个字数的短词才会联网；整句闲聊不搜。默认 10。",
+        "default": 10,
+        "invisible": true,
+        "slider": {
+          "min": 1,
+          "max": 50,
+          "step": 1
+        }
+      },
+      "gate_mode": {
+        "description": "联网前的闸门",
+        "type": "string",
+        "options": [
+          "llm",
+          "rules",
+          "off"
+        ],
+        "labels": [
+          "规则 + 模型判定",
+          "只用本地规则",
+          "不做闸门判断"
+        ],
+        "hint": "先用规则过滤整句闲聊；规则加模型会额外调用一次判定模型，默认最多等待 1.2 秒。只用规则不调用判定模型，部分短词仍可能联网查询。",
+        "default": "llm",
+        "invisible": true
+      },
+      "gate_provider_id": {
+        "description": "闸门判定用哪个模型",
+        "type": "string",
+        "hint": "留空 = 用当前对话的模型；也可以填 provider id（例如 deepseek/deepseek-chat）换一个更便宜的模型来判定。",
+        "default": "",
+        "invisible": false,
+        "_special": "select_provider"
+      },
+      "gate_timeout": {
+        "description": "闸门判定超时（秒）",
+        "type": "float",
+        "hint": "超过这个时间就按「查」放行，不拖慢回复。默认 1.2 秒；实测判定约 0.7 秒。",
+        "default": 1.2,
+        "invisible": true,
+        "slider": {
+          "min": 0.2,
+          "max": 10,
+          "step": 0.1
+        }
+      },
+      "gate_cache_ttl": {
+        "description": "闸门判定结果缓存（秒）",
+        "type": "int",
+        "hint": "同一个词在群里的判定结果复用多久，默认 600 秒。",
+        "default": 600,
+        "invisible": true,
+        "slider": {
+          "min": 0,
+          "max": 86400,
+          "step": 60
+        }
+      },
+      "search_timeout": {
+        "description": "搜索超时（秒）",
+        "type": "float",
+        "hint": "超过这个时间就放弃搜索，直接按“没查到”处理，避免拖慢回复。默认 6 秒。",
+        "default": 6.0,
+        "invisible": true,
+        "slider": {
+          "min": 1,
+          "max": 30,
+          "step": 0.5
+        }
+      },
+      "archive_enable": {
+        "description": "检索存档：联网结果留一份",
+        "type": "bool",
+        "hint": "词库没收录、联网搜到过的梗会按词存进 search_archive.db，下次再遇到同一个词直接复用，不联网、不过闸门。群里反复聊同一个梗时省得每次重搜。",
+        "default": true,
+        "invisible": true
+      },
+      "archive_ttl_days": {
+        "description": "存档复用有效期（天）",
+        "type": "int",
+        "hint": "存档多久内直接拿来用，默认 90 天。过期的不会被删，只在这次搜不到时兜底用。填 0 = 存档永不过期。",
+        "default": 90,
+        "invisible": true,
+        "slider": {
+          "min": 0,
+          "max": 3650,
+          "step": 1
+        }
+      },
+      "archive_miss_ttl_days": {
+        "description": "「搜过没结果」记住几天",
+        "type": "int",
+        "hint": "查过硬是没搜到结果的词，这么多天内不再重复联网（默认 3 天）。设 0 = 不记这种空结果，避免新梗被旧结论挡住。",
+        "default": 3,
+        "invisible": true,
+        "slider": {
+          "min": 0,
+          "max": 365,
+          "step": 1
+        }
+      },
+      "inject_deadline": {
+        "description": "预查超过多久就丢弃",
+        "type": "float",
+        "hint": "预查（本地 + 联网）超过这么多秒才拿到结果，就不再注入上下文了——那时候回复已经发出去了，塞进去只占提示词。默认 6 秒；0 = 不限制。",
+        "default": 6.0,
+        "invisible": true,
+        "slider": {
+          "min": 0,
+          "max": 30,
+          "step": 0.5
+        }
+      }
+    }
   }
 }

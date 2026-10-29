@@ -18,6 +18,7 @@ DESIGN.md
 dist/
 *.sqlite3*
 *.db
+!assets/memewiki/memes.db
 *.log
 .env
 .env.*

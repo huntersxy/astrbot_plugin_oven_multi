@@ -6,6 +6,9 @@ python-pptx
 openpyxl
 pandas
 chardet
+# 梗百科卡片和公开接口（AstrBot 环境通常已安装）。
+Pillow
+aiohttp
 # 可选：精确 MIME 文件类型检测（未安装时自动退回扩展名判断，不影响功能）
 # python-magic; platform_system != 'Windows'
 # python-magic-bin; platform_system == 'Windows'
