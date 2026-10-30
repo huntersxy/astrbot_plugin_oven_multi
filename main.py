@@ -1083,7 +1083,8 @@ class OvenMultiPlugin(Star):
         3. 记录 Jev 判读上下文（含@消息）。
         """
         blocked = self._blocked(event)
-        self.jev_active.notice(event, await self.ovenheart.owned(event))
+        owned = await self.ovenheart.owned(event)
+        self.jev_active.notice(event, owned)
 
         # debug_mode 开启时，每条群消息打一行待命状态：开关一开、下一条消息即可
         # 看到当前 enabled/api_key/场景开关/唤醒状态，静默不再是黑盒
@@ -1101,7 +1102,7 @@ class OvenMultiPlugin(Star):
         if blocked:
             return
 
-        if await self.ovenheart.owned(event):
+        if owned:
             return  # The core owns mentions and the single contextual snapshot.
 
         # 1. 保留 @机器人（改 message_str，不动消息链，不影响原生记录）
@@ -1199,7 +1200,15 @@ class OvenMultiPlugin(Star):
         其余各段挂到 extra，由 ``send_pending_segments`` 在消息发出后带延迟
         逐条补发，模拟真人打字节奏。分段失败或只有一段时保持原消息不变。
         """
-        if not feature_enabled(self.config, FEATURE_SEGMENT, False):
+        # A continuing OvenHeart planner reuses its native event for new replies.
+        for key in (
+            "oven_multi_segmented",
+            "oven_multi_segment_incomplete",
+            "oven_segment_pending",
+            "oven_segment_suffix",
+        ):
+            event.get_extra().pop(key, None)
+        if self._blocked(event) or not feature_enabled(self.config, FEATURE_SEGMENT, False):
             return
         native = (
             self.context.get_config(event.unified_msg_origin)
@@ -1279,9 +1288,9 @@ class OvenMultiPlugin(Star):
         result.chain[:] = prefix + [components.Plain(segments[0])]
         logger.info(f"[烤箱-分段] 已拆分为 {len(segments)} 段，首段随原生装饰发送")
 
-    @filter.after_message_sent()
+    @filter.after_message_sent(priority=10000)
     async def send_pending_segments(self, event: AstrMessageEvent):
-        """逐段补发剩余分段。首段已由 RespondStage 发出，这里只发后续各段。"""
+        """Finish delivery before reply receipts and thinking-complete hooks run."""
         segments = event.get_extra("oven_segment_pending")
         if not segments:
             return
@@ -1290,21 +1299,28 @@ class OvenMultiPlugin(Star):
         event.set_extra("oven_segment_suffix", None)
         seg_cfg = feature_cfg(self.config, FEATURE_SEGMENT)
         prev = segments[0]
-        for index, seg in enumerate(segments[1:], 1):
-            if event.is_stopped():
-                return
-            try:
+        sent = 0
+        try:
+            for index, seg in enumerate(segments[1:], 1):
+                if event.is_stopped() or event.get_extra("ovenheart_text_delivery_incomplete"):
+                    return
                 await asyncio.sleep(self.segment.delay(prev, seg, seg_cfg))
                 if event.is_stopped():
                     return
                 outgoing = event.plain_result(seg)
                 if index == len(segments) - 1:
                     outgoing.chain.extend(suffix)
-                await event.send(outgoing)
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"[烤箱-分段] 补发失败，停止后续分段：{e}")
-                return
-            prev = seg
+                if await event.send(outgoing) is False:
+                    return
+                sent += 1
+                prev = seg
+        except Exception as exc:  # noqa: BLE001
+            logger.error("[烤箱-分段] 补发失败，停止后续分段 (%s)", type(exc).__name__)
+        finally:
+            if sent < len(segments) - 1:
+                event.set_extra("oven_multi_segment_incomplete", True)
+                if event.is_stopped():
+                    await self.ovenheart.record_partial_delivery(event)
 
     # ── Handler：移除空行 ────────────────────────────────────────────────
 
@@ -1450,9 +1466,10 @@ class OvenMultiPlugin(Star):
         rag_cfg = feature_cfg(self.config, FEATURE_FILE_READER).get("rag") or {}
         if not rag_cfg.get("enabled", True):
             return
-        if not (req.prompt or "").strip():
+        query = self.ovenheart.reply_text(event, req.prompt or "")
+        if not query.strip():
             return
-        context_text = await self.file_reader.build_context(event.unified_msg_origin, req.prompt)
+        context_text = await self.file_reader.build_context(event.unified_msg_origin, query)
         if not context_text:
             return
         if str(rag_cfg.get("injection_type", "temp_part")) == "prompt":

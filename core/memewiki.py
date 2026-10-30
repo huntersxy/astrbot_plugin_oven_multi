@@ -33,6 +33,8 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api.web import request
 from astrbot.core.message.components import Plain
 
+from .ovenheart_link import OvenHeartLink
+
 API_BASE = "https://cnmeme.wiki/api/v1/public/memes"
 PLUGIN_DIR = Path(__file__).resolve().parent.parent
 BUNDLED_DB_PATH = PLUGIN_DIR / "assets" / "memewiki" / "memes.db"  # 随插件分发的只读快照
@@ -2276,9 +2278,9 @@ class MemeWiki:
                 req, self._guidance_text()
             ):
                 logger.debug("[memewiki] 已注入内置用法说明")
-            target = (event.get_extra("ovenheart_decision") or {}).get("target") or {}
-            raw = target.get("text") or "\n".join(
-                part.text for part in event.get_messages() if isinstance(part, Plain)
+            raw = OvenHeartLink.reply_text(
+                event,
+                "\n".join(part.text for part in event.get_messages() if isinstance(part, Plain)),
             )
             query = self._extract_meme_query(raw)
             if not query:

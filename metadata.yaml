@@ -2,7 +2,7 @@ name: astrbot_plugin_oven_multi
 display_name: 插座的多功能烤箱
 short_desc: 上下文压缩、智能分段、梗百科、抖音通知、Jev 判读与文件读取，统一管理状态和余额
 desc: 提供上下文压缩、智能分段、梗百科离线查询和自定义黑话、Jev 判读、文件读取与 RAG、抖音直播订阅、服务余额及原生 Panel 管理。
-version: 1.59.0
+version: 1.59.1
 author: 汐兮雨
 repo: https://github.com/huntersxy/astrbot_plugin_oven_multi
 astrbot_version: ">=4.29.1,<5"

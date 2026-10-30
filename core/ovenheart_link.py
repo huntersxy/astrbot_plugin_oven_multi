@@ -8,7 +8,9 @@ import re
 
 from astrbot.api import logger
 from astrbot.api.platform import MessageType
+from astrbot.core.star.session_plugin_manager import SessionPluginManager
 
+from .constants import PLUGIN_NAME
 from .jev_judge import build_advice, build_state
 
 
@@ -38,6 +40,41 @@ class OvenHeartLink:
         # native permissions during a rolling upgrade as well.
         permitted = getattr(core, "permitted", None)
         return bool(callable(permitted) and await permitted(event))
+
+    @staticmethod
+    def reply_text(event, fallback: str) -> str:
+        """Use the frozen reply target even when it contains no text."""
+        plan = event.get_extra("ovenheart_decision")
+        if plan:
+            return (plan.get("target") or {}).get("text", "")
+        direct = event.get_extra("ovenheart_direct_context")
+        if direct:
+            return (direct.get("reply_message") or {}).get("text", "")
+        return fallback
+
+    async def record_partial_delivery(self, event):
+        """A stopped native hook will skip OvenHeart's later completion hook."""
+        core = self.core()
+        record = getattr(core, "record_delivery", None)
+        if callable(record) and event.get_extra("ovenheart_actual_text_segments"):
+            await record(event)
+
+    async def jev_available(self, event):
+        cfg = self.plugin.config.get("jev", {})
+        if (
+            self.plugin.closing
+            or self.plugin._blocked(event)
+            or not cfg.get("enabled")
+            or not cfg.get("inject_on_mention", True)
+            or not str(cfg.get("api_key") or "").strip()
+        ):
+            return False
+        plugins = self.plugin.context.get_config(event.unified_msg_origin).get("plugin_set", ["*"])
+        if plugins != ["*"] and PLUGIN_NAME not in plugins:
+            return False
+        return await SessionPluginManager.is_plugin_enabled_for_session(
+            event.unified_msg_origin, PLUGIN_NAME
+        )
 
     def signature(self):
         cfg = self.plugin.config.get("jev", {})
@@ -124,14 +161,9 @@ class OvenHeartLink:
         )
 
     async def analyze(self, event, payload):
-        cfg = self.plugin.config.get("jev", {})
-        if (
-            self.plugin.closing
-            or self.plugin._blocked(event)
-            or not cfg.get("enabled")
-            or not cfg.get("inject_on_mention", True)
-        ):
+        if not await self.jev_available(event):
             return {"status": "disabled"}
+        cfg = self.plugin.config.get("jev", {})
         if (
             not isinstance(payload, dict)
             or payload.get("version") != 1
@@ -166,6 +198,8 @@ class OvenHeartLink:
         result = await self.plugin.jev_scenes.jev.judge(
             cfg, self.state(payload, cfg), with_decision=False, dimensions=("intent", "emotion")
         )
+        if not await self.jev_available(event):
+            return {"status": "stale"}
         if not result.get("ok"):
             logger.warning("Jev 联动判读未完成，烤箱之心继续原流程")
             return {"status": "error"}
