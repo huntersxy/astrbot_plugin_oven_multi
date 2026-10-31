@@ -161,6 +161,7 @@ GROUP_PATHS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "file_reader.rag.retrieve_top_k",
             "file_reader.rag.fetch_k",
             "file_reader.rag.enable_rerank",
+            "file_reader.rag.retrieval_timeout_sec",
             "file_reader.max_file_size_mb",
             "file_reader.retention_minutes",
             "file_reader.max_rounds",

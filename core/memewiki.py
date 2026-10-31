@@ -20,6 +20,7 @@ import re
 import sqlite3
 import sys
 import tempfile
+import threading
 import time
 import urllib.parse
 from pathlib import Path
@@ -45,7 +46,8 @@ CACHE_MAX = 300
 MAX_CHARS = 1200
 SEARCH_CLIP = 900  # 联网搜索结果注入上限（字符）
 TIMEOUT = 12
-FAST_TIMEOUT = 3.0  # 预查 cnmeme API 的总超时；当前服务常见 0.9–1.3s，留足抖动余量
+FAST_TIMEOUT = 3.0  # 预查联网的默认上限；实际还会受注入预算限制
+PREFETCH_HARD_TIMEOUT = 2.0  # 可选联网资料不能长时间占住主 LLM 管道
 UA = "AstrBot-memewiki/1.0"
 
 # 渲染用字体：按顺序找第一个能用的（Linux Noto → Windows/macOS 常见字体）
@@ -176,9 +178,14 @@ class MemeWiki:
         self._cache: dict[str, tuple[float, str]] = {}
         self._slang = self._load_slang()
         self._titles: dict[str, str] = {}
+        self._local_entries: dict[str, dict[str, Any]] = {}
+        self._selected_db_path: Path | None = None
+        self._selected_db_count: int | None = None
         self._load_local_index()
         self._user_terms: dict[str, dict] = self._load_user_terms()
         self._terms_lock = asyncio.Lock()
+        self._archive_schema_ready = False
+        self._archive_schema_lock = threading.Lock()
         self._sync_task: asyncio.Task | None = None
         self._last_sync_day: str = ""
         self._sync_process = None
@@ -215,12 +222,15 @@ class MemeWiki:
 
     def status(self):
         path = self._readable_db_path()
+        count = self._selected_db_count if path is not None else 0
+        if count is None:
+            count = self._db_count(path) if path else 0
         return {
             "enabled": self.enabled(),
             "configured_enabled": bool(self.config.get("enabled", False)),
             "legacy_active": self.legacy_active(),
             "terms": len(self._user_terms),
-            "entries": max(0, self._db_count(path)) if path else 0,
+            "entries": max(0, count),
             "version": "1.7.0",
             "sync_running": bool(self._sync_process and self._sync_process.returncode is None),
         }
@@ -264,7 +274,7 @@ class MemeWiki:
                 "author_name": "Panel",
                 "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
             }
-            self._save_user_terms()
+            await asyncio.to_thread(self._save_user_terms)
             self._invalidate_term_cache(name)
         return {"success": True, "data": {"count": len(self._user_terms)}}
 
@@ -277,7 +287,7 @@ class MemeWiki:
             if name not in self._user_terms:
                 return {"success": False, "message": "这条黑话已不存在，请刷新列表。"}
             self._user_terms.pop(name)
-            self._save_user_terms()
+            await asyncio.to_thread(self._save_user_terms)
             self._invalidate_term_cache(name)
         return {"success": True, "data": {"count": len(self._user_terms)}}
 
@@ -621,6 +631,11 @@ class MemeWiki:
 
     def _readable_db_path(self):
         """选择条目更多的完整词库，避免失败/截断同步覆盖随包快照。"""
+        if self._selected_db_path is not None:
+            if self._selected_db_path.exists():
+                return self._selected_db_path
+            self._selected_db_path = None
+            self._selected_db_count = None
         candidates = [path for path in (self._db_path, self._bundled_db_path) if path.exists()]
         if not candidates:
             self._db_warn_once(
@@ -650,6 +665,8 @@ class MemeWiki:
                     "[memewiki] plugin_data 词库仅 "
                     f"{runtime_count} 条，少于随包词库 {best_count} 条；本次使用随包词库"
                 )
+        self._selected_db_path = best_path
+        self._selected_db_count = best_count
         return best_path
 
     def _db(self):
@@ -673,9 +690,13 @@ class MemeWiki:
 
     def _reload_db(self) -> None:
         """同步完换库：连接不缓存，重新指向新文件即可（下次查询会重开）。"""
+        self._selected_db_path = None
+        self._selected_db_count = None
         self._load_local_index()
 
     def _load_local_index(self):
+        self._local_entries = {}
+        self._titles = {}
         logger.info(
             f"[memewiki] 运行环境：{platform.system()} {platform.release()} / Python "
             f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}，"
@@ -689,8 +710,14 @@ class MemeWiki:
                 try:
                     count = conn.execute("SELECT value FROM meta WHERE key='count'").fetchone()
                     built = conn.execute("SELECT value FROM meta WHERE key='built_at'").fetchone()
+                    rows = conn.execute(
+                        "SELECT title, slug, tags, usage, origin, other, summary FROM memes"
+                    ).fetchall()
+                    self._local_entries = {
+                        str(row[0]): self._db_row_data(row) for row in rows if row and row[0]
+                    }
                     logger.info(
-                        f"[memewiki] 词库 {count[0] if count else '?'} 条"
+                        f"[memewiki] 词库 {len(self._local_entries) or (count[0] if count else '?')} 条"
                         f"（生成于 {built[0] if built else '?'}，来自 {db_path}）"
                     )
                 except Exception as exc:  # noqa: BLE001
@@ -719,23 +746,14 @@ class MemeWiki:
         if not q:
             return None
 
-        conn = self._db()
-        if conn is not None:
-            try:
-                row = conn.execute("SELECT title FROM memes WHERE title = ?", (q,)).fetchone()
-                if row:
-                    return row[0]
-                row = conn.execute(
-                    "SELECT title FROM memes WHERE length(title) >= 2 AND instr(?, title) > 0 "
-                    "ORDER BY length(title) DESC LIMIT 1",
-                    (q,),
-                ).fetchone()
-                return row[0] if row else None
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(f"[memewiki] 查词库失败: {exc}")
-                return None
-            finally:
-                conn.close()
+        if self._local_entries:
+            if q in self._local_entries:
+                return q
+            return max(
+                (title for title in self._local_entries if len(title) >= 2 and title in q),
+                key=len,
+                default=None,
+            )
 
         if not self._titles:
             return None
@@ -958,25 +976,12 @@ class MemeWiki:
         if not title:
             return None
 
-        conn = self._db()
-        if conn is not None:
-            try:
-                row = conn.execute(
-                    "SELECT title, slug, tags, usage, origin, other, summary "
-                    "FROM memes WHERE title = ?",
-                    (title,),
-                ).fetchone()
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(f"[memewiki] 读词库失败: {exc}")
-                row = None
-            finally:
-                conn.close()
-            if row:
-                data = self._db_row_data(row)
-                if title.strip() != query.strip():
-                    data["note"] = f"（没有同名条目，这条标题是「{title}」）\n"
-                return data
-            return None
+        if self._local_entries:
+            data = dict(self._local_entries[title])
+            data["tags"] = list(data.get("tags") or [])
+            if title.strip() != query.strip():
+                data["note"] = f"（没有同名条目，这条标题是「{title}」）\n"
+            return data
 
         slug = self._titles.get(title)
         if not slug:
@@ -1025,7 +1030,7 @@ class MemeWiki:
     # ---------------- 对外接口 ----------------
 
     async def lookup(self, query: str, strict: bool = False) -> str:
-        query = (query or "").strip()
+        query = self._normalize_query(query)
         if not query:
             return "查询词为空。"
 
@@ -1100,7 +1105,7 @@ class MemeWiki:
         mode = str(self.config.get("reply_mode") or "image").strip().lower()
         if mode.startswith("image") or mode.startswith("图片"):
             try:
-                path = self._render_card(data)
+                path = await asyncio.to_thread(self._render_card, data)
                 yield event.image_result(str(path))
                 return
             except Exception as exc:  # noqa: BLE001
@@ -1149,7 +1154,7 @@ class MemeWiki:
                     yield event.plain_result(f"没有「{name}」这条黑话。")
                     return
                 self._user_terms.pop(name, None)
-                self._save_user_terms()
+                await asyncio.to_thread(self._save_user_terms)
                 self._invalidate_term_cache(name)
             yield event.plain_result(f"已删除「{name}」。")
             return
@@ -1176,7 +1181,7 @@ class MemeWiki:
                 "author_name": nick,
                 "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
             }
-            self._save_user_terms()
+            await asyncio.to_thread(self._save_user_terms)
         self._invalidate_term_cache(name)
 
         logger.info(
@@ -1935,18 +1940,34 @@ class MemeWiki:
 
     def _archive_conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self._archive_path), timeout=5.0)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS archive ("
-            " term TEXT PRIMARY KEY,"  # 归一化后的查询词
-            " hint TEXT NOT NULL DEFAULT '',"  # 搜到的内容（已裁剪）
-            " source TEXT NOT NULL DEFAULT '',"  # dict = 词库在线接口 / search = 搜索兜底
-            " status TEXT NOT NULL DEFAULT 'ok',"
-            " created_at REAL NOT NULL,"
-            " updated_at REAL NOT NULL,"
-            " hits INTEGER NOT NULL DEFAULT 0)"
-        )
+        if not self._archive_schema_ready:
+            with self._archive_schema_lock:
+                if not self._archive_schema_ready:
+                    conn.execute("PRAGMA journal_mode=WAL")
+                    conn.execute(
+                        "CREATE TABLE IF NOT EXISTS archive ("
+                        " term TEXT PRIMARY KEY,"  # 归一化后的查询词
+                        " hint TEXT NOT NULL DEFAULT '',"  # 搜到的内容（已裁剪）
+                        " source TEXT NOT NULL DEFAULT '',"  # dict = 词库在线接口 / search = 搜索兜底
+                        " status TEXT NOT NULL DEFAULT 'ok',"
+                        " created_at REAL NOT NULL,"
+                        " updated_at REAL NOT NULL,"
+                        " hits INTEGER NOT NULL DEFAULT 0)"
+                    )
+                    conn.commit()
+                    self._archive_schema_ready = True
         return conn
+
+    async def _archive_get_async(self, query: str, max_age: float | None = None) -> dict | None:
+        return await asyncio.to_thread(self._archive_get, query, max_age)
+
+    async def _archive_put_async(
+        self, query: str, hint: str, source: str, status: str = "ok"
+    ) -> bool:
+        return await asyncio.to_thread(self._archive_put, query, hint, source, status)
+
+    async def _archive_touch_async(self, query: str) -> None:
+        await asyncio.to_thread(self._archive_touch, query)
 
     def _archive_get(self, query: str, max_age: float | None = None) -> dict | None:
         """按词取留档；max_age 为 None 表示不管多旧都要（过期判断交给调用方）。"""
@@ -2242,6 +2263,16 @@ class MemeWiki:
             value = 6.0
         return max(0.0, value)
 
+    def _prefetch_timeout(self) -> float:
+        """Bound optional network lookup time so the main LLM request keeps moving."""
+        try:
+            configured = float(self.config.get("search_timeout", FAST_TIMEOUT) or FAST_TIMEOUT)
+        except (TypeError, ValueError):
+            configured = FAST_TIMEOUT
+        timeout = max(0.5, min(configured, FAST_TIMEOUT, PREFETCH_HARD_TIMEOUT))
+        deadline = self._inject_deadline()
+        return min(timeout, deadline) if deadline > 0 else timeout
+
     async def _lookup_fast(self, query: str) -> str:
         """只查本地：群内梗 / 自定义黑话 / 内置词典。毫秒级，不联网。"""
         query = (query or "").strip()
@@ -2308,9 +2339,9 @@ class MemeWiki:
             # ①.5 检索存档：这个词以前联网查过，结果还留着 → 直接复用。
             #     不过闸门（不需要判断还要不要查，因为已经不花钱了）、不联网。
             if self._archive_enabled():
-                arch = self._archive_get(query, self._archive_ttl())
+                arch = await self._archive_get_async(query, self._archive_ttl())
                 if arch and arch["status"] == "ok" and arch["hint"]:
-                    self._archive_touch(query)
+                    await self._archive_touch_async(query)
                     injected = self._inject(
                         req,
                         self._archive_hint(query, arch["hint"], arch["age"], arch["source"]),
@@ -2401,7 +2432,7 @@ class MemeWiki:
             return ""
         # ③.5 存档里记过「搜过没结果」：短期内不再重复搜，省一次网络请求。
         if self._archive_enabled() and self._archive_miss_ttl() > 0:
-            neg = self._archive_get(query, self._archive_miss_ttl())
+            neg = await self._archive_get_async(query, self._archive_miss_ttl())
             if neg and neg["status"] == "miss":
                 logger.info(
                     f"[memewiki] 存档记录：{neg['age'] / 3600:.0f} 小时前搜过没结果，跳过联网: {query}"
@@ -2412,13 +2443,14 @@ class MemeWiki:
                     return self._miss_hint(query)
                 return ""
         t0 = time.time()
+        timeout = self._prefetch_timeout()
         try:
-            text = await asyncio.wait_for(self.lookup(query, strict=True), timeout=FAST_TIMEOUT)
+            text = await asyncio.wait_for(self.lookup(query, strict=True), timeout=timeout)
         except asyncio.TimeoutError:
             self._miss_cache[query] = now + self._MISS_TTL
             # 这是正常的降级分支，不应作为面向用户的错误暴露。预查失败后
             # 主对话照常继续；10 分钟内同词也不会重复联网。
-            logger.info(f"[memewiki] 预查网络较慢，已静默跳过（>{FAST_TIMEOUT}s）: {query}")
+            logger.info(f"[memewiki] 预查网络较慢，已静默跳过（>{timeout:.1f}s）: {query}")
             return ""
         cost_ms = (time.time() - t0) * 1000
         if not text or text.startswith("词库里没有收录"):
@@ -2432,11 +2464,15 @@ class MemeWiki:
             ref = await self._search_fallback(event, query)
             if ref:
                 self._remember_hit(query, ref, now)
-                self._archive_put(query, ref, "search")
+                await self._archive_put_async(query, ref, "search")
                 logger.info(f"[memewiki] 预查未命中: {query} ({cost_ms:.0f}ms)，搜索兜底命中")
                 return self._search_hint(query, ref)
             # 存档里还有更早的「搜到过」，虽然过期了，总比什么都没有强
-            stale = self._archive_get(query, None) if self._archive_enabled() else None
+            stale = (
+                await self._archive_get_async(query, None)
+                if self._archive_enabled()
+                else None
+            )
             if stale and stale["status"] == "ok" and stale["hint"]:
                 logger.info(
                     f"[memewiki] 这次没搜到，回退 {stale['age'] / 86400:.0f} 天前的存档: {query}"
@@ -2445,7 +2481,7 @@ class MemeWiki:
                     query, stale["hint"], stale["age"], stale["source"], stale=True
                 )
             # 确实没结果：记一笔，短期（默认 3 天）内不再重复搜
-            self._archive_put(query, "", "miss", status="miss")
+            await self._archive_put_async(query, "", "miss", status="miss")
             if mode == "auto":
                 logger.info(
                     f"[memewiki] 预查未命中: {query} ({cost_ms:.0f}ms)，搜索也没结果，提示模型自己搜"
@@ -2456,5 +2492,5 @@ class MemeWiki:
             )
             return ""
         logger.info(f"[memewiki] 预查命中: {query} ({len(text)} 字, {cost_ms:.0f}ms)")
-        self._archive_put(query, text, "dict")
+        await self._archive_put_async(query, text, "dict")
         return self._dict_hint(query, text)

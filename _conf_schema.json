@@ -756,6 +756,18 @@
             "type": "bool",
             "invisible": true,
             "default": true
+          },
+          "retrieval_timeout_sec": {
+            "description": "自动检索等待秒数",
+            "hint": "LLM 回复前自动检索最多等待多久；超时就继续回复，不影响 file_search 工具。默认 2 秒。",
+            "type": "float",
+            "invisible": true,
+            "default": 2.0,
+            "slider": {
+              "min": 0.5,
+              "max": 5,
+              "step": 0.5
+            }
           }
         }
       },
@@ -1020,7 +1032,7 @@
       "search_timeout": {
         "description": "搜索超时（秒）",
         "type": "float",
-        "hint": "超过这个时间就放弃搜索，直接按“没查到”处理，避免拖慢回复。默认 6 秒。",
+        "hint": "超过这个时间就放弃搜索，直接按“没查到”处理；主回复还会给可选预查设置 2 秒硬上限。默认 6 秒。",
         "default": 6.0,
         "invisible": true,
         "slider": {
@@ -1063,7 +1075,7 @@
       "inject_deadline": {
         "description": "预查超过多久就丢弃",
         "type": "float",
-        "hint": "预查（本地 + 联网）超过这么多秒才拿到结果，就不再注入上下文了——那时候回复已经发出去了，塞进去只占提示词。默认 6 秒；0 = 不限制。",
+        "hint": "预查（本地 + 联网）超过这么多秒才拿到结果，就不再注入上下文了；联网预查另有 2 秒硬上限。默认 6 秒；0 = 仍使用 2 秒上限。",
         "default": 6.0,
         "invisible": true,
         "slider": {

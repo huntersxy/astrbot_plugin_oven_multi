@@ -121,6 +121,9 @@ def collapse_blank_lines(text: str, max_newlines: int = 1) -> str:
 
 # 分段回复不支持的发送渠道（与 AstrBot 原生分段回复的排除清单一致）
 SEGMENT_SKIP_PLATFORMS = {"qq_official_webhook", "weixin_official_account", "dingtalk"}
+BACKGROUND_TASK_LIMIT = 64
+AUXILIARY_HOOK_TIMEOUT = 1.0
+RAG_HOOK_TIMEOUT = 2.0
 
 
 @register(PLUGIN_NAME, PLUGIN_AUTHOR, PLUGIN_DESC, PLUGIN_VERSION)
@@ -134,6 +137,7 @@ class OvenMultiPlugin(Star):
         self.closing = False
         self.config = config if config is not None else AstrBotConfig({})
         self.data_dir = StarTools.get_data_dir(PLUGIN_NAME)
+        self._background_tasks: set[asyncio.Task] = set()
 
         # 轻量功能
         self.matcher = BracketMatcher()
@@ -350,14 +354,12 @@ class OvenMultiPlugin(Star):
     async def prefetch_meme(self, event: AstrMessageEvent, req):
         if event.is_stopped() or self._blocked(event) or not self.memewiki.enabled():
             return
-        timeout = self.memewiki._inject_deadline()
+        configured = self.memewiki._inject_deadline()
+        timeout = min(configured, 2.0) if configured > 0 else 2.0
         try:
-            if timeout:
-                await asyncio.wait_for(self.memewiki.prefetch_meme(event, req), timeout)
-            else:
-                await self.memewiki.prefetch_meme(event, req)
+            await asyncio.wait_for(self.memewiki.prefetch_meme(event, req), timeout)
         except asyncio.TimeoutError:
-            logger.info("[烤箱-梗百科] 预查预算已用完，继续正常回复")
+            logger.info("[烤箱-梗百科] 预查预算已用完（%.1fs），继续正常回复", timeout)
 
     # ── 生命周期 ─────────────────────────────────────────────────────────
 
@@ -377,6 +379,12 @@ class OvenMultiPlugin(Star):
 
     async def terminate(self):
         self.closing = True
+        tasks = list(self._background_tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._background_tasks.clear()
         await self.douyin.stop()
         await self.memewiki.terminate()
         self.bili_requests.disconnect()
@@ -970,6 +978,41 @@ class OvenMultiPlugin(Star):
         msg = event.message_obj
         return blocked_by_blacklist(self.config, msg.group_id, msg.sender.user_id)
 
+    def _spawn_background(self, operation, label: str) -> bool:
+        """Run optional outbound work without holding the event pipeline open."""
+        if self.closing or len(self._background_tasks) >= BACKGROUND_TASK_LIMIT:
+            close = getattr(operation, "close", None)
+            if callable(close):
+                close()
+            logger.debug("[烤箱] 后台任务达到上限，跳过 %s", label)
+            return False
+        task = asyncio.create_task(operation)
+        self._background_tasks.add(task)
+
+        def finish(done: asyncio.Task) -> None:
+            self._background_tasks.discard(done)
+            if done.cancelled():
+                return
+            try:
+                done.result()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("[烤箱] 后台任务失败 %s (%s)", label, type(exc).__name__)
+
+        task.add_done_callback(finish)
+        return True
+
+    async def _bounded_optional(self, operation, timeout: float, label: str):
+        """Bound an optional hook and keep the primary reply path available."""
+        try:
+            return await asyncio.wait_for(operation, timeout)
+        except asyncio.CancelledError:
+            raise
+        except asyncio.TimeoutError:
+            logger.info("[烤箱] %s 超时，继续主流程", label)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[烤箱] %s 失败 (%s)，继续主流程", label, type(exc).__name__)
+        return None
+
     # ── Handler：烤箱状态 ────────────────────────────────────────────────
 
     @filter.command("烤箱状态")
@@ -1116,7 +1159,11 @@ class OvenMultiPlugin(Star):
         # 2. 补齐原生群聊上下文的纯@漏记（仅「群聊消息记录注入上下文」开启时）
         if should_backfill_native(event):
             try:
-                await self._backfill_native_record(event)
+                await self._bounded_optional(
+                    self._backfill_native_record(event),
+                    AUXILIARY_HOOK_TIMEOUT,
+                    "群上下文补记",
+                )
             except Exception as e:  # noqa: BLE001
                 # 跨版本原生实现差异只降级，不影响消息流程
                 logger.debug(f"[烤箱-群上下文] 补记纯@消息失败：{e}")
@@ -1175,7 +1222,10 @@ class OvenMultiPlugin(Star):
                 ),
             )
             if brackets:
-                await event.send(event.plain_result(brackets))
+                self._spawn_background(
+                    event.send(event.plain_result(brackets)),
+                    "括号匹配回复",
+                )
 
         # 消息复读
         if feature_enabled(self.config, FEATURE_REPETITION):
@@ -1186,8 +1236,13 @@ class OvenMultiPlugin(Star):
             )
             if result:
                 kind, payload = result
-                await event.send(
-                    event.plain_result(payload) if kind == "break" else event.chain_result(payload)
+                self._spawn_background(
+                    event.send(
+                        event.plain_result(payload)
+                        if kind == "break"
+                        else event.chain_result(payload)
+                    ),
+                    "复读回复",
                 )
 
     # ── Handler：分段回复 ────────────────────────────────────────────────
@@ -1236,7 +1291,6 @@ class OvenMultiPlugin(Star):
         seg_cfg = feature_cfg(self.config, FEATURE_SEGMENT)
         if all(isinstance(part, components.Image) for part in result.chain):
             event.set_extra("oven_multi_segmented", True)
-            await asyncio.sleep(min(5.0, max(0.0, self.segment._float(seg_cfg, "typing_speed", 1))))
             return
         # Keep native quote/@ on the first segment and trailing stickers after
         # the last. Never reorder interleaved media, forwards or tool results.
@@ -1265,7 +1319,10 @@ class OvenMultiPlugin(Star):
                         self.context.llm_generate(
                             chat_provider_id=provider_id, prompt=SPLITTER_PROMPT + text
                         ),
-                        self.segment._float(seg_cfg, "split_timeout", 3),
+                        min(
+                            1.5,
+                            max(0.5, self.segment._float(seg_cfg, "split_timeout", 3)),
+                        ),
                     )
                     if getattr(response, "role", "") == "err":
                         raise ValueError("断句模型返回错误。")
@@ -1366,11 +1423,14 @@ class OvenMultiPlugin(Star):
         if msg_id:
             event.set_extra("thinking_active", True)
             event.set_extra("thinking_msg_id", msg_id)
-            await self.thinking.emoji(
-                event,
-                msg_id,
-                cfg_value(self.config, FEATURE_THINKING, "thinking_emoji_ids", []),
-                True,
+            self._spawn_background(
+                self.thinking.emoji(
+                    event,
+                    msg_id,
+                    cfg_value(self.config, FEATURE_THINKING, "thinking_emoji_ids", []),
+                    True,
+                ),
+                "思考表情",
             )
 
     @filter.after_message_sent()
@@ -1384,10 +1444,16 @@ class OvenMultiPlugin(Star):
             return
         thinking_cfg = feature_cfg(self.config, FEATURE_THINKING)
         if thinking_cfg.get("add_done_emoji"):
-            await self.thinking.emoji(event, msg_id, thinking_cfg.get("done_emoji_ids", []), True)
+            self._spawn_background(
+                self.thinking.emoji(event, msg_id, thinking_cfg.get("done_emoji_ids", []), True),
+                "完成表情",
+            )
         if thinking_cfg.get("remove_thinking_on_done"):
-            await self.thinking.emoji(
-                event, msg_id, thinking_cfg.get("thinking_emoji_ids", []), False
+            self._spawn_background(
+                self.thinking.emoji(
+                    event, msg_id, thinking_cfg.get("thinking_emoji_ids", []), False
+                ),
+                "移除思考表情",
             )
         event.set_extra("thinking_done", True)
 
@@ -1395,16 +1461,28 @@ class OvenMultiPlugin(Star):
 
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE, priority=-40000)
     async def jev_autonomous_reply(self, event: AstrMessageEvent):
-        await self.jev_active.consider(event)
+        await self._bounded_optional(
+            self.jev_active.consider(event),
+            AUXILIARY_HOOK_TIMEOUT * 2,
+            "Jev 主动回复判定",
+        )
 
     @filter.on_llm_request(priority=17)
     async def on_llm_request(self, event: AstrMessageEvent, req):
         from astrbot.core.agent.message import TextPart
 
-        await self.bili_auto.follow(event)
+        await self._bounded_optional(
+            self.bili_auto.follow(event),
+            AUXILIARY_HOOK_TIMEOUT,
+            "压缩模型跟随",
+        )
         self.bili_requests.install()
         owned = await self.ovenheart.owned(event)
-        await self.bili_requests.native_tools.prepare(event, req)
+        await self._bounded_optional(
+            self.bili_requests.native_tools.prepare(event, req),
+            AUXILIARY_HOOK_TIMEOUT,
+            "压缩上下文工具准备",
+        )
 
         # 被@/唤醒触发的一次 Jev 判读注入：重点是意向与情绪（临时内容，不持久化）
         if (
@@ -1412,7 +1490,11 @@ class OvenMultiPlugin(Star):
             and feature_enabled(self.config, FEATURE_JEV, False)
             and not self._blocked(event)
         ):
-            block = await self.jev_scenes.mention_reading(event, self.config)
+            block = await self._bounded_optional(
+                self.jev_scenes.mention_reading(event, self.config),
+                AUXILIARY_HOOK_TIMEOUT * 2,
+                "Jev 被@判读",
+            )
             if block:
                 req.extra_user_content_parts.append(TextPart(text=str(block)).mark_as_temp())
 
@@ -1427,9 +1509,30 @@ class OvenMultiPlugin(Star):
 
     # ── Handler：文件读取 ────────────────────────────────────────────────
 
+    async def _ingest_file_in_background(
+        self, event: AstrMessageEvent, item: components.File, notify: bool
+    ) -> None:
+        notice = None
+        try:
+            file_path = str(await item.get_file())
+            file_name = str(getattr(item, "name", "") or "").strip() or file_path
+            notice = await self.file_reader.ingest(
+                event.unified_msg_origin, file_path, file_name
+            )
+        except FileParseError as exc:
+            notice = str(exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("[烤箱-文件读取] 处理文件失败: %s", exc)
+        if notice and notify and not self.closing:
+            await self._bounded_optional(
+                event.send(event.plain_result(notice)),
+                AUXILIARY_HOOK_TIMEOUT * 4,
+                "文件处理通知",
+            )
+
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_file_message(self, event: AstrMessageEvent):
-        """接收消息中的文件组件：登记副本，并按配置决定是否预读取向量化。"""
+        """接收消息中的文件组件；解析和向量化在后台完成，避免卡住当前事件。"""
         if not self.file_reader or self._blocked(event):
             return
         if event.get_sender_id() == event.get_self_id():
@@ -1444,19 +1547,10 @@ class OvenMultiPlugin(Star):
         notify = bool((fr_cfg.get("preread") or {}).get("notify", True))
 
         for item in file_items:
-            notice = None
-            try:
-                file_path = str(await item.get_file())
-                file_name = str(getattr(item, "name", "") or "").strip() or file_path
-                notice = await self.file_reader.ingest(
-                    event.unified_msg_origin, file_path, file_name
-                )
-            except FileParseError as e:
-                notice = str(e)
-            except Exception as e:
-                logger.error(f"[烤箱-文件读取] 处理文件失败: {e}")
-            if notice and notify:
-                yield event.plain_result(notice)
+            self._spawn_background(
+                self._ingest_file_in_background(event, item, notify),
+                "文件接收与预处理",
+            )
 
     @filter.on_llm_request(priority=16)
     async def on_llm_request_files(self, event: AstrMessageEvent, req):
@@ -1469,7 +1563,19 @@ class OvenMultiPlugin(Star):
         query = self.ovenheart.reply_text(event, req.prompt or "")
         if not query.strip():
             return
-        context_text = await self.file_reader.build_context(event.unified_msg_origin, query)
+        rag_cfg = rag_cfg if isinstance(rag_cfg, dict) else {}
+        try:
+            rag_timeout = float(
+                rag_cfg.get("retrieval_timeout_sec", RAG_HOOK_TIMEOUT) or RAG_HOOK_TIMEOUT
+            )
+        except (TypeError, ValueError):
+            rag_timeout = RAG_HOOK_TIMEOUT
+        rag_timeout = max(0.5, min(rag_timeout, 5.0))
+        context_text = await self._bounded_optional(
+            self.file_reader.build_context(event.unified_msg_origin, query),
+            rag_timeout,
+            "文件语义检索",
+        )
         if not context_text:
             return
         if str(rag_cfg.get("injection_type", "temp_part")) == "prompt":

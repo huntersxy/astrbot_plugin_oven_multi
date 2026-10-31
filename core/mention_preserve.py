@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
-# 保留「@机器人」文本：aiocqhttp 适配器构造 message_str 时会跳过第一个指向
+# 保留「@机器人」文本：部分适配器构造 message_str 时会跳过第一个指向
 # 机器人的 At 段（At 组件本身保留在消息链里），导致模型正文看不到被 @。
 # 本模块把 @文本 补回 message_str（不动消息链），并提供与 AstrBot 原生
 # 「群聊消息记录注入上下文」记录闸门一致的谓词。
@@ -44,11 +44,15 @@ def _find_bot_at(event: AstrMessageEvent):
 def restore_bot_mention(event: AstrMessageEvent) -> bool:
     """把被适配器丢弃的首个 @机器人 补回 message_str。
 
-    仅在 aiocqhttp 生效（其余适配器的正文本就包含 @ 文本）；无正文（裸 @）
+    只对已知会从 message_str 移除机器人 At 的 QQ 适配器生效；无正文（裸 @）
     或已包含该 @ 时不处理。返回是否发生了补回。
     """
     try:
-        if event.get_platform_name() != "aiocqhttp":
+        if event.get_platform_name() not in {
+            "aiocqhttp",
+            "qq_official",
+            "qq_official_webhook",
+        }:
             return False
         if event.get_extra(MENTION_PRESERVED_KEY, False):
             return False

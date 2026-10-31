@@ -26,7 +26,7 @@
 
 ## 开始使用
 
-需要 **AstrBot >= 4.29.1 且 < 5**，支持 **aiocqhttp**（NapCat、Lagrange 等）。思考表情、群消息与 @ 相关能力依赖对应平台接口；Jev 判读需要单独配置 TypeSafe API Key。
+需要 **AstrBot >= 4.29.1 且 < 5**，支持 **aiocqhttp**（NapCat、Lagrange 等）以及 **QQ 官方机器人 WebSocket / Webhook**。思考表情依赖 aiocqhttp 的表情接口；群消息、图片、引用和 @ 会按各平台能力降级；Jev 判读需要单独配置 TypeSafe API Key。
 
 1. 在 AstrBot 插件市场安装，或通过仓库地址安装本插件。
 2. 打开插件配置，按需填写 Jev API Key、文件读取的 Embedding / Rerank Provider 及余额查询 YAML——配置页只保留这些密钥与选择器。
@@ -48,7 +48,7 @@
 - `/网搜 auto|plugin|model|off`：沿用原插件的网页搜索回退模式。公共词库未命中时可使用宿主已配置的搜索服务，无需另存搜索密钥；`off` 关闭网页搜索回退，仍可查询公共梗词库 API。
 - `oven_meme_search`：模型按需查梗工具，优先本地。烤箱之心的正文请求可使用同一工具；自动预查仅处理实际回复目标的文字，不把引用作者的话当作提问。
 
-「梗百科」设置保留原插件的回复形式、预查闸门、存档时效和增量同步参数。模型闸门默认沿用当前会话模型，可在 AstrBot 原生配置页选择独立 Provider。自动同步默认关闭；预查默认最多等待 6 秒，超时会取消查询并继续正常回复。
+「梗百科」设置保留原插件的回复形式、预查闸门、存档时效和增量同步参数。模型闸门默认沿用当前会话模型，可在 AstrBot 原生配置页选择独立 Provider。自动同步默认关闭；本地词库在启动时载入内存，联网预查最多占用 2 秒，超时会取消查询并继续正常回复。
 
 运行数据保存在 `plugin_data/astrbot_plugin_oven_multi/memewiki/`。发现独立梗百科已有的黑话、偏好和存档时，只复制尚未导入的数据，保留原文件；独立插件仍启用时，内置功能自动让路。切换使用前请停用独立梗百科。
 
@@ -84,7 +84,7 @@
 | `max_consecutive_newlines` | 最大保留连续换行数 | `1` |
 
 ### 思考表情 (`iam_thinking`)
-> 仅支持 aiocqhttp 平台（NapCat、Lagrange 等），仅群聊生效。
+> aiocqhttp、QQ 官方机器人 WebSocket 与 Webhook 均可使用；思考表情仅在 aiocqhttp 群聊启用。
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
@@ -297,7 +297,7 @@ services:
 > 支持 pdf / docx / xlsx / xls / ods / pptx / csv / tsv 及常见文本与代码格式（自动检测编码）。旧版 `.doc` / `.ppt` 与压缩包不支持，会给出明确提示。可选安装 `python-magic` 获得精确的 MIME 类型检测，未安装时按扩展名判断。
 >
 > 两种使用方式可同时启用或单独启用：
-> - **预读取 + RAG**：收到文件后自动解析、语义分块并向量化，后续提问自动检索相关内容注入回复上下文（默认以临时内容注入，不写入对话历史）；需要 Embedding Provider，缺少时自动降级，日志中会有提示；
+> - **预读取 + RAG**：收到文件后自动在后台解析、语义分块并向量化，后续提问自动检索相关内容注入回复上下文（默认以临时内容注入，不写入对话历史）；需要 Embedding Provider，缺少时自动降级，日志中会有提示；
 > - **LLM Tool**：LLM 主动调用 `file_list`（列出文件）、`file_read`（读取全文）、`file_search`（语义检索）按需获取内容。
 >
 > 关闭预读取（`preread.enabled = false`）即可得到仅 Tool 的按需读取模式。文件在有效期内保留副本，可反复读取。
@@ -318,6 +318,7 @@ services:
 | `rag.retrieve_top_k` | 每次检索返回的片段数 | `5` |
 | `rag.fetch_k` | 重排序前的候选片段数 | `20` |
 | `rag.enable_rerank` | 启用重排序 | `true` |
+| `rag.retrieval_timeout_sec` | LLM 回复前自动检索最多等待秒数，超时继续回复 | `2.0` |
 | `max_file_size_mb` | 接受的最大文件大小（MB） | `100` |
 | `retention_minutes` | 文件保留时间（分钟），`0` 表示不按时间过期 | `60` |
 | `max_rounds` | 文件最大使用轮数（检索/读取计数），`0` 表示不限 | `5` |
