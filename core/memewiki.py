@@ -2408,6 +2408,18 @@ class MemeWiki:
                 self._miss_cache[query] = now + self._MISS_TTL
                 logger.info(f"[memewiki] 闸门拦下（规则），跳过联网: {query}（{len(raw)} 字）")
                 return
+            if (
+                event.is_private_chat()
+                and verdict is None
+                and not self._asked_term(raw)
+                and not any(word in raw for word in self._INTENT_WORDS)
+            ):
+                # A bare short private phrase is ordinary chat more often than
+                # a lookup request. Local hits already returned above; do not
+                # spend a model gate and network budget on an unknown phrase.
+                self._miss_cache[query] = now + self._MISS_TTL
+                logger.info(f"[memewiki] 私聊短词未明确询问词义，跳过联网闸门: {query}")
+                return
             if verdict is True or self._gate_mode() != "llm":
                 hint = await self._network_stage(event, query, mode, now)
             else:
