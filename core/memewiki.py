@@ -1569,10 +1569,47 @@ class MemeWiki:
                 break
         return t.strip(self._EDGE_CHARS)
 
+    def _known_query_in_text(self, text: str) -> str | None:
+        """从带上下文的目标消息里找出已知词条，优先于句式闸门。
+
+        烤箱之心接管群聊时，冻结的回复目标经常是「哈哈，飞八分钱」这种
+        自然句子；原生模式也可能把 @ 后的整段正文交给这里。已知词条不需要
+        再经过联网闸门，否则本地资料会因为前后多了几个字而完全失效。
+        """
+        candidates: list[str] = []
+        slang = self._find_user_term(text) if getattr(self, "_user_terms", None) else None
+        if slang:
+            candidates.append(slang[0])
+        slang_terms = getattr(self, "_slang", {})
+        candidates.extend(
+            term
+            for term in slang_terms
+            if len(term) >= 2 and term not in self._STOP_WORDS and term in text
+        )
+        local = (
+            self._local_match(text)
+            if getattr(self, "_local_entries", None) or getattr(self, "_titles", None)
+            else None
+        )
+        if local:
+            candidates.append(local)
+        candidates = [
+            term
+            for term in candidates
+            if len(term) >= 2 and term not in self._STOP_WORDS and term in text
+        ]
+        return max(candidates, key=len, default=None)
+
     def _extract_meme_query(self, text: str) -> str | None:
         t = self._clean_text(text)
         if not t:
             return None
+
+        known = self._known_query_in_text(t)
+        if known:
+            logger.debug(f"[memewiki] 从带上下文消息提取已知词条: {known}")
+            return known
+
         m = self._ASK_PATTERN.search(t)
         if m:
             head = t[: m.start()].strip(" ，,。.！!？?")
@@ -2311,7 +2348,8 @@ class MemeWiki:
                 logger.debug("[memewiki] 已注入内置用法说明")
             raw = OvenHeartLink.reply_text(
                 event,
-                "\n".join(part.text for part in event.get_messages() if isinstance(part, Plain)),
+                "\n".join(part.text for part in event.get_messages() if isinstance(part, Plain))
+                or (event.get_message_str() or "").strip(),
             )
             query = self._extract_meme_query(raw)
             if not query:
