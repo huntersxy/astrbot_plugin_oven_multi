@@ -409,6 +409,21 @@ function renderBiliCard(data) {
     disabled: busy,
     idleText: "恢复",
   });
+  const webui = $("bili-webui");
+  const proxyUrl = String(proxy.url || "").replace(/\/$/, "");
+  if (webui) {
+    const showWeb = Boolean(data.enabled && proxyUrl);
+    webui.hidden = !showWeb;
+    if (showWeb) {
+      webui.href = proxyUrl;
+      const loopback = /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:|\/|$)/i.test(proxyUrl);
+      webui.title = loopback
+        ? "代理监听在本机回环地址。若 AstrBot 在容器内，浏览器可能打不开，需映射端口或把 host 改成可访问地址。"
+        : "在新标签打开托管代理地址（官方 Web UI）。";
+    } else {
+      webui.removeAttribute("href");
+    }
+  }
   const guide = $("bili-guide");
   const armed = ["bili-repair", "bili-wire", "bili-restore"].some(
     (id) => $(id)?.dataset.armed === "1",
@@ -799,7 +814,7 @@ const COMMON_SETTINGS = new Set([
   "repetition.repeat_threshold", "remove_blank_lines.max_consecutive_newlines",
   "segment_reply.min_length", "segment_reply.max_length", "segment_reply.delay_type",
   "segment_reply.fixed_delay_seconds", "segment_reply.random_delay_range",
-  "jev.active_reply_enabled", "jev.inject_on_mention", "jev.active_reply_threshold", "jev.active_interval_sec", "bili.mode", "bili.auto_follow", "bili.provider_ids", "bili.prompt_cache_routing",
+  "jev.active_reply_enabled", "jev.inject_on_mention", "jev.active_reply_threshold", "jev.active_interval_sec", "bili.mode", "bili.auto_follow", "bili.provider_ids", "bili.prompt_cache_routing", "bili.debug", "bili.passthrough", "bili.image_rescale", "bili.absorb",
   "file_reader.preread.enabled", "file_reader.tool.enabled", "file_reader.rag.enabled",
   "douyin.check_interval", "douyin.notify_on_live", "douyin.notify_on_offline", "douyin.notify_with_cover",
   "memewiki.reply_mode", "memewiki.search_mode", "memewiki.gate_mode", "memewiki.inject_guidance", "memewiki.auto_sync_enable",

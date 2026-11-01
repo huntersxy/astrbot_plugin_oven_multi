@@ -157,8 +157,10 @@ input, textarea, select { caret-color: var(--accent); }
 .bili-head > div { min-width: 0; }
 .bili-head h3 { font-size: 13px; }
 .bili-actions { display: flex; flex-wrap: wrap; gap: 8px; flex: none; justify-content: flex-end; }
+.bili-actions a.button { text-decoration: none; display: inline-flex; align-items: center; }
 .bili-guide { margin: 10px 0 0; line-height: 1.7; color: var(--muted); }
 .bili-guide[hidden] { display: none; }
+#bili-quick-note { margin-top: 8px; }
 .bili-feedback { margin: 10px 0 0; }
 .bili-feedback[hidden] { display: none; }
 .bili-feedback.ok { color: var(--accent); background: var(--tint); }

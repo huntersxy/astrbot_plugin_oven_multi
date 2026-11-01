@@ -184,6 +184,10 @@ GROUP_PATHS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "bili.auto_follow",
             "bili.session_header",
             "bili.prompt_cache_routing",
+            "bili.debug",
+            "bili.passthrough",
+            "bili.image_rescale",
+            "bili.absorb",
             "bili.health_interval_sec",
         ),
     ),
@@ -228,6 +232,7 @@ GROUP_NOTES: dict[str, str] = {
         "开启并保存后自动安装、启动代理并接管当前聊天模型。"
         "关闭自动安装时仍可点击「安装／重试」；托管包可用「更新」或闲置自动升级。"
         "外部模式或自定义路径请自行更新代理。安装与升级需要 Node ≥20 和 npm。"
+        "下方 debug／透传／降采样／蒸馏／prompt_cache_key 为代理快速配置，托管模式保存后写入 billion-context.json 并热生效。"
         "中转站／号池请把「prompt_cache_key 注入」设为 auto 或 enabled，避免缓存亲和丢失。"
     ),
 }

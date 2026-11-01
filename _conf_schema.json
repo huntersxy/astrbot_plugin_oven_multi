@@ -597,6 +597,30 @@
         ],
         "default": "auto"
       },
+      "debug": {
+        "description": "调试日志",
+        "hint": "写入托管 billion-context 的 debug。开启后逐请求详细日志；保存后热生效。外部模式请在代理自身配置里改。",
+        "type": "bool",
+        "default": false
+      },
+      "passthrough": {
+        "description": "透传模式",
+        "hint": "写入托管 billion-context 的 passthrough。开启后不做压缩与工具注入，纯代理转发。外部模式请在代理自身配置里改。",
+        "type": "bool",
+        "default": false
+      },
+      "image_rescale": {
+        "description": "出站图片降采样",
+        "hint": "写入托管 billion-context 的 imageRescale。开启后大图缩小后再发给模型，原图仍保留在本地会话存储（默认开）。最长边阈值可用环境变量 BILI_IMAGE_RESCALE_MAX_DIM（默认 1600）。外部模式请在代理自身配置里改。",
+        "type": "bool",
+        "default": true
+      },
+      "absorb": {
+        "description": "工具结果即时蒸馏",
+        "hint": "写入托管 billion-context 的 compress.absorb.enabled。开启后大工具结果到达即由模型蒸馏，原文隐藏至下一轮折叠（默认关）。外部模式请在代理自身配置里改。",
+        "type": "bool",
+        "default": false
+      },
       "health_interval_sec": {
         "description": "健康检查间隔（秒）",
         "hint": "managed 模式周期检查代理进程与健康端点，进程死亡自动重启。",
