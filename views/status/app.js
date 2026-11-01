@@ -799,7 +799,7 @@ const COMMON_SETTINGS = new Set([
   "repetition.repeat_threshold", "remove_blank_lines.max_consecutive_newlines",
   "segment_reply.min_length", "segment_reply.max_length", "segment_reply.delay_type",
   "segment_reply.fixed_delay_seconds", "segment_reply.random_delay_range",
-  "jev.active_reply_enabled", "jev.inject_on_mention", "jev.active_reply_threshold", "jev.active_interval_sec", "bili.mode", "bili.auto_follow", "bili.provider_ids",
+  "jev.active_reply_enabled", "jev.inject_on_mention", "jev.active_reply_threshold", "jev.active_interval_sec", "bili.mode", "bili.auto_follow", "bili.provider_ids", "bili.prompt_cache_routing",
   "file_reader.preread.enabled", "file_reader.tool.enabled", "file_reader.rag.enabled",
   "douyin.check_interval", "douyin.notify_on_live", "douyin.notify_on_offline", "douyin.notify_with_cover",
   "memewiki.reply_mode", "memewiki.search_mode", "memewiki.gate_mode", "memewiki.inject_guidance", "memewiki.auto_sync_enable",

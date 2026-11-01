@@ -53,6 +53,7 @@ _HEALTH_TIMEOUT_SEC = 2.0
 _STARTUP_WAIT_SEC = 20.0
 _MAX_CONSECUTIVE_FAILURES = 3
 _DEFAULT_UPDATE_CHECK_SEC = 6 * 3600
+_PROMPT_CACHE_ROUTING = frozenset({"auto", "enabled", "disabled"})
 _IDLE_POLL_SEC = 2.0
 _MANUAL_IDLE_WAIT_SEC = 180.0
 
@@ -313,6 +314,53 @@ class BiliProxyManager:
 
     # ── bili 配置播种 ────────────────────────────────────────────────────
 
+    def resolved_prompt_cache_routing(self) -> str:
+        """Normalize the panel setting for billion-context promptCache.routing."""
+        raw = str(self._cfg_get().get("prompt_cache_routing") or "auto").strip().lower()
+        return raw if raw in _PROMPT_CACHE_ROUTING else "auto"
+
+    def sync_prompt_cache_routing(self) -> tuple[bool, str]:
+        """Merge panel ``prompt_cache_routing`` into managed ``billion-context.json``.
+
+        External proxies keep their own config; managed installs own this file and
+        bili hot-reads it, so panel saves can take effect without rewriting other
+        keys. Missing files are created with the same minimal seed as startup.
+        """
+        if str(self._cfg_get().get("mode") or "managed") != "managed":
+            return True, ""
+        wanted = self.resolved_prompt_cache_routing()
+        path = self.bili_config_path
+        if path.exists():
+            try:
+                loaded = json.loads(path.read_text(encoding="utf-8-sig"))
+            except (OSError, ValueError):
+                return False, "无法解析 bili 配置文件以同步 promptCache.routing。"
+            if not isinstance(loaded, dict):
+                return False, "bili 配置文件不是对象，无法同步 promptCache.routing。"
+            data = loaded
+        else:
+            data = {
+                "sessionHeader": self._expected_session_header,
+                "providers": {},
+                "autoUpdate": False,
+            }
+        block = data.get("promptCache")
+        if not isinstance(block, dict):
+            block = {}
+            data["promptCache"] = block
+        if block.get("routing") == wanted:
+            return True, ""
+        block["routing"] = wanted
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+        except OSError:
+            return False, "写入 promptCache.routing 失败，请检查插件数据目录权限。"
+        return True, f"已同步 promptCache.routing={wanted}"
+
     def seed_or_validate_config(self) -> tuple[bool, str]:
         """托管配置文件播种：缺失则写入最小配置，绝不覆盖已存在文件。
 
@@ -329,17 +377,23 @@ class BiliProxyManager:
                 return False, "bili 配置文件不是对象，请检查。"
             current = data.get("sessionHeader")
             if current == expected:
-                return True, ""
+                ok, detail = self.sync_prompt_cache_routing()
+                return ok, detail
             return (
                 False,
                 f"bili 配置的 sessionHeader={current!r} 与预期 {expected!r} 不一致，"
                 "请在面板「上下文压缩」的会话头名称与 bili 配置之间统一。",
             )
         # Managed installs own npm updates; keep bili's global self-updater off.
-        seed = {"sessionHeader": expected, "providers": {}, "autoUpdate": False}
+        seed = {
+            "sessionHeader": expected,
+            "providers": {},
+            "autoUpdate": False,
+            "promptCache": {"routing": self.resolved_prompt_cache_routing()},
+        }
         self.bili_config_path.parent.mkdir(parents=True, exist_ok=True)
         self.bili_config_path.write_text(
-            json.dumps(seed, ensure_ascii=False, indent=2), encoding="utf-8"
+            json.dumps(seed, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
         return True, "已播种 bili 配置。"
 
@@ -459,6 +513,11 @@ class BiliProxyManager:
         self.state = state
         self.detail = ""
         self._failures = 0
+        # Panel routing changes must reach a reused managed proxy without respawn.
+        if str(self._cfg_get().get("mode") or "managed") == "managed":
+            ok, detail = self.sync_prompt_cache_routing()
+            if not ok and detail:
+                self.detail = detail
         await self.verify_session_header()
         self._refresh_installed_version()
         self._start_monitor()

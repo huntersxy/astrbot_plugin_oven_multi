@@ -586,6 +586,17 @@
         "type": "string",
         "default": "x-astrbot-conversation-id"
       },
+      "prompt_cache_routing": {
+        "description": "prompt_cache_key 注入",
+        "hint": "写入托管 billion-context 的 promptCache.routing。auto/enabled：按会话注入 OpenAI prompt_cache_key，适合按该字段做前缀缓存亲和的中转站或号池；disabled：不自注入（上游拒收该字段或直连官方 API 时可关）。客户端自己带的 key 始终原样转发。外部模式请在代理自身配置里改。",
+        "type": "string",
+        "options": [
+          "auto",
+          "enabled",
+          "disabled"
+        ],
+        "default": "auto"
+      },
       "health_interval_sec": {
         "description": "健康检查间隔（秒）",
         "hint": "managed 模式周期检查代理进程与健康端点，进程死亡自动重启。",
