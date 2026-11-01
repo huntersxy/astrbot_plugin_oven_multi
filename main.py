@@ -1101,8 +1101,8 @@ class OvenMultiPlugin(Star):
         await self.bili_proxy.verify_session_header()
         if not healthy:
             return {"success": False, "message": "代理健康检查未通过，已拒绝修复。请先安装／重试。"}
-        if self.bili_proxy.session_header_state != "ok":
-            return {"success": False, "message": "会话标识未验证，已拒绝修复。"}
+        # Repair only rewrites existing records back onto a healthy proxy.
+        # Reused/external instances may not expose sessionHeader; do not block repair.
         host, port = self._bili_endpoint()
         result = self.bili_wire.repair(
             host, port, health_check=lambda: self.bili_proxy.healthy
@@ -1111,14 +1111,20 @@ class OvenMultiPlugin(Star):
             return {"success": False, "message": result["message"]}
         self.bili_auto.paused = False
         self.bili_auto.message = ""
-        if cfg.get("enabled", False) and cfg.get("auto_follow", True):
+        header_note = ""
+        if self.bili_proxy.session_header_state != "ok":
+            header_note = (
+                f" 会话标识仍为 {self.bili_proxy.session_header_state}，"
+                "自动跟随可能受限；配置地址已修复。"
+            )
+        elif cfg.get("enabled", False) and cfg.get("auto_follow", True):
             await self.bili_auto.follow(initial=True)
             if self.bili_auto.message:
-                result = {
-                    **result,
-                    "message": f"{result['message']} 自动跟随：{self.bili_auto.message}",
-                }
-        return {"success": True, "data": {"message": result["message"]}}
+                header_note = f" 自动跟随：{self.bili_auto.message}"
+        return {
+            "success": True,
+            "data": {"message": f"{result['message']}{header_note}".strip()},
+        }
 
     # ── 工具方法 ─────────────────────────────────────────────────────────
 
@@ -1240,21 +1246,29 @@ class OvenMultiPlugin(Star):
         if not healthy:
             yield event.plain_result("代理健康检查未通过，已拒绝修复。请先安装／重试。")
             return
-        if self.bili_proxy.session_header_state != "ok":
-            yield event.plain_result("会话标识未验证，已拒绝修复。")
-            return
         host, port = self._bili_endpoint()
         result = self.bili_wire.repair(host, port, health_check=lambda: self.bili_proxy.healthy)
         if result["ok"]:
             self.bili_auto.paused = False
             self.bili_auto.message = ""
-            if feature_cfg(self.config, FEATURE_BILI).get("auto_follow", True):
+            if (
+                self.bili_proxy.session_header_state == "ok"
+                and feature_cfg(self.config, FEATURE_BILI).get("auto_follow", True)
+            ):
                 await self.bili_auto.follow(initial=True)
                 if self.bili_auto.message:
                     result = {
                         **result,
                         "message": f"{result['message']} 自动跟随：{self.bili_auto.message}",
                     }
+            elif self.bili_proxy.session_header_state != "ok":
+                result = {
+                    **result,
+                    "message": (
+                        f"{result['message']} 会话标识仍为 "
+                        f"{self.bili_proxy.session_header_state}，自动跟随可能受限。"
+                    ),
+                }
         yield event.plain_result(result["message"])
 
     @filter.permission_type(filter.PermissionType.ADMIN)

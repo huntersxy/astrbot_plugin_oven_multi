@@ -104,6 +104,26 @@ function setError(id, message) {
   $(id).hidden = !message;
 }
 
+function setBiliFeedback(message, kind = "ok") {
+  const el = $("bili-feedback");
+  if (!el) return;
+  el.textContent = message || "";
+  el.hidden = !message;
+  el.className = message
+    ? `message bili-feedback ${kind === "error" ? "error" : "ok"}`
+    : "message bili-feedback";
+}
+
+function syncBiliButton(id, { hidden, disabled, idleText }) {
+  const button = $(id);
+  if (!button) return;
+  button.hidden = hidden;
+  // Keep an in-progress confirm/action label; the 3s status poll must not wipe it.
+  if (state.biliBusy || button.dataset.armed === "1") return;
+  button.disabled = disabled;
+  if (idleText !== undefined) button.textContent = idleText;
+}
+
 function clearMemeEditor() {
   $("meme-form").reset();
   state.memeDirty = false;
@@ -356,28 +376,46 @@ function renderBiliCard(data) {
   $("bili-state").textContent = `上下文压缩：${stateText}`;
   $("bili-detail").textContent = detail;
   const busy = Boolean(data.busy || proxy.busy || update.updating || update.checking);
-  $("bili-install").hidden = !(data.enabled && proxy.mode !== "external" && !proxy.healthy);
-  $("bili-install").disabled = busy;
-  $("bili-install").textContent = busy ? "安装／启动中…" : "安装／重试";
+  syncBiliButton("bili-install", {
+    hidden: !(data.enabled && proxy.mode !== "external" && !proxy.healthy),
+    disabled: busy,
+    idleText: busy ? "安装／启动中…" : "安装／重试",
+  });
   const canUpdate = Boolean(
     data.enabled && update.supported && (update.available || update.pending_restart || update.installed),
   );
-  $("bili-update").hidden = !canUpdate;
-  $("bili-update").disabled = busy;
-  if (update.updating) $("bili-update").textContent = "更新中…";
-  else if (update.checking) $("bili-update").textContent = "检查中…";
-  else if (update.available) $("bili-update").textContent = "更新";
-  else if (update.pending_restart) $("bili-update").textContent = "已下载，待重启";
-  else $("bili-update").textContent = "检查更新";
-  $("bili-repair").hidden = !(wire && data.repair_needed);
-  $("bili-repair").disabled = busy || !proxy.healthy;
-  $("bili-repair").textContent = "修复接管";
-  $("bili-wire").hidden = !(data.enabled && !wire);
-  $("bili-wire").disabled = busy || !proxy.healthy;
-  $("bili-restore").hidden = !wire;
-  $("bili-restore").textContent = "恢复";
+  let updateText = "检查更新";
+  if (update.updating) updateText = "更新中…";
+  else if (update.checking) updateText = "检查中…";
+  else if (update.available) updateText = "更新";
+  else if (update.pending_restart) updateText = "已下载，待重启";
+  syncBiliButton("bili-update", {
+    hidden: !canUpdate,
+    disabled: busy,
+    idleText: updateText,
+  });
+  syncBiliButton("bili-repair", {
+    hidden: !(wire && data.repair_needed),
+    disabled: busy || !proxy.healthy,
+    idleText: "修复接管",
+  });
+  syncBiliButton("bili-wire", {
+    hidden: !(data.enabled && !wire),
+    disabled: busy || !proxy.healthy,
+    idleText: "接管",
+  });
+  syncBiliButton("bili-restore", {
+    hidden: !wire,
+    disabled: busy,
+    idleText: "恢复",
+  });
   const guide = $("bili-guide");
-  if (data.guide) {
+  const armed = ["bili-repair", "bili-wire", "bili-restore"].some(
+    (id) => $(id)?.dataset.armed === "1",
+  );
+  if (armed) {
+    // Keep the confirm hint while waiting for the second click.
+  } else if (data.guide) {
     guide.hidden = false;
     guide.textContent = data.guide;
   } else {
@@ -415,15 +453,21 @@ async function biliAction(kind) {
   }[kind];
   const button = $(`bili-${kind}`);
   button.disabled = true;
+  button.textContent = kind === "repair" ? "修复中…" : label + "中…";
+  setBiliFeedback(kind === "repair" ? "正在修复接管，请稍候…" : "正在执行，请稍候…");
   try {
     const data = unwrap(
       await window.AstrBotPluginPage.apiPost(`billion/${kind}`, { confirm: true }),
     );
-    $("announcer").textContent = data.message || "操作完成";
+    const message = data.message || "操作完成";
+    $("announcer").textContent = message;
     setError("settings-error", "");
+    setBiliFeedback(message, "ok");
     loadStatus();
   } catch (error) {
-    setError("settings-error", error.message || "操作失败，请稍后重试。");
+    const message = error.message || "操作失败，请稍后重试。";
+    setError("settings-error", message);
+    setBiliFeedback(message, "error");
   } finally {
     state.biliBusy = false;
     button.disabled = false;
@@ -445,18 +489,29 @@ function armBiliButton(kind) {
     restore: "恢复",
     repair: "修复接管",
   }[kind];
+  const hint = {
+    wire: "再点一次「确认接管」才会改模型地址。",
+    restore: "再点一次「确认撤销接管」才会还原原地址并停用压缩路由。",
+    repair: "再点一次「确认修复接管」才会清理失效记录并重新指回代理。",
+  }[kind];
   if (button.dataset.armed === "1") {
     biliAction(kind);
     return;
   }
   button.dataset.armed = "1";
+  button.disabled = false;
   button.textContent = confirmLabel || "再次点击确认";
+  const guide = $("bili-guide");
+  guide.hidden = false;
+  guide.textContent = hint || "请再点一次确认。";
+  setBiliFeedback(hint || "请再点一次确认。", "ok");
   setTimeout(() => {
     if (button.dataset.armed === "1") {
       button.dataset.armed = "";
       button.textContent = idleLabel || button.textContent;
+      setBiliFeedback("确认已超时，请重新点击。", "error");
     }
-  }, 5000);
+  }, 8000);
 }
 
 function quantity(value) {
