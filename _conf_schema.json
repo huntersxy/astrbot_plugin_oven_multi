@@ -621,6 +621,54 @@
         "type": "bool",
         "default": false
       },
+      "log": {
+        "description": "请求日志",
+        "hint": "写入托管 billion-context 的 log。关闭后不再逐请求打常规日志。外部模式请在代理自身配置里改。",
+        "type": "bool",
+        "default": true
+      },
+      "fork_adoption": {
+        "description": "Fork 会话继承压缩块",
+        "hint": "写入 forkAdoption。匿名 fork 会话可继承父会话中仍完整存在的压缩块（默认关）。",
+        "type": "bool",
+        "default": false
+      },
+      "affinity_simhash": {
+        "description": "Simhash 会话对齐",
+        "hint": "写入 affinitySimhash。客户端装饰性改写消息时尝试挂回既有会话并保留压缩状态（默认开）。",
+        "type": "bool",
+        "default": true
+      },
+      "resume_inheritance": {
+        "description": "恢复会话继承",
+        "hint": "写入 resumeInheritance。以新会话 id 恢复时继承父会话引用编号与完整压缩块（默认开）。",
+        "type": "bool",
+        "default": true
+      },
+      "subagent_split": {
+        "description": "子代理独立会话",
+        "hint": "写入 subagentSplit。Claude 子代理使用独立会话命名空间，不与主会话抢锁（默认开）。",
+        "type": "bool",
+        "default": true
+      },
+      "mask_hosts": {
+        "description": "日志遮盖主机名",
+        "hint": "写入 maskHosts。日志中遮盖非公开目标主机；凭据头始终遮盖（默认开）。",
+        "type": "bool",
+        "default": true
+      },
+      "cache_keepalive": {
+        "description": "前缀缓存保活",
+        "hint": "写入 cacheKeepalive.enabled。Anthropic 线路空闲时以极小请求维持上游前缀缓存温热（默认关，会产生额外调用）。",
+        "type": "bool",
+        "default": false
+      },
+      "stable_system_anchor": {
+        "description": "稳定 system 锚点",
+        "hint": "写入 stableSystemAnchor。客户端改动头部 system 时仍重发首次见到的字节，利于前缀缓存（默认关，仅纯代理通道）。",
+        "type": "bool",
+        "default": false
+      },
       "health_interval_sec": {
         "description": "健康检查间隔（秒）",
         "hint": "managed 模式周期检查代理进程与健康端点，进程死亡自动重启。",

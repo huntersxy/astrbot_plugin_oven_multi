@@ -2,6 +2,7 @@
 
 ## 未发布
 
+- 1.61.4：上下文压缩「都扩」——快速配置增补 log／缓存保活／fork 继承／simhash／恢复继承／子代理隔离／主机遮盖／稳定 system 锚点；状态卡增加托管 `billion-context.json` 全文编辑器（校验 sessionHeader、强制 autoUpdate=false）；回环 host 时提示如何暴露官方 Web UI。
 - 1.61.3：上下文压缩补齐 bili 快速配置面板——`debug`／透传／出站图片降采样／工具结果蒸馏与已有 `prompt_cache_key` 注入一并写入托管 `billion-context.json` 并热生效；状态卡增加「打开 Web UI」与说明。外部模式仍改代理自身配置。
 - 1.61.2：上下文压缩设置新增「prompt_cache_key 注入」（`bili.prompt_cache_routing`），托管模式写入 `billion-context.json` 的 `promptCache.routing` 并热生效；默认 `auto`，中转站／号池可维持前缀缓存亲和，上游拒收该字段时可改为 `disabled`。
 - 1.61.1：修复「修复接管」像没反应的问题——状态轮询不再冲掉二次确认文案；卡片内显示可见成功/失败提示；复用代理时不再因会话头未暴露而拒绝修复。

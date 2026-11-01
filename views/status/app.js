@@ -13,6 +13,9 @@ const state = {
   settingsDirty: false,
   settingsRevision: null,
   biliBusy: false,
+  biliConfigLoaded: false,
+  biliConfigDirty: false,
+  biliConfigBusy: false,
   settingsCategory: "消息与回复",
   compressionBusy: false,
   compressionLoaded: false,
@@ -416,13 +419,19 @@ function renderBiliCard(data) {
     webui.hidden = !showWeb;
     if (showWeb) {
       webui.href = proxyUrl;
-      const loopback = /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:|\/|$)/i.test(proxyUrl);
+      const loopback = /^(https?:\/\/)?(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/i.test(proxyUrl);
       webui.title = loopback
-        ? "代理监听在本机回环地址。若 AstrBot 在容器内，浏览器可能打不开，需映射端口或把 host 改成可访问地址。"
+        ? "代理监听在本机回环地址。若 AstrBot 在容器内，浏览器可能打不开：映射端口，或把 host 改为 0.0.0.0（仅限可信网络）。"
         : "在新标签打开托管代理地址（官方 Web UI）。";
     } else {
       webui.removeAttribute("href");
     }
+  }
+  const configPanel = $("bili-config-panel");
+  if (configPanel) {
+    const editable = Boolean(data.config_editable);
+    configPanel.hidden = !editable;
+    if (editable && !state.biliConfigLoaded) loadBiliConfig(false);
   }
   const guide = $("bili-guide");
   const armed = ["bili-repair", "bili-wire", "bili-restore"].some(
@@ -453,6 +462,51 @@ async function loadBiliCard() {
     renderBiliCard(data);
   } catch (error) {
     console.warn("Oven Multi bili status request failed", error?.name);
+  }
+}
+
+async function loadBiliConfig(force = true) {
+  const area = $("bili-config-json");
+  const pathHint = $("bili-config-path");
+  if (!area) return;
+  if (!force && state.biliConfigLoaded && !state.biliConfigDirty) return;
+  try {
+    const data = unwrap(await window.AstrBotPluginPage.apiGet("billion/config"));
+    area.value = data.text || "";
+    if (pathHint) pathHint.textContent = data.path ? `文件：${data.path}` : "";
+    state.biliConfigLoaded = true;
+    state.biliConfigDirty = false;
+  } catch (error) {
+    setBiliFeedback(error.message || "读取配置失败。", "error");
+  }
+}
+
+async function saveBiliConfig() {
+  const area = $("bili-config-json");
+  const button = $("bili-config-save");
+  if (!area || state.biliConfigBusy) return;
+  state.biliConfigBusy = true;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "保存中…";
+  }
+  try {
+    const data = unwrap(
+      await window.AstrBotPluginPage.apiPost("billion/config", { text: area.value }),
+    );
+    setBiliFeedback(data.message || "配置已保存。", "ok");
+    state.biliConfigDirty = false;
+    state.biliConfigLoaded = true;
+    await loadBiliConfig(true);
+    loadBiliCard();
+  } catch (error) {
+    setBiliFeedback(error.message || "保存配置失败。", "error");
+  } finally {
+    state.biliConfigBusy = false;
+    if (button) {
+      button.disabled = false;
+      button.textContent = "保存配置文件";
+    }
   }
 }
 
@@ -814,7 +868,7 @@ const COMMON_SETTINGS = new Set([
   "repetition.repeat_threshold", "remove_blank_lines.max_consecutive_newlines",
   "segment_reply.min_length", "segment_reply.max_length", "segment_reply.delay_type",
   "segment_reply.fixed_delay_seconds", "segment_reply.random_delay_range",
-  "jev.active_reply_enabled", "jev.inject_on_mention", "jev.active_reply_threshold", "jev.active_interval_sec", "bili.mode", "bili.auto_follow", "bili.provider_ids", "bili.prompt_cache_routing", "bili.debug", "bili.passthrough", "bili.image_rescale", "bili.absorb",
+  "jev.active_reply_enabled", "jev.inject_on_mention", "jev.active_reply_threshold", "jev.active_interval_sec", "bili.mode", "bili.auto_follow", "bili.provider_ids", "bili.prompt_cache_routing", "bili.debug", "bili.log", "bili.passthrough", "bili.image_rescale", "bili.absorb", "bili.cache_keepalive",
   "file_reader.preread.enabled", "file_reader.tool.enabled", "file_reader.rag.enabled",
   "douyin.check_interval", "douyin.notify_on_live", "douyin.notify_on_offline", "douyin.notify_with_cover",
   "memewiki.reply_mode", "memewiki.search_mode", "memewiki.gate_mode", "memewiki.inject_guidance", "memewiki.auto_sync_enable",
@@ -919,9 +973,11 @@ async function saveSettings() {
     );
     state.settingsRevision = data.revision;
     state.settingsDirty = false;
+    state.biliConfigLoaded = false;
     updateSettingsFooter();
     $("announcer").textContent = "设置已保存";
     loadStatus();
+    if ($("bili-config-panel")?.open) loadBiliConfig(true);
   } catch (error) {
     setError("settings-error", error.message || "保存失败，请稍后重试。");
     if (error.stale) {
@@ -950,6 +1006,12 @@ $("bili-install").addEventListener("click", () => biliAction("install"));
 $("bili-update").addEventListener("click", () => biliAction("update"));
 $("bili-repair").addEventListener("click", () => armBiliButton("repair"));
 $("bili-restore").addEventListener("click", () => armBiliButton("restore"));
+$("bili-config-reload")?.addEventListener("click", () => loadBiliConfig(true));
+$("bili-config-save")?.addEventListener("click", saveBiliConfig);
+$("bili-config-json")?.addEventListener("input", () => { state.biliConfigDirty = true; });
+$("bili-config-panel")?.addEventListener("toggle", () => {
+  if ($("bili-config-panel").open) loadBiliConfig(false);
+});
 $("save-settings").addEventListener("click", saveSettings);
 window.addEventListener("beforeunload", (event) => {
   if (state.settingsDirty || state.memeDirty) event.preventDefault();

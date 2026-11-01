@@ -268,6 +268,18 @@ class OvenMultiPlugin(Star):
                 "POST",
                 "Oven Multi repair drifted billion-context wiring",
             ),
+            (
+                f"/{PLUGIN_NAME}/billion/config",
+                self._api_billion_config_get,
+                "GET",
+                "Oven Multi read managed billion-context.json",
+            ),
+            (
+                f"/{PLUGIN_NAME}/billion/config",
+                self._api_billion_config_save,
+                "POST",
+                "Oven Multi write managed billion-context.json",
+            ),
         ):
             self.context.register_web_api(route, handler, [method], description)
 
@@ -911,6 +923,13 @@ class OvenMultiPlugin(Star):
                     update.get("last_message")
                     or "新版本已下载，请重启当前代理进程后生效。"
                 )
+            host = str(cfg.get("host") or "127.0.0.1").strip().lower()
+            if host in {"127.0.0.1", "localhost", "::1"}:
+                doctor.append(
+                    "代理 host 为回环地址时，浏览器上的「打开 Web UI」可能打不开；"
+                    "可把 host 改为 0.0.0.0（仅限可信网络，无鉴权）并映射端口，"
+                    "或用下方 JSON 编辑器改完整配置。"
+                )
         return {
             "success": True,
             "data": {
@@ -924,8 +943,45 @@ class OvenMultiPlugin(Star):
                 "requests": self.bili_requests.status(),
                 "auto_follow": feature_cfg(self.config, FEATURE_BILI).get("auto_follow", True),
                 "auto_follow_paused": self.bili_auto.paused,
+                "config_editable": str(cfg.get("mode") or "managed") == "managed",
             },
         }
+
+    async def _api_billion_config_get(self):
+        """Read managed billion-context.json for the panel editor."""
+        ok, payload = self.bili_proxy.read_managed_config_text()
+        if not ok:
+            return {"success": False, "message": payload}
+        return {
+            "success": True,
+            "data": {
+                "text": payload,
+                "path": str(self.bili_proxy.bili_config_path),
+                "mode": str(feature_cfg(self.config, FEATURE_BILI).get("mode") or "managed"),
+            },
+        }
+
+    async def _api_billion_config_save(self):
+        """Replace managed billion-context.json from panel editor text."""
+        try:
+            raw = await request.body()
+            if len(raw) > 600_000:
+                raise ValueError("请求内容过大。")
+            try:
+                body = json.loads(raw)
+            except (ValueError, UnicodeDecodeError) as exc:
+                raise ValueError("请求不是有效的 JSON。") from exc
+            if not isinstance(body, dict) or "text" not in body:
+                raise ValueError("请提交 text 字段。")
+            ok, message = self.bili_proxy.write_managed_config_text(str(body.get("text") or ""))
+            if not ok:
+                return {"success": False, "message": message}
+            return {"success": True, "data": {"message": message}}
+        except ValueError as exc:
+            return {"success": False, "message": str(exc)}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[烤箱-压缩] 保存配置失败：{type(exc).__name__}")
+            return {"success": False, "message": "保存配置失败，请查看插件日志。"}
 
     def _bili_guide(self, wired: bool, repair_needed: bool) -> str:
         """Short panel hint explaining the action buttons."""

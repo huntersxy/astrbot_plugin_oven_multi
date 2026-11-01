@@ -112,9 +112,19 @@
           </span>
         </div>
         <p id="bili-guide" class="bili-guide setting-hint" hidden></p>
-        <p id="bili-quick-note" class="bili-guide setting-hint">下方设置为代理快速配置（debug／透传／降采样／蒸馏／prompt_cache_key），托管模式保存后写入 billion-context.json 并热生效。外部模式请改代理自身配置。</p>
+        <p id="bili-quick-note" class="bili-guide setting-hint">下方开关为代理快速配置，托管模式保存设置后写入 billion-context.json 并热生效。完整项用下方 JSON 编辑器或「打开 Web UI」。外部模式请改代理自身配置。</p>
         <p id="bili-feedback" class="message bili-feedback" role="status" hidden></p>
         <ul id="bili-doctor" class="bili-doctor" aria-live="polite"></ul>
+        <details id="bili-config-panel" class="bili-config-panel" hidden>
+          <summary>完整配置（billion-context.json）</summary>
+          <p id="bili-config-path" class="setting-hint"></p>
+          <textarea id="bili-config-json" spellcheck="false" rows="18" aria-label="billion-context.json"></textarea>
+          <div class="bili-config-actions">
+            <button id="bili-config-reload" class="button secondary" type="button">重新读取</button>
+            <button id="bili-config-save" class="button primary" type="button">保存配置文件</button>
+          </div>
+          <p class="setting-hint">须保持 sessionHeader 为 x-astrbot-conversation-id；托管模式会强制 autoUpdate=false。语法错误不会写入。</p>
+        </details>
         <p class="bili-credit">压缩引擎：<a href="https://github.com/ranxianglei/billion-context" target="_blank" rel="noopener noreferrer">billion-context</a> · <a href="https://github.com/ranxianglei/acp-kernel" target="_blank" rel="noopener noreferrer">acp-kernel</a></p>
       </div>
       <div id="settings-loading" class="loading" role="status">正在读取设置…<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>

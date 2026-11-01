@@ -161,6 +161,15 @@ input, textarea, select { caret-color: var(--accent); }
 .bili-guide { margin: 10px 0 0; line-height: 1.7; color: var(--muted); }
 .bili-guide[hidden] { display: none; }
 #bili-quick-note { margin-top: 8px; }
+.bili-config-panel { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line, rgba(127,127,127,.25)); }
+.bili-config-panel[hidden] { display: none; }
+.bili-config-panel summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.bili-config-panel textarea {
+  width: 100%; margin-top: 8px; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px; line-height: 1.5; min-height: 220px; resize: vertical;
+  background: var(--surface, #111); color: inherit; border: 1px solid var(--line, rgba(127,127,127,.35)); border-radius: 8px; padding: 10px;
+}
+.bili-config-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .bili-feedback { margin: 10px 0 0; }
 .bili-feedback[hidden] { display: none; }
 .bili-feedback.ok { color: var(--accent); background: var(--tint); }

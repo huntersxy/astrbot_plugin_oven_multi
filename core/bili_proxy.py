@@ -54,6 +54,21 @@ _STARTUP_WAIT_SEC = 20.0
 _MAX_CONSECUTIVE_FAILURES = 3
 _DEFAULT_UPDATE_CHECK_SEC = 6 * 3600
 _PROMPT_CACHE_ROUTING = frozenset({"auto", "enabled", "disabled"})
+# Panel bool key → nested path in billion-context.json (defaults match upstream).
+_QUICK_BOOL_FIELDS: tuple[tuple[str, tuple[str, ...], bool], ...] = (
+    ("debug", ("debug",), False),
+    ("log", ("log",), True),
+    ("passthrough", ("passthrough",), False),
+    ("image_rescale", ("imageRescale",), True),
+    ("absorb", ("compress", "absorb", "enabled"), False),
+    ("cache_keepalive", ("cacheKeepalive", "enabled"), False),
+    ("fork_adoption", ("forkAdoption",), False),
+    ("affinity_simhash", ("affinitySimhash",), True),
+    ("resume_inheritance", ("resumeInheritance",), True),
+    ("subagent_split", ("subagentSplit",), True),
+    ("mask_hosts", ("maskHosts",), True),
+    ("stable_system_anchor", ("stableSystemAnchor",), False),
+)
 _IDLE_POLL_SEC = 2.0
 _MANUAL_IDLE_WAIT_SEC = 180.0
 
@@ -319,17 +334,24 @@ class BiliProxyManager:
         raw = str(self._cfg_get().get("prompt_cache_routing") or "auto").strip().lower()
         return raw if raw in _PROMPT_CACHE_ROUTING else "auto"
 
-    def managed_quick_config(self) -> dict:
-        """Panel quick-config values mapped onto billion-context.json keys."""
+    def managed_quick_paths(self) -> list[tuple[tuple[str, ...], object]]:
+        """Panel quick-config as ``(json_path, value)`` pairs for merge writes."""
         cfg = self._cfg_get()
-        absorb = cfg.get("absorb", False)
-        return {
-            "debug": bool(cfg.get("debug", False)),
-            "passthrough": bool(cfg.get("passthrough", False)),
-            "imageRescale": bool(cfg.get("image_rescale", True)),
-            "promptCache": {"routing": self.resolved_prompt_cache_routing()},
-            "compress": {"absorb": {"enabled": bool(absorb)}},
-        }
+        pairs: list[tuple[tuple[str, ...], object]] = [
+            (path, bool(cfg.get(key, default)))
+            for key, path, default in _QUICK_BOOL_FIELDS
+        ]
+        pairs.append(
+            (("promptCache", "routing"), self.resolved_prompt_cache_routing())
+        )
+        return pairs
+
+    def managed_quick_config(self) -> dict:
+        """Panel quick-config nested dict used when seeding a new file."""
+        data: dict = {}
+        for path, value in self.managed_quick_paths():
+            self._nested_set(data, path, value)
+        return data
 
     @staticmethod
     def _nested_set(data: dict, path: tuple[str, ...], value) -> bool:
@@ -347,6 +369,33 @@ class BiliProxyManager:
         cursor[leaf] = value
         return True
 
+    def _load_managed_config_dict(self) -> tuple[dict | None, str]:
+        path = self.bili_config_path
+        if not path.exists():
+            return {
+                "sessionHeader": self._expected_session_header,
+                "providers": {},
+                "autoUpdate": False,
+            }, ""
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            return None, "无法解析 bili 配置文件。"
+        if not isinstance(loaded, dict):
+            return None, "bili 配置文件不是对象。"
+        return loaded, ""
+
+    def _write_managed_config_dict(self, data: dict) -> tuple[bool, str]:
+        try:
+            self.bili_config_path.parent.mkdir(parents=True, exist_ok=True)
+            self.bili_config_path.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+        except OSError:
+            return False, "写入 bili 配置失败，请检查插件数据目录权限。"
+        return True, ""
+
     def sync_managed_config(self) -> tuple[bool, str]:
         """Merge panel quick-config into managed ``billion-context.json``.
 
@@ -356,51 +405,65 @@ class BiliProxyManager:
         """
         if str(self._cfg_get().get("mode") or "managed") != "managed":
             return True, ""
-        path = self.bili_config_path
-        if path.exists():
-            try:
-                loaded = json.loads(path.read_text(encoding="utf-8-sig"))
-            except (OSError, ValueError):
-                return False, "无法解析 bili 配置文件以同步快速配置。"
-            if not isinstance(loaded, dict):
-                return False, "bili 配置文件不是对象，无法同步快速配置。"
-            data = loaded
-        else:
-            data = {
-                "sessionHeader": self._expected_session_header,
-                "providers": {},
-                "autoUpdate": False,
-            }
-        wanted = self.managed_quick_config()
+        data, err = self._load_managed_config_dict()
+        if data is None:
+            return False, err or "无法同步 bili 快速配置。"
         changed = False
-        for key in ("debug", "passthrough", "imageRescale"):
-            if self._nested_set(data, (key,), wanted[key]):
+        for path, value in self.managed_quick_paths():
+            if self._nested_set(data, path, value):
                 changed = True
-        if self._nested_set(
-            data, ("promptCache", "routing"), wanted["promptCache"]["routing"]
-        ):
-            changed = True
-        if self._nested_set(
-            data,
-            ("compress", "absorb", "enabled"),
-            wanted["compress"]["absorb"]["enabled"],
-        ):
+        if data.get("autoUpdate") is not False:
+            data["autoUpdate"] = False
             changed = True
         if not changed:
             return True, ""
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
-        except OSError:
-            return False, "写入 bili 快速配置失败，请检查插件数据目录权限。"
+        ok, write_err = self._write_managed_config_dict(data)
+        if not ok:
+            return False, write_err
         return True, "已同步 bili 快速配置"
 
     def sync_prompt_cache_routing(self) -> tuple[bool, str]:
         """Backward-compatible alias for ``sync_managed_config``."""
         return self.sync_managed_config()
+
+    def read_managed_config_text(self) -> tuple[bool, str]:
+        """Return pretty JSON text for the managed config editor."""
+        if str(self._cfg_get().get("mode") or "managed") != "managed":
+            return False, "外部模式请直接编辑代理自身的配置文件。"
+        data, err = self._load_managed_config_dict()
+        if data is None:
+            return False, err or "无法读取 bili 配置。"
+        return True, json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+
+    def write_managed_config_text(self, text: str) -> tuple[bool, str]:
+        """Validate and replace managed ``billion-context.json`` from editor text."""
+        if str(self._cfg_get().get("mode") or "managed") != "managed":
+            return False, "外部模式请直接编辑代理自身的配置文件。"
+        raw = (text or "").strip()
+        if not raw:
+            return False, "配置内容为空。"
+        if len(raw) > 512_000:
+            return False, "配置超过 512 KB，请精简后再保存。"
+        try:
+            data = json.loads(raw)
+        except ValueError as exc:
+            return False, f"JSON 语法错误：{exc}"
+        if not isinstance(data, dict):
+            return False, "配置根节点必须是 JSON 对象。"
+        expected = self._expected_session_header
+        header = data.get("sessionHeader")
+        if header != expected:
+            return (
+                False,
+                f"sessionHeader 必须为 {expected!r}（当前 {header!r}），"
+                "否则无法按 AstrBot 会话隔离压缩状态。",
+            )
+        # Managed installs own package updates; never re-enable bili's updater.
+        data["autoUpdate"] = False
+        ok, write_err = self._write_managed_config_dict(data)
+        if not ok:
+            return False, write_err
+        return True, "已保存 billion-context.json，变更将热生效。"
 
     def seed_or_validate_config(self) -> tuple[bool, str]:
         """托管配置文件播种：缺失则写入最小配置，绝不覆盖已存在文件。
@@ -432,10 +495,9 @@ class BiliProxyManager:
             "autoUpdate": False,
             **self.managed_quick_config(),
         }
-        self.bili_config_path.parent.mkdir(parents=True, exist_ok=True)
-        self.bili_config_path.write_text(
-            json.dumps(seed, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-        )
+        ok, write_err = self._write_managed_config_dict(seed)
+        if not ok:
+            return False, write_err
         return True, "已播种 bili 配置。"
 
     # ── 懒人获取链 ───────────────────────────────────────────────────────
