@@ -534,6 +534,23 @@
         "type": "bool",
         "default": true
       },
+      "auto_update": {
+        "description": "闲置时自动更新",
+        "hint": "托管模式下定期检查 npm，发现新版本且代理无进行中请求时自动升级并重启自有进程。外部模式或自定义可执行文件请自行更新。",
+        "type": "bool",
+        "default": true
+      },
+      "auto_update_check_sec": {
+        "description": "更新检查间隔（秒）",
+        "hint": "托管模式查询 npm 最新版本的最短间隔；有新版本后仍会在闲置时再尝试升级。",
+        "type": "int",
+        "slider": {
+          "min": 300,
+          "max": 86400,
+          "step": 300
+        },
+        "default": 21600
+      },
       "host": {
         "description": "代理地址",
         "hint": "bili 代理监听/连接地址。",

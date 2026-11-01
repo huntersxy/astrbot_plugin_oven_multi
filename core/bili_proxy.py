@@ -16,6 +16,7 @@
 
 不导入 astrbot 模块（离线可测）；宿主配置经 ``cfg_get`` 回调每次现场读取，
 子进程与可执行查找走模块级函数（``_exec_async`` / ``_which``），便于测试替换。
+托管安装目录的版本检查与闲置升级也在此完成（关闭 bili 自更新，避免误写全局）。
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ import json
 import os
 import shutil
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -39,15 +41,20 @@ ST_DEGRADED = "degraded"  # managed：守护重启连续失败
 ST_NO_NODE = "no_node"  # 宿主机缺 Node 或版本 < 20
 ST_INSTALL_FAILED = "install_failed"  # 自动安装失败
 ST_INSTALLING = "installing"
+ST_UPDATING = "updating"
 ST_STARTING = "starting"
 ST_SPAWN_FAILED = "spawn_failed"  # 拉起后健康检查超时
 ST_STOPPED = "stopped"  # 已停止（未启用/卸载）
 
 _NPM_PACKAGE = "billion-context"
+_NPM_REGISTRY_LATEST = f"https://registry.npmjs.org/{_NPM_PACKAGE}/latest"
 _MIN_NODE_MAJOR = 20
 _HEALTH_TIMEOUT_SEC = 2.0
 _STARTUP_WAIT_SEC = 20.0
 _MAX_CONSECUTIVE_FAILURES = 3
+_DEFAULT_UPDATE_CHECK_SEC = 6 * 3600
+_IDLE_POLL_SEC = 2.0
+_MANUAL_IDLE_WAIT_SEC = 180.0
 
 
 def _which(name: str) -> str | None:
@@ -72,6 +79,36 @@ def _parse_node_version(raw: str) -> int:
         return 0
 
 
+def _parse_semver(raw: str) -> tuple[tuple[int, int, int], str]:
+    """Parse ``1.2.3`` / ``v1.2.3-pr.1`` into ((major, minor, patch), prerelease)."""
+    text = str(raw or "").strip().lstrip("vV")
+    core, _, pre = text.partition("-")
+    parts: list[int] = []
+    for bit in core.split("."):
+        try:
+            parts.append(int(bit))
+        except ValueError:
+            parts.append(0)
+    while len(parts) < 3:
+        parts.append(0)
+    return (parts[0], parts[1], parts[2]), pre
+
+
+def is_version_newer(candidate: str, current: str) -> bool:
+    """Return True when ``candidate`` is strictly newer than ``current``."""
+    if not candidate or not current:
+        return bool(candidate) and not current
+    c_core, c_pre = _parse_semver(candidate)
+    u_core, u_pre = _parse_semver(current)
+    if c_core != u_core:
+        return c_core > u_core
+    if not c_pre and u_pre:
+        return True
+    if c_pre and not u_pre:
+        return False
+    return c_pre > u_pre
+
+
 class BiliProxyManager:
     """懒人模式代理管家：确保 ``http://host:port/__bili/health`` 可用并保持存活。"""
 
@@ -91,6 +128,15 @@ class BiliProxyManager:
         self._session = None
         self._failures = 0
         self._acquiring = False
+        self._installed_version = ""
+        self._latest_version = ""
+        self._update_available = False
+        self._update_checking = False
+        self._update_pending_restart = False
+        self._last_update_check = 0.0
+        self._last_auto_update_attempt = 0.0
+        self._last_update_message = ""
+        self._refresh_installed_version()
 
     # ── 基本信息 ─────────────────────────────────────────────────────────
 
@@ -110,16 +156,65 @@ class BiliProxyManager:
         return self._proc is not None and self._proc.returncode is None
 
     def status(self) -> dict:
+        cfg = self._cfg_get()
         return {
             "state": self.state,
             "healthy": self.healthy,
             "url": self.url,
             "detail": self.detail,
             "busy": self._acquiring,
-            "mode": str(self._cfg_get().get("mode") or "managed"),
+            "mode": str(cfg.get("mode") or "managed"),
             "session_header_state": self.session_header_state,
             "session_header_detail": self.session_header_detail,
+            "update": self.update_status(),
         }
+
+    def update_status(self) -> dict:
+        """Panel-facing update projection for the managed runtime package."""
+        cfg = self._cfg_get()
+        return {
+            "supported": self._update_supported(),
+            "installed": self._installed_version,
+            "latest": self._latest_version,
+            "available": self._update_available,
+            "checking": self._update_checking,
+            "updating": self.state == ST_UPDATING,
+            "pending_restart": self._update_pending_restart,
+            "last_check_at": self._last_update_check or None,
+            "last_message": self._last_update_message,
+            "auto_update": bool(cfg.get("auto_update", True)),
+        }
+
+    def _package_dir(self) -> Path:
+        return self.runtime_dir / "node_modules" / _NPM_PACKAGE
+
+    def _runtime_entry(self) -> Path | None:
+        entry = self._package_dir() / "dist" / "index.js"
+        return entry if entry.is_file() else None
+
+    def _update_supported(self) -> bool:
+        cfg = self._cfg_get()
+        if str(cfg.get("mode") or "managed") != "managed":
+            return False
+        name = str(cfg.get("executable") or "bili").strip() or "bili"
+        return name == "bili" and self._runtime_entry() is not None
+
+    def _refresh_installed_version(self) -> str:
+        path = self._package_dir() / "package.json"
+        version = ""
+        if path.is_file():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8-sig"))
+                if isinstance(data, dict):
+                    version = str(data.get("version") or "").strip()
+            except (OSError, ValueError):
+                version = ""
+        self._installed_version = version
+        if self._latest_version:
+            self._update_available = is_version_newer(
+                self._latest_version, self._installed_version
+            )
+        return version
 
     # ── 健康探测 ─────────────────────────────────────────────────────────
 
@@ -240,7 +335,8 @@ class BiliProxyManager:
                 f"bili 配置的 sessionHeader={current!r} 与预期 {expected!r} 不一致，"
                 "请在面板「上下文压缩」的会话头名称与 bili 配置之间统一。",
             )
-        seed = {"sessionHeader": expected, "providers": {}}
+        # Managed installs own npm updates; keep bili's global self-updater off.
+        seed = {"sessionHeader": expected, "providers": {}, "autoUpdate": False}
         self.bili_config_path.parent.mkdir(parents=True, exist_ok=True)
         self.bili_config_path.write_text(
             json.dumps(seed, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -253,8 +349,8 @@ class BiliProxyManager:
         cfg = self._cfg_get()
         name = str(cfg.get("executable") or "bili").strip() or "bili"
         if name == "bili":
-            entry = self.runtime_dir / "node_modules" / _NPM_PACKAGE / "dist" / "index.js"
-            if entry.is_file():
+            entry = self._runtime_entry()
+            if entry is not None:
                 return str(entry)
         return _which(name) or (name if Path(name).exists() else None)
 
@@ -269,22 +365,25 @@ class BiliProxyManager:
         except Exception:  # noqa: BLE001
             return 0
 
-    async def _npm_install(self) -> tuple[bool, str]:
+    async def _npm_install(self, *, package: str | None = None) -> tuple[bool, str]:
         npm = _which("npm")
         if not npm:
             return False, "未找到 npm，无法自动安装 billion-context。"
+        spec = package or _NPM_PACKAGE
         proc = None
         try:
+            self.runtime_dir.mkdir(parents=True, exist_ok=True)
             proc = await _exec_async(
                 [
                     npm, "install", "--prefix", str(self.runtime_dir),
-                    "--no-audit", "--no-fund", "--no-package-lock", _NPM_PACKAGE,
+                    "--no-audit", "--no-fund", "--no-package-lock", spec,
                 ],
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
             out, _ = await asyncio.wait_for(proc.communicate(), timeout=600)
             if proc.returncode == 0:
+                self._refresh_installed_version()
                 return True, ""
             output = out.decode(errors="ignore")
             for code, reason in (
@@ -336,7 +435,12 @@ class BiliProxyManager:
             ],
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
-            env={**os.environ, "ACP_SESSION_HEADER": self._expected_session_header},
+            env={
+                **os.environ,
+                "ACP_SESSION_HEADER": self._expected_session_header,
+                # Prefix installs are owned by Oven Multi; disable bili's global updater.
+                "ACP_AUTO_UPDATE": "0",
+            },
         )
 
     async def ensure_started(self, *, install: bool = False) -> dict:
@@ -356,7 +460,10 @@ class BiliProxyManager:
         self.detail = ""
         self._failures = 0
         await self.verify_session_header()
+        self._refresh_installed_version()
         self._start_monitor()
+        if self._update_supported() and not self._latest_version:
+            asyncio.get_event_loop().create_task(self.check_for_update(force=True))
         return self.status()
 
     async def _ensure_started_inner(self, *, install: bool = False) -> dict:
@@ -428,6 +535,209 @@ class BiliProxyManager:
         await self._kill_proc()
         return self.status()
 
+    # ── 版本检查与闲置升级 ─────────────────────────────────────────────
+
+    async def _fetch_latest_version(self) -> tuple[str, str]:
+        """Query npm registry for the latest package version."""
+        try:
+            import aiohttp
+
+            session = await self._http()
+            async with session.get(
+                _NPM_REGISTRY_LATEST,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status != 200:
+                    return "", f"npm 仓库返回 {resp.status}"
+                data = await resp.json(content_type=None)
+                version = str((data or {}).get("version") or "").strip()
+                if not version:
+                    return "", "npm 仓库未返回版本号"
+                return version, ""
+        except Exception as exc:  # noqa: BLE001
+            return "", f"{type(exc).__name__}"
+
+    async def _fetch_inflight(self) -> int | None:
+        """Read inFlight from /__bili/status; None when the endpoint is unavailable."""
+        try:
+            import aiohttp
+
+            session = await self._http()
+            async with session.get(
+                f"{self.url}/__bili/status",
+                timeout=aiohttp.ClientTimeout(total=_HEALTH_TIMEOUT_SEC),
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json(content_type=None)
+                if not isinstance(data, dict) or "inFlight" not in data:
+                    return None
+                value = data.get("inFlight")
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    return None
+                return max(int(value), 0)
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def check_for_update(self, *, force: bool = False) -> dict:
+        """Refresh installed/latest versions; returns ``update_status()``."""
+        if not self._update_supported() and self._runtime_entry() is None:
+            self._refresh_installed_version()
+            if not self._update_supported():
+                self._last_update_message = "当前模式或自定义路径不支持面板升级。"
+                return self.update_status()
+        cfg = self._cfg_get()
+        interval = max(int(cfg.get("auto_update_check_sec") or _DEFAULT_UPDATE_CHECK_SEC), 300)
+        now = time.monotonic()
+        if (
+            not force
+            and self._latest_version
+            and now - self._last_update_check < interval
+        ):
+            return self.update_status()
+        self._update_checking = True
+        try:
+            self._refresh_installed_version()
+            latest, error = await self._fetch_latest_version()
+            self._last_update_check = time.monotonic()
+            if error:
+                self._last_update_message = f"检查更新失败：{error}"
+                return self.update_status()
+            self._latest_version = latest
+            self._update_available = is_version_newer(latest, self._installed_version)
+            if self._update_available:
+                self._last_update_message = (
+                    f"发现新版本 {self._installed_version or '未知'} → {latest}"
+                )
+            else:
+                self._last_update_message = f"已是最新（{self._installed_version or latest}）"
+            return self.update_status()
+        finally:
+            self._update_checking = False
+
+    async def _wait_until_idle(self, timeout_sec: float) -> tuple[bool, str]:
+        """Wait until the proxy reports zero in-flight requests."""
+        if not self.healthy and not self.owned_process:
+            return True, ""
+        deadline = time.monotonic() + max(timeout_sec, 0)
+        while True:
+            inflight = await self._fetch_inflight()
+            if inflight is None:
+                # Older builds may lack the field; allow restart if health is up.
+                healthy, _ = await self.probe_health()
+                if healthy:
+                    return True, ""
+                return False, "代理不可达，无法确认是否闲置。"
+            if inflight == 0:
+                return True, ""
+            if time.monotonic() >= deadline:
+                return False, f"仍有 {inflight} 个进行中的请求，请稍后再试。"
+            self.detail = f"等待闲置后更新（进行中 {inflight}）…"
+            await asyncio.sleep(_IDLE_POLL_SEC)
+
+    async def update_package(self, *, wait_idle: bool = True) -> dict:
+        """Upgrade the managed runtime package and restart an owned proxy when idle."""
+        if self._acquiring:
+            self._last_update_message = "安装或更新仍在进行。"
+            return self.status()
+        if not self._update_supported():
+            self._last_update_message = "仅托管模式且使用默认 billion-runtime 时可面板升级。"
+            return self.status()
+        self._acquiring = True
+        previous = self.state
+        try:
+            info = await self.check_for_update(force=True)
+            if not info.get("available"):
+                return self.status()
+            target = self._latest_version or "latest"
+            if wait_idle:
+                idle, reason = await self._wait_until_idle(_MANUAL_IDLE_WAIT_SEC)
+                if not idle:
+                    self.state = previous if previous != ST_UPDATING else ST_SPAWNED
+                    self.detail = reason
+                    self._last_update_message = reason
+                    return self.status()
+            self.state = ST_UPDATING
+            self.detail = f"正在更新 billion-context 到 {target}…"
+            self._last_update_message = self.detail
+            owned = self.owned_process
+            if owned:
+                await self._kill_proc()
+            ok, install_detail = await self._npm_install(
+                package=f"{_NPM_PACKAGE}@{target}"
+            )
+            if not ok:
+                self.state = ST_INSTALL_FAILED
+                self.detail = install_detail
+                self._last_update_message = install_detail
+                if owned:
+                    await self._ensure_started_inner(install=False)
+                return self.status()
+            self._update_available = False
+            self._update_pending_restart = not owned
+            if owned or not self.healthy:
+                self.state = ST_STARTING
+                self.detail = "更新完成，正在重启代理…"
+                exe = self._find_executable()
+                if not exe:
+                    self.state = ST_INSTALL_FAILED
+                    self.detail = "更新完成但缺少程序入口。"
+                    self._last_update_message = self.detail
+                    return self.status()
+                self.seed_or_validate_config()
+                try:
+                    await self._spawn(exe)
+                except OSError as exc:
+                    self.state = ST_SPAWN_FAILED
+                    self.detail = f"更新后无法启动（{type(exc).__name__}）。"
+                    self._last_update_message = self.detail
+                    return self.status()
+                deadline = asyncio.get_event_loop().time() + _STARTUP_WAIT_SEC
+                while asyncio.get_event_loop().time() < deadline:
+                    await asyncio.sleep(0.5)
+                    healthy, detail = await self.probe_health()
+                    if healthy:
+                        self._update_pending_restart = False
+                        self._last_update_message = (
+                            f"已更新到 {self._installed_version or target}"
+                        )
+                        return await self._mark_healthy(ST_SPAWNED)
+                self.state = ST_SPAWN_FAILED
+                self.detail = f"更新后健康检查超时（{detail}）。"
+                self._last_update_message = self.detail
+                await self._kill_proc()
+                return self.status()
+            self.state = ST_REUSED if previous == ST_REUSED else previous
+            self.detail = (
+                f"已下载 {self._installed_version or target}；"
+                "当前端口上的代理非本插件拉起，请重启该实例后生效。"
+            )
+            self._last_update_message = self.detail
+            return self.status()
+        finally:
+            self._acquiring = False
+
+    async def _maybe_auto_update(self) -> None:
+        """Idle-time auto upgrade for managed runtime installs."""
+        cfg = self._cfg_get()
+        if not bool(cfg.get("auto_update", True)):
+            return
+        if not self._update_supported() or self._acquiring:
+            return
+        # Avoid hammering npm / restart loops when idle checks keep failing.
+        if time.monotonic() - self._last_auto_update_attempt < 1800:
+            return
+        info = await self.check_for_update(force=False)
+        if not info.get("available"):
+            return
+        if self.owned_process:
+            idle, _ = await self._wait_until_idle(0)
+            if not idle:
+                self._last_update_message = "已发现新版本，等待闲置后自动更新。"
+                return
+        self._last_auto_update_attempt = time.monotonic()
+        await self.update_package(wait_idle=True)
+
     # ── 守护 ─────────────────────────────────────────────────────────────
 
     def _start_monitor(self) -> None:
@@ -447,6 +757,10 @@ class BiliProxyManager:
     async def _monitor_once(self) -> None:
         """单轮守护：owned 存活探活（阈值重启）/ 非自有则重走获取链。"""
         if self.state in (ST_STOPPED, ST_DISABLED) or self._acquiring:
+            return
+        with contextlib.suppress(Exception):
+            await self._maybe_auto_update()
+        if self._acquiring:
             return
         if self.owned_process:
             healthy, detail = await self.probe_health()

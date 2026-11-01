@@ -329,6 +329,7 @@ const BILI_STATE_TEXT = {
   no_node: "缺少 Node.js（需 ≥20）",
   install_failed: "自动安装失败",
   installing: "正在安装",
+  updating: "正在更新",
   starting: "正在启动",
   spawn_failed: "启动失败",
   stopped: "已停止",
@@ -339,20 +340,50 @@ function renderBiliCard(data) {
   card.hidden = state.settingsCategory !== "上下文压缩";
   const proxy = data.proxy || {};
   const wire = data.wire;
+  const update = proxy.update || {};
   const stateText = BILI_STATE_TEXT[proxy.state] || proxy.state || "未知";
   let detail = `${proxy.mode === "external" ? "外部" : "托管"} · ${proxy.url || ""}`;
+  if (update.installed) {
+    detail += update.available && update.latest
+      ? ` · v${update.installed} → v${update.latest}`
+      : ` · v${update.installed}`;
+  } else if (update.latest) {
+    detail += ` · npm ${update.latest}`;
+  }
   if (proxy.detail) detail += ` · ${proxy.detail}`;
   if (wire) detail += ` · 已接管 ${wire.providers.join("、")}`;
   else if (data.enabled) detail += " · 未接管";
   $("bili-state").textContent = `上下文压缩：${stateText}`;
   $("bili-detail").textContent = detail;
-  const busy = Boolean(data.busy || proxy.busy);
+  const busy = Boolean(data.busy || proxy.busy || update.updating || update.checking);
   $("bili-install").hidden = !(data.enabled && proxy.mode !== "external" && !proxy.healthy);
   $("bili-install").disabled = busy;
   $("bili-install").textContent = busy ? "安装／启动中…" : "安装／重试";
+  const canUpdate = Boolean(
+    data.enabled && update.supported && (update.available || update.pending_restart || update.installed),
+  );
+  $("bili-update").hidden = !canUpdate;
+  $("bili-update").disabled = busy;
+  if (update.updating) $("bili-update").textContent = "更新中…";
+  else if (update.checking) $("bili-update").textContent = "检查中…";
+  else if (update.available) $("bili-update").textContent = "更新";
+  else if (update.pending_restart) $("bili-update").textContent = "已下载，待重启";
+  else $("bili-update").textContent = "检查更新";
+  $("bili-repair").hidden = !(wire && data.repair_needed);
+  $("bili-repair").disabled = busy || !proxy.healthy;
+  $("bili-repair").textContent = "修复接管";
   $("bili-wire").hidden = !(data.enabled && !wire);
   $("bili-wire").disabled = busy || !proxy.healthy;
   $("bili-restore").hidden = !wire;
+  $("bili-restore").textContent = "恢复";
+  const guide = $("bili-guide");
+  if (data.guide) {
+    guide.hidden = false;
+    guide.textContent = data.guide;
+  } else {
+    guide.hidden = true;
+    guide.textContent = "";
+  }
   const doctor = $("bili-doctor");
   doctor.replaceChildren(
     ...(data.doctor || []).map((notice) => {
@@ -375,7 +406,13 @@ async function loadBiliCard() {
 async function biliAction(kind) {
   if (state.biliBusy) return;
   state.biliBusy = true;
-  const label = { wire: "接管", restore: "恢复", install: "安装／重试" }[kind];
+  const label = {
+    wire: "接管",
+    restore: "恢复",
+    repair: "修复接管",
+    install: "安装／重试",
+    update: "更新",
+  }[kind];
   const button = $(`bili-${kind}`);
   button.disabled = true;
   try {
@@ -383,6 +420,7 @@ async function biliAction(kind) {
       await window.AstrBotPluginPage.apiPost(`billion/${kind}`, { confirm: true }),
     );
     $("announcer").textContent = data.message || "操作完成";
+    setError("settings-error", "");
     loadStatus();
   } catch (error) {
     setError("settings-error", error.message || "操作失败，请稍后重试。");
@@ -396,17 +434,27 @@ async function biliAction(kind) {
 }
 
 function armBiliButton(kind) {
-  const button = $(kind === "wire" ? "bili-wire" : "bili-restore");
+  const button = $(`bili-${kind}`);
+  const confirmLabel = {
+    wire: "确认接管",
+    restore: "确认撤销接管",
+    repair: "确认修复接管",
+  }[kind];
+  const idleLabel = {
+    wire: "接管",
+    restore: "恢复",
+    repair: "修复接管",
+  }[kind];
   if (button.dataset.armed === "1") {
     biliAction(kind);
     return;
   }
   button.dataset.armed = "1";
-  button.textContent = "再次点击确认";
+  button.textContent = confirmLabel || "再次点击确认";
   setTimeout(() => {
     if (button.dataset.armed === "1") {
       button.dataset.armed = "";
-      button.textContent = kind === "wire" ? "接管" : "恢复";
+      button.textContent = idleLabel || button.textContent;
     }
   }, 5000);
 }
@@ -829,6 +877,8 @@ $("settings-groups").addEventListener("input", () => {
 });
 $("bili-wire").addEventListener("click", () => armBiliButton("wire"));
 $("bili-install").addEventListener("click", () => biliAction("install"));
+$("bili-update").addEventListener("click", () => biliAction("update"));
+$("bili-repair").addEventListener("click", () => armBiliButton("repair"));
 $("bili-restore").addEventListener("click", () => armBiliButton("restore"));
 $("save-settings").addEventListener("click", saveSettings);
 window.addEventListener("beforeunload", (event) => {

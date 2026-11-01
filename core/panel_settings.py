@@ -176,6 +176,8 @@ GROUP_PATHS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "bili.mode",
             "bili.executable",
             "bili.auto_install",
+            "bili.auto_update",
+            "bili.auto_update_check_sec",
             "bili.host",
             "bili.port",
             "bili.provider_ids",
@@ -223,8 +225,8 @@ GROUP_NOTES: dict[str, str] = {
     "文件读取": "Embedding / Rerank Provider 请在 AstrBot 插件配置页选择。",
     "上下文压缩": (
         "开启并保存后自动安装、启动代理并接管当前聊天模型。"
-        "关闭自动安装时仍可点击「安装／重试」；外部模式由你自行运行代理。"
-        "安装需要 AstrBot 所在环境提供 Node ≥20 和 npm，进度与失败原因见上方状态卡。"
+        "关闭自动安装时仍可点击「安装／重试」；托管包可用「更新」或闲置自动升级。"
+        "外部模式或自定义路径请自行更新代理。安装与升级需要 Node ≥20 和 npm。"
     ),
 }
 

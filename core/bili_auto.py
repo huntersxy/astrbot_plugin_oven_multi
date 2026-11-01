@@ -142,7 +142,10 @@ class BiliAutoTakeover:
             host, port = self.plugin._bili_endpoint()
             result = self.plugin.bili_wire.extend(selected, host, port, self.ready)
             if not result["ok"]:
-                self.warn(result["message"])
+                message = result["message"]
+                if "接管字段已被修改" in message or "压缩设置已被修改" in message:
+                    message += " 可在状态卡点「修复接管」重新对齐，或点「恢复」撤销压缩路由。"
+                self.warn(message)
                 return
             self.message = ""
             for pid in selected:

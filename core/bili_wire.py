@@ -49,6 +49,15 @@ def is_wired_url(url: str) -> bool:
     return "/bili/" in str(url or "")
 
 
+def strip_bili_prefix(url: str) -> str:
+    """Return the upstream URL embedded after ``/bili/``, or the original string."""
+    text = str(url or "").strip()
+    marker = "/bili/"
+    if marker in text:
+        return text.split(marker, 1)[1].rstrip("/")
+    return text.rstrip("/")
+
+
 def _field(old_value, old_absent: bool, new_value) -> dict:
     return {"old": old_value, "new": new_value, "old_absent": old_absent}
 
@@ -501,6 +510,170 @@ class BiliWireManager:
             "message": "已全部恢复原配置，请重载/重启 AstrBot 后生效。",
         }
 
+    def repair(self, host: str, port: int, health_check=None) -> dict:
+        """修复漂移：清理已删除模型，并把仍在的模型重新指回当前代理。
+
+        保留首次接管时的 ``old``（撤销依据）；若当前地址已是新的上游明文，
+        则把 ``old`` 更新为该上游，使之后「恢复」回到最新上游而非陈旧地址。
+        """
+        if self.record_state() == "corrupt":
+            return {
+                "ok": False,
+                "message": (
+                    f"接管记录 {self.record_path} 已损坏，无法自动修复；"
+                    "可删除该文件后重新接管，或手动核对 Provider 地址。"
+                ),
+            }
+        record = self.load_record()
+        if not record:
+            return {"ok": False, "message": "没有接管记录，无需修复。"}
+        if health_check is not None and not health_check():
+            return {"ok": False, "message": "代理未就绪，已拒绝修复。"}
+
+        host_config = self._host_config_get()
+        entries = self._provider_entries(host_config)
+        backup_entries = list(entries)
+        backup_runner = host_config.get("agent_runner")
+        expanded = json.loads(json.dumps(record))
+        expanded["host"] = host
+        expanded["port"] = port
+        removed: list[str] = []
+        rewired: list[str] = []
+        unchanged: list[str] = []
+
+        for pid, fields in list((expanded.get("providers") or {}).items()):
+            index, entry = self._find_entry(entries, pid)
+            if entry is None:
+                expanded["providers"].pop(pid, None)
+                removed.append(pid)
+                continue
+            current = str(entry.get("api_base") or "").strip()
+            recorded_new = str((fields.get("api_base") or {}).get("new") or "").rstrip("/")
+            recorded_old = str((fields.get("api_base") or {}).get("old") or "").rstrip("/")
+            if is_wired_url(current):
+                upstream = strip_bili_prefix(current) or recorded_old
+            elif current:
+                upstream = current.rstrip("/")
+            else:
+                upstream = recorded_old or strip_bili_prefix(recorded_new)
+            target = bili_prefix_url(host, port, upstream)
+            old_absent = bool((fields.get("api_base") or {}).get("old_absent"))
+            # Prefer the live upstream as the restore baseline when it is plain text.
+            if current and not is_wired_url(current):
+                old_value, old_absent = current, False
+            else:
+                old_value = (fields.get("api_base") or {}).get("old")
+            token_spec = fields.get("max_context_tokens") or _field(
+                entry.get("max_context_tokens"),
+                "max_context_tokens" not in entry,
+                INFLATED_MAX_CONTEXT_TOKENS,
+            )
+            expanded["providers"][pid] = {
+                "api_base": _field(old_value, old_absent, target),
+                "max_context_tokens": {
+                    "old": token_spec.get("old"),
+                    "new": INFLATED_MAX_CONTEXT_TOKENS,
+                    "old_absent": bool(token_spec.get("old_absent")),
+                },
+            }
+            needs_write = (
+                current.rstrip("/") != target.rstrip("/")
+                or entry.get("max_context_tokens") != INFLATED_MAX_CONTEXT_TOKENS
+            )
+            if needs_write:
+                entries[index] = entry | {
+                    "api_base": target,
+                    "max_context_tokens": INFLATED_MAX_CONTEXT_TOKENS,
+                }
+                rewired.append(pid)
+            else:
+                unchanged.append(pid)
+
+        # Keep compression recipe aligned with the wire contract.
+        runner = dict(host_config.get("agent_runner") or {})
+        runner_config = dict(runner.get("config") or {})
+        comp = dict(runner_config.get("compression") or {})
+        compression = dict(expanded.get("compression") or {})
+        compression_changed = False
+        for field, value in (
+            ("max_turns", RECIPE_MAX_TURNS),
+            ("overflow_strategy", RECIPE_OVERFLOW_STRATEGY),
+        ):
+            previous = compression.get(field) or _field(comp.get(field), field not in comp, value)
+            compression[field] = {
+                "old": previous.get("old"),
+                "new": value,
+                "old_absent": bool(previous.get("old_absent")),
+            }
+            if comp.get(field) != value:
+                compression_changed = True
+                comp[field] = value
+        expanded["compression"] = compression
+        if compression_changed:
+            runner_config["compression"] = comp
+            runner["config"] = runner_config
+            host_config["agent_runner"] = runner
+
+        if not expanded.get("providers"):
+            # Nothing left to keep wired — fall back to a full restore.
+            try:
+                self._save_record(expanded)
+            except OSError:
+                return {"ok": False, "message": "接管记录写入失败，未修改配置。"}
+            result = self.restore()
+            if result["ok"]:
+                result["message"] = (
+                    "记录中的模型均已不存在，已恢复宿主压缩设置并清除接管记录。"
+                    "请重载/重启 AstrBot 后生效。"
+                )
+                result["removed"] = removed
+            return result
+
+        try:
+            self._save_record(expanded)
+        except OSError:
+            entries[:] = backup_entries
+            if backup_runner is None:
+                host_config.pop("agent_runner", None)
+            else:
+                host_config["agent_runner"] = backup_runner
+            return {"ok": False, "message": "接管记录写入失败，未修改配置。"}
+
+        save = getattr(host_config, "save_config", None)
+        try:
+            if callable(save):
+                save()
+        except Exception as exc:
+            entries[:] = backup_entries
+            if backup_runner is None:
+                host_config.pop("agent_runner", None)
+            else:
+                host_config["agent_runner"] = backup_runner
+            return {
+                "ok": False,
+                "message": f"修复写入失败（{type(exc).__name__}），内存已回滚，请重试。",
+            }
+
+        parts = []
+        if rewired:
+            parts.append(f"已重新指向代理：{'、'.join(rewired)}")
+        if removed:
+            parts.append(f"已清理不存在的模型：{'、'.join(removed)}")
+        if unchanged and not rewired and not removed and not compression_changed:
+            parts.append("接管状态已一致，无需改动")
+        elif unchanged and (rewired or removed):
+            parts.append(f"保持不变：{len(unchanged)} 个")
+        if compression_changed:
+            parts.append("已校正原生压缩停用设置")
+        parts.append("请重载/重启 AstrBot 或对应 Provider 后生效")
+        return {
+            "ok": True,
+            "rewired": rewired,
+            "removed": removed,
+            "unchanged": unchanged,
+            "message": "；".join(parts) + "。",
+        }
+
     # ── 巡检 ─────────────────────────────────────────────────────────────
 
     def doctor(
@@ -515,7 +688,10 @@ class BiliWireManager:
         """同步巡检告警（供状态命令/面板通知；不发起网络请求）。"""
         notices: list[str] = []
         if self.record_state() == "corrupt":
-            notices.append(f"接管记录已损坏（{self.record_path}），请修复或删除后再操作。")
+            notices.append(
+                f"接管记录已损坏（{self.record_path}）。"
+                "可删除该文件后点「接管」，或手动核对 Provider 的 api_base。"
+            )
             return notices
         record = self.load_record()
         if not record:
@@ -527,26 +703,46 @@ class BiliWireManager:
         if unwired_active:
             if auto_follow:
                 notices.append(
-                    f"当前对话模型（{'、'.join(unwired_active)}）等待下一次聊天请求前自动接管。"
+                    f"当前对话模型（{'、'.join(unwired_active)}）将在下一次聊天前自动接管；"
+                    "若长时间不变，可点「修复接管」。"
                 )
             else:
                 notices.append(
-                    f"当前对话模型未接管（{'、'.join(unwired_active)}）：主聊天正在绕过 bili。"
-                    "若需继续压缩，请恢复后将新模型加入接管列表，再重新接管并重载对应 Provider。"
+                    f"当前对话模型未接管（{'、'.join(unwired_active)}），聊天会绕过压缩代理。"
+                    "点「修复接管」按当前模型补接管；若要彻底停用压缩，点「恢复」。"
                 )
         if not proxy_healthy:
             notices.append(
-                "bili 代理当前不可用：被接管 provider 的请求将失败，请先恢复或修复代理。"
+                "压缩代理当前不可用，被接管模型的请求会失败。"
+                "请先点「安装／重试」修好代理；若要临时直连上游，点「恢复」撤销接管。"
             )
         host_config = self._host_config_get()
         entries = self._provider_entries(host_config)
+        missing = []
+        drifted = []
         for pid in wired:
             _, entry = self._find_entry(entries, pid)
             if entry is None:
-                notices.append(f"接管记录中的 provider {pid} 已从配置移除，请恢复或清理记录。")
+                missing.append(pid)
                 continue
-            if not is_wired_url(entry.get("api_base") or ""):
-                notices.append(f"provider {pid} 的 api_base 已被改回，与接管记录不一致。")
+            expected = str(
+                (record.get("providers") or {}).get(pid, {}).get("api_base", {}).get("new") or ""
+            ).rstrip("/")
+            current = str(entry.get("api_base") or "").rstrip("/")
+            if current != expected or not is_wired_url(current):
+                drifted.append(pid)
+        if missing:
+            notices.append(
+                f"这些模型已从 AstrBot 配置删除，但仍留在接管记录："
+                f"{'、'.join(missing)}。点「修复接管」清理记录；"
+                "点「恢复」则会撤销全部接管并还原其余模型地址。"
+            )
+        if drifted:
+            notices.append(
+                f"这些模型的 api_base 与接管记录不一致："
+                f"{'、'.join(drifted)}。点「修复接管」重新指回压缩代理；"
+                "若你本意是停用压缩，点「恢复」还原接管前地址。"
+            )
         if runtime_client_api:
             pending = [
                 pid
@@ -559,16 +755,47 @@ class BiliWireManager:
             ]
             if pending:
                 notices.append(
-                    f"配置已接管但运行中 Provider 尚未重载（{'、'.join(pending)}），"
-                    "请重载/重启 AstrBot。"
+                    f"配置已接管，但运行中的 Provider 尚未加载新地址（{'、'.join(pending)}）。"
+                    "请重载对应 Provider 或重启 AstrBot；这与「恢复」无关。"
                 )
         unwired_fallback = [pid for pid in (fallback_ids or []) if pid and pid not in wired]
         if unwired_fallback:
             notices.append(
-                f"被接管 provider 的备用链含未接管项（{'、'.join(unwired_fallback)}）："
-                "代理不可用时完整历史将直送上游，建议一并接管或移除备用链。"
+                f"备用链含未接管模型（{'、'.join(unwired_fallback)}）："
+                "代理挂了时完整历史会直送上游。点「修复接管」可尝试一并接管，"
+                "或到宿主配置里移除备用链。"
             )
         return notices
+
+    def repair_needed(
+        self,
+        *,
+        runtime_client_api: dict[str, str] | None = None,
+        fallback_ids: list[str] | None = None,
+        active_ids: list[str] | None = None,
+        auto_follow: bool = False,
+    ) -> bool:
+        """Whether the panel should offer the one-click repair action."""
+        if self.record_state() != "ok":
+            return False
+        record = self.load_record() or {}
+        wired = set((record.get("providers") or {}).keys())
+        entries = self._provider_entries(self._host_config_get())
+        for pid in wired:
+            _, entry = self._find_entry(entries, pid)
+            if entry is None:
+                return True
+            expected = str(
+                (record.get("providers") or {}).get(pid, {}).get("api_base", {}).get("new") or ""
+            ).rstrip("/")
+            current = str(entry.get("api_base") or "").rstrip("/")
+            if current != expected or not is_wired_url(current):
+                return True
+        if any(pid and pid not in wired for pid in (active_ids or [])):
+            return True
+        if any(pid and pid not in wired for pid in (fallback_ids or [])):
+            return True
+        return False
 
     # ── 工具 ─────────────────────────────────────────────────────────────
 

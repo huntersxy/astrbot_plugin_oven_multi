@@ -245,6 +245,12 @@ class OvenMultiPlugin(Star):
                 "Oven Multi install or retry billion-context",
             ),
             (
+                f"/{PLUGIN_NAME}/billion/update",
+                self._api_billion_update,
+                "POST",
+                "Oven Multi update billion-context package",
+            ),
+            (
                 f"/{PLUGIN_NAME}/billion/wire",
                 self._api_billion_wire,
                 "POST",
@@ -255,6 +261,12 @@ class OvenMultiPlugin(Star):
                 self._api_billion_restore,
                 "POST",
                 "Oven Multi restore providers from billion-context",
+            ),
+            (
+                f"/{PLUGIN_NAME}/billion/repair",
+                self._api_billion_repair,
+                "POST",
+                "Oven Multi repair drifted billion-context wiring",
             ),
         ):
             self.context.register_web_api(route, handler, [method], description)
@@ -743,6 +755,15 @@ class OvenMultiPlugin(Star):
             auto_follow=self.bili_auto.enabled(),
         )
 
+    def _bili_repair_needed(self) -> bool:
+        active_id = self._sync_using_provider_id()
+        return self.bili_wire.repair_needed(
+            runtime_client_api=self._chat_provider_view(),
+            fallback_ids=self._fallback_provider_ids(),
+            active_ids=[active_id] if active_id else [],
+            auto_follow=self.bili_auto.enabled(),
+        )
+
     def _bili_status_detail(self) -> str:
         if not feature_enabled(self.config, FEATURE_BILI, False):
             return "未启用"
@@ -879,6 +900,17 @@ class OvenMultiPlugin(Star):
             warning = self._bili_header_warning()
             if warning:
                 doctor.insert(0, warning)
+            update = self.bili_proxy.update_status()
+            if update.get("available"):
+                doctor.append(
+                    update.get("last_message")
+                    or f"billion-context 可更新：{update.get('installed') or '?'} → {update.get('latest')}"
+                )
+            elif update.get("pending_restart"):
+                doctor.append(
+                    update.get("last_message")
+                    or "新版本已下载，请重启当前代理进程后生效。"
+                )
         return {
             "success": True,
             "data": {
@@ -887,11 +919,32 @@ class OvenMultiPlugin(Star):
                 "proxy": self.bili_proxy.status(),
                 "wire": record,
                 "doctor": doctor,
+                "repair_needed": bool(record) and self._bili_repair_needed(),
+                "guide": self._bili_guide(bool(record), bool(record) and self._bili_repair_needed()),
                 "requests": self.bili_requests.status(),
                 "auto_follow": feature_cfg(self.config, FEATURE_BILI).get("auto_follow", True),
                 "auto_follow_paused": self.bili_auto.paused,
             },
         }
+
+    def _bili_guide(self, wired: bool, repair_needed: bool) -> str:
+        """Short panel hint explaining the action buttons."""
+        if repair_needed:
+            return (
+                "「修复接管」：清理已删除模型，并把地址重新指回压缩代理（继续用压缩）。"
+                "「恢复」：撤销全部接管，把模型改回接管前的原地址（停用压缩路由）。"
+            )
+        if wired:
+            return (
+                "当前已接管。「恢复」会撤销压缩路由并还原 Provider 原地址；"
+                "不是重装代理，也不会删除会话记忆。"
+            )
+        if feature_enabled(self.config, FEATURE_BILI, False):
+            return (
+                "「接管」把当前聊天模型的请求改经本地压缩代理；"
+                "之后可用「恢复」随时撤销。"
+            )
+        return ""
 
     async def _api_billion_install(self):
         """Queue an explicit install/retry without holding the Panel request open."""
@@ -909,6 +962,44 @@ class OvenMultiPlugin(Star):
         return {
             "success": True,
             "data": {"message": "已开始安装／重试，完成后会自动启动并尝试接管。"},
+        }
+
+    async def _api_billion_update(self):
+        """Queue a managed-runtime package update; applies when the proxy is idle."""
+        cfg = feature_cfg(self.config, FEATURE_BILI)
+        if not cfg.get("enabled", False):
+            return {"success": False, "message": "请先启用上下文压缩并保存，再更新。"}
+        if cfg.get("mode", "managed") != "managed":
+            return {
+                "success": False,
+                "message": "外部模式请在代理所在环境自行更新（如 bili update）。",
+            }
+        if not self.bili_proxy.update_status().get("supported"):
+            return {
+                "success": False,
+                "message": "仅托管默认 billion-runtime 安装支持面板更新；自定义路径请手动升级。",
+            }
+        if self._bili_task is not None and not self._bili_task.done():
+            return {"success": True, "data": {"message": "安装／更新仍在进行，请查看状态。"}}
+
+        async def _run_update() -> None:
+            status = await self.bili_proxy.update_package(wait_idle=True)
+            logger.info(
+                f"[烤箱-压缩] 更新结果：{status.get('state')} "
+                f"{(status.get('update') or {}).get('last_message') or status.get('detail') or ''}".rstrip()
+            )
+            current = feature_cfg(self.config, FEATURE_BILI)
+            if (
+                status.get("healthy")
+                and status.get("session_header_state") == "ok"
+                and current.get("auto_follow", True)
+            ):
+                await self.bili_auto.follow(initial=True)
+
+        self._bili_task = asyncio.create_task(_run_update())
+        return {
+            "success": True,
+            "data": {"message": "已开始检查并更新；若有进行中的请求会先等待闲置。"},
         }
 
     async def _api_billion_wire(self):
@@ -965,12 +1056,69 @@ class OvenMultiPlugin(Star):
         if body.get("confirm") is not True:
             return {
                 "success": True,
-                "data": {"wire": record, "message": "请带 confirm: true 再次提交以执行恢复。"},
+                "data": {
+                    "wire": record,
+                    "message": (
+                        "恢复会撤销压缩接管：把已接管模型的 api_base 改回原地址，"
+                        "并还原原生压缩设置。确认请再次提交。"
+                    ),
+                },
             }
         result = self.bili_wire.restore()
         if result["ok"]:
             self.bili_auto.paused = True
+            self.bili_auto.message = ""
         return {"success": bool(result["ok"]), "data": {"message": result["message"]}}
+
+    async def _api_billion_repair(self):
+        """Repair drifted wire records and re-follow the current chat model."""
+        cfg = feature_cfg(self.config, FEATURE_BILI)
+        if not cfg.get("enabled", False) and not self.bili_wire.record_exists():
+            return {"success": False, "message": "没有可修复的压缩接管。"}
+        if not self.bili_wire.record_exists():
+            return {
+                "success": False,
+                "message": "尚无接管记录。请先点「接管」，或开启压缩后等待自动接管。",
+            }
+        try:
+            raw = await request.body()
+            body = json.loads(raw) if len(raw) <= 65536 else {}
+            if not isinstance(body, dict):
+                body = {}
+        except (ValueError, UnicodeDecodeError):
+            body = {}
+        if body.get("confirm") is not True:
+            return {
+                "success": True,
+                "data": {
+                    "message": (
+                        "修复会清理已删除模型，并把仍在的模型重新指回压缩代理；"
+                        "不会撤销接管。确认请再次提交。"
+                    ),
+                },
+            }
+        healthy, _ = await self.bili_proxy.probe_health()
+        await self.bili_proxy.verify_session_header()
+        if not healthy:
+            return {"success": False, "message": "代理健康检查未通过，已拒绝修复。请先安装／重试。"}
+        if self.bili_proxy.session_header_state != "ok":
+            return {"success": False, "message": "会话标识未验证，已拒绝修复。"}
+        host, port = self._bili_endpoint()
+        result = self.bili_wire.repair(
+            host, port, health_check=lambda: self.bili_proxy.healthy
+        )
+        if not result["ok"]:
+            return {"success": False, "message": result["message"]}
+        self.bili_auto.paused = False
+        self.bili_auto.message = ""
+        if cfg.get("enabled", False) and cfg.get("auto_follow", True):
+            await self.bili_auto.follow(initial=True)
+            if self.bili_auto.message:
+                result = {
+                    **result,
+                    "message": f"{result['message']} 自动跟随：{self.bili_auto.message}",
+                }
+        return {"success": True, "data": {"message": result["message"]}}
 
     # ── 工具方法 ─────────────────────────────────────────────────────────
 
@@ -1041,6 +1189,14 @@ class OvenMultiPlugin(Star):
         lines.append(f"代理：{status['state']}（{status['mode']} · {status['url']}）")
         if status["detail"]:
             lines.append(f"  {status['detail']}")
+        update = status.get("update") or {}
+        if update.get("installed") or update.get("latest"):
+            installed = update.get("installed") or "未知"
+            latest = update.get("latest") or "未检查"
+            mark = "可更新" if update.get("available") else "最新"
+            lines.append(f"版本：{installed} / npm {latest}（{mark}）")
+            if update.get("last_message"):
+                lines.append(f"  {update['last_message']}")
         summary = self.bili_wire.record_summary()
         if summary:
             lines.append(
@@ -1054,6 +1210,52 @@ class OvenMultiPlugin(Star):
             lines.append("")
             lines.extend(f"⚠ {notice}" for notice in doctor)
         yield event.plain_result("\n".join(lines))
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("烤箱压缩更新")
+    async def bili_update_cmd(self, event: AstrMessageEvent):
+        result = await self._api_billion_update()
+        if not result.get("success"):
+            yield event.plain_result(result.get("message") or "无法开始更新。")
+            return
+        message = ((result.get("data") or {}).get("message")) or "已开始更新。"
+        yield event.plain_result(message)
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("烤箱压缩修复")
+    async def bili_repair_cmd(self, event: AstrMessageEvent):
+        confirmed = "确认" in (event.message_str or "").split()
+        if not self.bili_wire.record_exists():
+            yield event.plain_result("尚无接管记录，无需修复。若要启用压缩请先接管。")
+            return
+        if not confirmed:
+            yield event.plain_result(
+                "修复接管会清理已删除模型，并把仍在的模型重新指回压缩代理；"
+                "不会撤销接管。确认请回复「烤箱压缩修复 确认」。\n"
+                "若要停用压缩并还原原地址，请用「烤箱压缩恢复 确认」。"
+            )
+            return
+        healthy, _ = await self.bili_proxy.probe_health()
+        await self.bili_proxy.verify_session_header()
+        if not healthy:
+            yield event.plain_result("代理健康检查未通过，已拒绝修复。请先安装／重试。")
+            return
+        if self.bili_proxy.session_header_state != "ok":
+            yield event.plain_result("会话标识未验证，已拒绝修复。")
+            return
+        host, port = self._bili_endpoint()
+        result = self.bili_wire.repair(host, port, health_check=lambda: self.bili_proxy.healthy)
+        if result["ok"]:
+            self.bili_auto.paused = False
+            self.bili_auto.message = ""
+            if feature_cfg(self.config, FEATURE_BILI).get("auto_follow", True):
+                await self.bili_auto.follow(initial=True)
+                if self.bili_auto.message:
+                    result = {
+                        **result,
+                        "message": f"{result['message']} 自动跟随：{self.bili_auto.message}",
+                    }
+        yield event.plain_result(result["message"])
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("烤箱压缩接管")

@@ -156,8 +156,10 @@ input, textarea, select { caret-color: var(--accent); }
 .bili-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .bili-head > div { min-width: 0; }
 .bili-head h3 { font-size: 13px; }
-.bili-actions { display: flex; gap: 8px; flex: none; }
-.bili-doctor { padding-left: 16px; margin: 8px 0 0; font-size: 12px; color: var(--bad); }
+.bili-actions { display: flex; flex-wrap: wrap; gap: 8px; flex: none; justify-content: flex-end; }
+.bili-guide { margin: 10px 0 0; line-height: 1.7; color: var(--muted); }
+.bili-guide[hidden] { display: none; }
+.bili-doctor { padding-left: 16px; margin: 8px 0 0; font-size: 12px; color: var(--bad); line-height: 1.7; }
 .bili-doctor:empty { display: none; }
 .bili-credit { color: var(--muted); font-size: 12px; margin-top: 12px; line-height: 1.7; }
 .settings-sheet > .sheet-footer { position: sticky; bottom: 0; z-index: 2; }

@@ -103,11 +103,14 @@
             <p id="bili-detail" class="setting-hint"></p>
           </div>
           <span class="bili-actions">
-            <button id="bili-install" class="button secondary" type="button" hidden>安装／重试</button>
-            <button id="bili-wire" class="button secondary" type="button" hidden>接管</button>
-            <button id="bili-restore" class="button secondary" type="button" hidden>恢复</button>
+            <button id="bili-install" class="button secondary" type="button" hidden title="下载或重新拉起托管的 billion-context 代理">安装／重试</button>
+            <button id="bili-update" class="button secondary" type="button" hidden title="检查 npm 并升级托管包；有进行中请求时会先等待闲置">更新</button>
+            <button id="bili-repair" class="button secondary" type="button" hidden title="清理失效记录，并把模型地址重新指回压缩代理（继续用压缩）">修复接管</button>
+            <button id="bili-wire" class="button secondary" type="button" hidden title="把当前聊天模型的请求改经本地压缩代理">接管</button>
+            <button id="bili-restore" class="button secondary" type="button" hidden title="撤销压缩接管：还原 Provider 原地址与原生压缩设置">恢复</button>
           </span>
         </div>
+        <p id="bili-guide" class="bili-guide setting-hint" hidden></p>
         <ul id="bili-doctor" class="bili-doctor" aria-live="polite"></ul>
         <p class="bili-credit">压缩引擎：<a href="https://github.com/ranxianglei/billion-context" target="_blank" rel="noopener noreferrer">billion-context</a> · <a href="https://github.com/ranxianglei/acp-kernel" target="_blank" rel="noopener noreferrer">acp-kernel</a></p>
       </div>
