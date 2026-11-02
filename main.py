@@ -61,6 +61,7 @@ from .core.constants import (
     FEATURE_REPETITION,
     FEATURE_SEGMENT,
     FEATURE_THINKING,
+    FEATURE_USAGE,
     PLUGIN_AUTHOR,
     PLUGIN_DESC,
     PLUGIN_NAME,
@@ -78,6 +79,7 @@ from .core.panel_settings import PanelSettingsManager, StaleSettingsError
 from .core.repeater import Repeater
 from .core.segment_reply import SPLITTER_PROMPT, SegmentReply
 from .core.thinking_manager import ThinkingManager
+from .core.usage_stats import UsageStatsReader
 
 # ── 配置访问辅助 ─────────────────────────────────────────────────────────
 
@@ -191,6 +193,17 @@ class OvenMultiPlugin(Star):
                 logger.info("[烤箱-文件读取] 初始化完成")
             except Exception as e:
                 logger.error(f"[烤箱-文件读取] 初始化失败: {e}")
+
+        # 用量统计（token / 花费，只读第三方统计库）
+        self.usage_stats: UsageStatsReader | None = None
+        if feature_enabled(self.config, FEATURE_USAGE, True):
+            try:
+                self.usage_stats = UsageStatsReader(
+                    self.data_dir, feature_cfg(self.config, FEATURE_USAGE)
+                )
+                logger.info("[烤箱-用量统计] 初始化完成")
+            except Exception as e:
+                logger.error(f"[烤箱-用量统计] 初始化失败: {e}")
 
         # Remove retired handlers retained by older versions during hot reload.
         registrations = getattr(self.context, "registered_web_apis", [])
@@ -1900,6 +1913,27 @@ class OvenMultiPlugin(Star):
         ):
             return "文件读取的 Tool 功能已关闭"
         return await self.file_reader.search_text(event.unified_msg_origin, str(query or ""))
+
+    @filter.llm_tool("oven_usage_stats")
+    async def tool_usage_stats(
+        self,
+        event: AstrMessageEvent,
+        scope: str = "session",
+        breakdown: bool = False,
+    ):
+        """查询本机器人已经消耗的 token 与费用。用户问“这个对话花了多少钱”“用了多少 token”时调用。
+
+        Args:
+            scope(string): 统计范围：session=当前会话（默认），today=当前会话今天，all=全部会话合计
+            breakdown(boolean): 是否按模型细分显示，默认 false
+        """
+        if not self.usage_stats:
+            return "用量统计功能未启用"
+        return self.usage_stats.summarize(
+            event.unified_msg_origin,
+            scope=str(scope or "session").strip().lower(),
+            breakdown=bool(breakdown),
+        )
 
     @filter.command("清除文件")
     async def clear_files(self, event: AstrMessageEvent):

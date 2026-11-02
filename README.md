@@ -21,6 +21,7 @@
 | 文件读取 | 支持预读取、RAG 检索和 `file_list` / `file_read` / `file_search` 工具 |
 | 梗百科 | 6668 条离线词库、查梗卡片、自定义黑话、搜索存档与可选词库同步 |
 | 服务余额 | 按需查询已配置服务，成功结果缓存 30 秒，按服务原始币种分别展示 |
+| 用量统计 | 模型自查当前会话 / 今天 / 全部会话的 token 用量与费用，读取 token 统计插件的数据 |
 | 上下文压缩 | 经本地 [billion-context](https://github.com/ranxianglei/billion-context) 代理接管上下文压缩，长会话不截断、API 侧大幅省 token |
 | 原生 Panel | 运行概览与服务余额分开，刷新状态无需请求外部余额接口 |
 
@@ -326,6 +327,23 @@ services:
 | `max_rounds` | 文件最大使用轮数（检索/读取计数），`0` 表示不限 | `5` |
 | `cleanup_interval_minutes` | 过期文件清理检查间隔（分钟） | `15` |
 | `supported_file_types` | 允许的扩展名列表，留空表示全部内置类型 | `[]` |
+
+### 用量统计 (`usage_stats`)
+
+> 让模型自己回答“这个对话花了多少钱 / 用了多少 token”。只读 `astrbot_plugin_cost_control` 的 `supplement.db`（含按价格表算出的费用）；未安装该插件时退化为读取 AstrBot 自带的 `provider_stats`，只有 token、没有费用。两种方式都用 `mode=ro` 只读连接，不写任何数据。
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `enabled` | 向 LLM 暴露 `oven_usage_stats` 工具 | `true` |
+| `db_path` | 统计库路径，留空自动探测 `plugin_data/astrbot_plugin_cost_control/supplement.db` | `` |
+| `timezone_offset` | 计算“今天”起点用的时区偏移（小时） | `8` |
+
+`oven_usage_stats(scope, breakdown)`：
+
+- `scope`：`session`（当前会话，默认）/ `today`（当前会话今天）/ `all`（全部会话合计）；
+- `breakdown`：是否按模型细分前 5 项。
+
+返回请求数、输入 token（含缓存命中数与命中率）、输出 token、合计、费用与统计截止时间；有模型未匹配到价格时会提示“实际花费可能更高”。
 
 ## 命令
 

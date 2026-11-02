@@ -908,6 +908,33 @@
       }
     }
   },
+  "usage_stats": {
+    "description": "用量统计",
+    "hint": "向 LLM 暴露 oven_usage_stats 工具，回答“这个对话花了多少钱 / 用了多少 token”。数据优先读 astrbot_plugin_cost_control 的 supplement.db（含费用），未安装时退化为 AstrBot 自带的 token 统计（无费用）。",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用用量统计工具",
+        "hint": "关闭后 LLM 无法查询 token 与费用。",
+        "type": "bool",
+        "default": true
+      },
+      "db_path": {
+        "description": "统计库路径",
+        "hint": "留空自动探测 astrbot_plugin_cost_control/supplement.db，仅在自定义部署时填写。",
+        "type": "string",
+        "invisible": true,
+        "default": ""
+      },
+      "timezone_offset": {
+        "description": "时区偏移（小时）",
+        "hint": "用于计算“今天”的起点，默认 8（北京时间）。",
+        "type": "int",
+        "invisible": true,
+        "default": 8
+      }
+    }
+  },
   "douyin": {
     "description": "抖音直播通知",
     "type": "object",

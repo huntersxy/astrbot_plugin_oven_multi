@@ -14,7 +14,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 PLUGIN_NAME = "astrbot_plugin_oven_multi"
-PLUGIN_VERSION = "1.61.1"
+PLUGIN_VERSION = "1.62.0"
 PLUGIN_AUTHOR = "汐兮雨"
 PLUGIN_DESC = "插座的多功能烤箱"
 
@@ -27,6 +27,7 @@ FEATURE_THINKING = "iam_thinking"
 FEATURE_MENTION_PARSER = "mention_parser"
 FEATURE_FILE_READER = "file_reader"
 FEATURE_SEGMENT = "segment_reply"
+FEATURE_USAGE = "usage_stats"
 FEATURE_BILI = "bili"
 FEATURE_MEMEWIKI = "memewiki"
 
