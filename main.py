@@ -1652,8 +1652,33 @@ class OvenMultiPlugin(Star):
                 outgoing = event.plain_result(seg)
                 if index == len(segments) - 1:
                     outgoing.chain.extend(suffix)
-                if await event.send(outgoing) is False:
-                    return
+                ok = False
+                for attempt in range(2):
+                    try:
+                        if await event.send(outgoing) is False:
+                            break
+                        ok = True
+                        break
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:  # noqa: BLE001
+                        if attempt:
+                            logger.error(
+                                "[烤箱-分段] 第 %s 段发送失败，继续补发后续（%s）",
+                                index,
+                                type(exc).__name__,
+                            )
+                        else:
+                            logger.warning(
+                                "[烤箱-分段] 第 %s 段发送失败，1s 后重试（%s）",
+                                index,
+                                type(exc).__name__,
+                            )
+                            await asyncio.sleep(1.0)
+                if not ok:
+                    # One rejected bubble must not swallow the rest of the
+                    # reply; the final flag still marks it incomplete.
+                    continue
                 sent += 1
                 prev = seg
         except Exception as exc:  # noqa: BLE001

@@ -2,6 +2,7 @@
 
 ## 未发布
 
+- 1.62.1：修复分段补发中途放弃——单段发送失败时重试一次并继续补发后续段；移除对 event.send() 返回值的无效判断（宿主 send 返回 None）。
 - 1.62.0：新增用量统计工具 `oven_usage_stats`——模型可自查当前会话 / 今天 / 全部会话的 token 与费用；只读 `astrbot_plugin_cost_control` 的 `supplement.db`（含费用），未安装时退化为 AstrBot 自带 `provider_stats`（仅 token）。可在配置 `usage_stats` 节关闭。
 - 1.61.4：上下文压缩「都扩」——快速配置增补 log／缓存保活／fork 继承／simhash／恢复继承／子代理隔离／主机遮盖／稳定 system 锚点；状态卡增加托管 `billion-context.json` 全文编辑器（校验 sessionHeader、强制 autoUpdate=false）；回环 host 时提示如何暴露官方 Web UI。
 - 1.61.3：上下文压缩补齐 bili 快速配置面板——`debug`／透传／出站图片降采样／工具结果蒸馏与已有 `prompt_cache_key` 注入一并写入托管 `billion-context.json` 并热生效；状态卡增加「打开 Web UI」与说明。外部模式仍改代理自身配置。
